@@ -124,14 +124,14 @@ def test_top_weights(cll_model):
 )
 def test_weights(cll_model):
     return (
-        pr.pl.weights(cll_model, figsize=(40, 20)),
-        pr.pl.weights(cll_model, n_features=5, figsize=(40, 20)),
-        pr.pl.weights(cll_model, views="Mutations", figsize=(40, 5)),
-        pr.pl.weights(cll_model, views=["Mutations", "mRNA"], figsize=(40, 10)),
-        pr.pl.weights(cll_model, factors=1),
-        pr.pl.weights(cll_model, factors=["Factor 1", "Factor 7"]),
-        pr.pl.weights(cll_model, views="Mutations", factors=1),
-        pr.pl.weights(cll_model, views=["Mutations", "mRNA"], nrow=3, figsize=(30, 15)),
+        pr.pl.weights(cll_model, figsize=(40, 20), prettify=False),
+        pr.pl.weights(cll_model, n_features=5, figsize=(40, 20), prettify=False),
+        pr.pl.weights(cll_model, views="Mutations", figsize=(40, 5), prettify=False),
+        pr.pl.weights(cll_model, views=["Mutations", "mRNA"], figsize=(40, 10), prettify=False),
+        pr.pl.weights(cll_model, factors=1, prettify=False),
+        pr.pl.weights(cll_model, factors=["Factor 1", "Factor 7"], prettify=False),
+        pr.pl.weights(cll_model, views="Mutations", factors=1, prettify=False),
+        pr.pl.weights(cll_model, views=["Mutations", "mRNA"], nrow=3, figsize=(30, 15), prettify=False),
     )
 
 
@@ -145,9 +145,11 @@ def test_top_weights_annotations(mousebrain_model):
     return pr.pl.top_weights(mousebrain_model, figsize=(20, 20))
 
 
-@plotnine_comparison(baseline_images=["weights_annotations"])
+@plotnine_comparison(baseline_images=["weights_annotations", "weights_annotations_pretty"])
 def test_weights_annotations(mousebrain_model):
-    return pr.pl.weights(mousebrain_model, factors=["Factor 1", "Factor 2", "Astrocytes", "Interneurons"])
+    return pr.pl.weights(
+        mousebrain_model, factors=["Factor 1", "Factor 2", "Astrocytes", "Interneurons"], prettify=False
+    )
 
 
 @plotnine_comparison(baseline_images=["factors_scatter", "factors_scatter-color"])
