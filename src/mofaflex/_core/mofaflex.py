@@ -101,6 +101,9 @@ class DataOptions(_Options):
     covariates_obsm_key: dict[str, str] | str | None = None
     """Key of .obsm attribute of each :class:`AnnData<anndata.AnnData>` object that contains covariate values."""
 
+    guiding_vars_obs_keys: dict[str, str] | str | None = None
+    """Keys of .obs attributes of each guiding variable in :class:`AnnData<anndata.AnnData>` objects."""
+
     use_obs: Literal["union", "intersection"] | None = "union"
     """How to align observations across views. Ignored if the data is not a nested dict of :class:`AnnData<anndata.AnnData>` objects."""
 
@@ -126,6 +129,12 @@ class ModelOptions(_Options):
 
     factor_prior: dict[str, FactorPrior] | FactorPrior = "Normal"
     """Factor priors for each group (if dict) or for all groups (if str)."""
+
+    guiding_var_weight_prior: dict[str, str] | str | None = None
+    """Weight priors for each guiding variable (if dict) or for all guiding variables (if str)."""
+
+    guiding_var_likelihoods: dict[str, Likelihood] | Likelihood | None = None
+    """Likelihoods for each guiding variable (if dict) or for all guiding variables (if str)."""
 
     likelihoods: dict[str, Likelihood] | Likelihood | None = None
     """Data likelihoods for each view (if dict) or for all views (if str). Inferred automatically if None."""
@@ -257,6 +266,7 @@ class MOFAFLEX:
         self._group_names = data.group_names
         self._sample_names = data.sample_names
         self._feature_names = data.feature_names
+        self._guiding_var_names = data.guiding_var_names
 
         self._fit(data, preprocessor)
 
@@ -269,6 +279,7 @@ class MOFAFLEX:
         preprocessor = preprocessing.MofaFlexPreprocessor(
             dataset=data,
             likelihoods=self._model_opts.likelihoods,
+            guiding_var_likelihoods=self._model_opts.guiding_var_likelihoods,
             nonnegative_weights=self._model_opts.nonnegative_weights,
             nonnegative_factors=self._model_opts.nonnegative_factors,
             scale_per_group=self._data_opts.scale_per_group,
@@ -347,6 +358,11 @@ class MOFAFLEX:
     def n_informed_factors(self) -> int:
         """Number of informed factors."""
         return self._n_informed_factors
+    
+    @property
+    def n_guided_factors(self) -> int:
+        """Number of guided factors."""
+        return self._n_guided_factors
 
     @property
     def factor_order(self) -> npt.NDArray[int]:
@@ -383,6 +399,21 @@ class MOFAFLEX:
     def covariates_names(self) -> dict[str, str | npt.NDArray[str | np.str_]]:
         """Covariate names for each group where they could be inferred from the input."""
         return self._covariates_names
+    
+    @property
+    def guiding_vars(self) -> dict[str, dict[str, npt.NDArray[np.float32]]]:
+        """Dictionary of Guiding variables for each group."""
+        return self._guiding_vars
+    
+    @property
+    def guiding_var_names(self) -> dict[str, dict[str, str]]:
+        """Guiding variable names for each group."""
+        return self._guiding_var_names
+    
+    @property
+    def guiding_var_factors(self) -> dict[str, npt.NDArray[np.int32]]:
+        """Guiding variable factors for all groups combined."""
+        return self._guiding_var_factors
 
     @property
     def gp_lengthscale(self) -> npt.NDArray[np.float32] | None:
