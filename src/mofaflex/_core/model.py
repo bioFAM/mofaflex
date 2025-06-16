@@ -414,7 +414,7 @@ class Generative(PyroModule):
                     group_name=group_name,
                     scale=self.guiding_vars_scales[guiding_var_name],
                     sample_plate=plates[f"samples_{group_name}"],
-                    feature_plate=plates[f"guiding_vars_{guiding_var_name}"],
+                    feature_plate=plates["guiding_vars"],
                     nonmissing_samples=slice(None),
                     nonmissing_features=slice(None),
                 )
@@ -1029,7 +1029,7 @@ class Variational(PyroModule):
             for guiding_var_name in self.generative.guiding_vars_names:
                 if group_name in guiding_vars[guiding_var_name]:
                     self.generative.guiding_vars_likelihoods[guiding_var_name].guide(
-                        group_name, plates[f"samples_{group_name}"], plates[f"guiding_vars_{guiding_var_name}"]
+                        group_name, plates[f"samples_{group_name}"], plates["guiding_vars"]
                     )
 
         return self.sample_dict
