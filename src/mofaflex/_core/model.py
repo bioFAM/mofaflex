@@ -26,7 +26,6 @@ class Generative(PyroModule):
         n_factors: int,
         likelihoods: dict[str, Likelihood],
         guiding_vars_names: list[str] | None = None,
-        guiding_vars_weight_priors: dict[str, str] | None = None,
         guiding_vars_likelihoods: dict[str, str] | None = None,
         guiding_vars_n_categories: dict[str, int] | None = None,
         guiding_vars_factors: dict[str, int] | None = None,
@@ -82,7 +81,6 @@ class Generative(PyroModule):
             }
         )
         self.guiding_vars_names = guiding_vars_names if guiding_vars_names is not None else []
-        self.guiding_vars_weight_priors = guiding_vars_weight_priors
         self.guiding_vars_likelihoods = PyroModuleDict(
             {
                 guiding_var_name: PyroLikelihood(
@@ -215,12 +213,7 @@ class Generative(PyroModule):
 
         self.sample_guiding_vars_weights = {}
         for guiding_var_name in self.guiding_vars_names:
-            if self.guiding_vars_weight_priors[guiding_var_name] == "Normal":
-                self.sample_guiding_vars_weights[guiding_var_name] = self._sample_guiding_vars_weights_normal
-            else:
-                raise ValueError(
-                    f"Invalid guiding_vars_weight_prior: {self.guiding_vars_weight_priors[guiding_var_name]}"
-                )
+            self.sample_guiding_vars_weights[guiding_var_name] = self._sample_guiding_vars_weights_normal
 
     def _sample_factors_normal(self, group_name, plates, **kwargs):
         with plates["factors"], plates[f"samples_{group_name}"]:
@@ -806,23 +799,22 @@ class Variational(PyroModule):
 
         # guiding variables variational parameters
         for guiding_var_name in self.generative.guiding_vars_names:
-            if self.generative.guiding_vars_weight_priors[guiding_var_name] == "Normal":
-                deep_setattr(
-                    self.locs,
-                    f"guiding_vars_w_{guiding_var_name}",
-                    PyroParam(
-                        torch.full([self.generative.guiding_vars_n_categories[guiding_var_name], 2], self.init_loc),
-                        constraint=constraints.real,
-                    ),
-                )
-                deep_setattr(
-                    self.scales,
-                    f"guiding_vars_w_{guiding_var_name}",
-                    PyroParam(
-                        torch.full([self.generative.guiding_vars_n_categories[guiding_var_name], 2], self.init_scale),
-                        constraint=constraints.softplus_positive,
-                    ),
-                )
+            deep_setattr(
+                self.locs,
+                f"guiding_vars_w_{guiding_var_name}",
+                PyroParam(
+                    torch.full([self.generative.guiding_vars_n_categories[guiding_var_name], 2], self.init_loc),
+                    constraint=constraints.real,
+                ),
+            )
+            deep_setattr(
+                self.scales,
+                f"guiding_vars_w_{guiding_var_name}",
+                PyroParam(
+                    torch.full([self.generative.guiding_vars_n_categories[guiding_var_name], 2], self.init_scale),
+                    constraint=constraints.softplus_positive,
+                ),
+            )
 
     def _setup_distributions(self):
         # factor_prior
@@ -854,8 +846,7 @@ class Variational(PyroModule):
         # guiding variables
         self.sample_guiding_vars_weights = {}
         for guiding_var_name in self.generative.guiding_vars_names:
-            if self.generative.guiding_vars_weight_priors[guiding_var_name] == "Normal":
-                self.sample_guiding_vars_weights[guiding_var_name] = self._sample_guiding_vars_weights_normal
+            self.sample_guiding_vars_weights[guiding_var_name] = self._sample_guiding_vars_weights_normal
 
     def _sample_factors_normal(self, group_name, plates, **kwargs):
         z_loc, z_scale = self._get_loc_and_scale(f"z_{group_name}")
