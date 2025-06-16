@@ -66,13 +66,13 @@ class CovariatesDataset(Dataset):
 
         # map categories to floats
         categories_mapping = {cat: float(i) if have_nans else i for i, cat in enumerate(sorted(categories))}
-
-        for group_covars in covariates.values():
-            for view_covars in group_covars.values():
+        for group_name, group_covars in covariates.items():
+            for view_name, view_covars in group_covars.items():
                 if view_covars.dtype == np.object_:
                     view_covars_mapped = np.full_like(view_covars, fill_value=np.nan, dtype=float)
                     for k, v in categories_mapping.items():
                         view_covars_mapped[view_covars == k] = v
+                    covariates[group_name][view_name] = view_covars_mapped
 
         # ensure the a covariate value is consistent across views (nanmean or first)
         self.covariates = {}
@@ -81,7 +81,9 @@ class CovariatesDataset(Dataset):
             if np.all(np.isnan(group_covars_stacked) | (group_covars_stacked == np.floor(group_covars_stacked))):
                 idx = np.isfinite(group_covars_stacked)
                 self.covariates[group_name] = np.where(
-                    np.any(idx, axis=1), group_covars_stacked[:, np.argmax(idx, axis=1)], np.nan
+                    np.any(idx, axis=0),
+                    group_covars_stacked[np.argmax(idx, axis=0)[:, 0], np.arange(idx.shape[1])],
+                    np.nan,
                 )
 
             else:
