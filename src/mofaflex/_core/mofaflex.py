@@ -866,19 +866,20 @@ class MOFAFLEX:
         covariates = CovariatesDataset(data, self._data_opts.covariates_obs_key, self._data_opts.covariates_obsm_key)
 
         # get unique categories for each guiding variable
-        for guiding_var_name, guiding_var_likelihood in self._model_opts.guiding_vars_likelihoods.items():
-            if guiding_var_likelihood == "Categorical":
-                guiding_var_categories = set()
-                # find number of unique categories across groups
-                for group_name in self._group_names:
-                    guiding_var_categories.update(
-                        map(tuple, guiding_vars.datasets[guiding_var_name].covariates[group_name])
-                    )
-                self._guiding_vars_n_categories[guiding_var_name] = len(guiding_var_categories)
+        if self._data_opts.guiding_vars_obs_keys:
+            for guiding_var_name, guiding_var_likelihood in self._model_opts.guiding_vars_likelihoods.items():
+                if guiding_var_likelihood == "Categorical":
+                    guiding_var_categories = set()
+                    # find number of unique categories across groups
+                    for group_name in self._group_names:
+                        guiding_var_categories.update(
+                            map(tuple, guiding_vars.datasets[guiding_var_name].covariates[group_name])
+                        )
+                    self._guiding_vars_n_categories[guiding_var_name] = len(guiding_var_categories)
 
-            else:
-                # if not categorical, set to default
-                self._guiding_vars_n_categories[guiding_var_name] = 1
+                else:
+                    # if not categorical, set to default
+                    self._guiding_vars_n_categories[guiding_var_name] = 1
 
         init_tensor = self._initialize_factors(data)
 

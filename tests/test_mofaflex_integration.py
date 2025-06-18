@@ -51,13 +51,7 @@ def anndata_dict(random_adata, rng):
         ("covariates_obs_key", "covar"),
         ("covariates_obsm_key", None),
         ("covariates_obsm_key", "covar"),
-        (
-            ("guiding_vars_obs_keys", "guiding_vars_likelihoods"),
-            (
-                {"gvar1": "gvar_normal", "gvar2": "gvar_bernoulli", "gvar3": "gvar_categorical"},
-                {"gvar1": "Normal", "gvar2": "Bernoulli", "gvar3": "Categorical"},
-            ),
-        ),
+        ("guiding_vars_obs_keys", {"gvar1": "gvar_normal", "gvar2": "gvar_bernoulli", "gvar3": "gvar_categorical"}),
         ("use_obs", "union"),
         ("use_obs", "intersection"),
         ("use_var", "union"),
@@ -94,35 +88,26 @@ def anndata_dict(random_adata, rng):
 def test_integration(anndata_dict, tmp_path, attrname, attrvalue, usedask):
     opts = (
         DataOptions(plot_data_overview=False, annotations_varm_key="annot"),
-        ModelOptions(n_factors=5),
+        ModelOptions(
+            n_factors=5, guiding_vars_likelihoods={"gvar1": "Normal", "gvar2": "Bernoulli", "gvar3": "Categorical"}
+        ),
         TrainingOptions(max_epochs=2, seed=42, save_path=False),
     )
-    if isinstance(attrname, tuple) and isinstance(attrvalue, tuple):
-        for name, value in zip(attrname, attrvalue, strict=False):
-            if name == "save_path" and isinstance(value, str):
-                value = str(tmp_path / value)
-            for opt in opts:
-                if hasattr(opt, name):
-                    setattr(opt, name, value)
-
-    else:
-        if attrname == "save_path" and isinstance(attrvalue, str):
-            attrvalue = str(tmp_path / attrvalue)
-        for opt in opts:
-            if hasattr(opt, attrname):
-                setattr(opt, attrname, attrvalue)
+    if attrname == "save_path" and isinstance(attrvalue, str):
+        attrvalue = str(tmp_path / attrvalue)
+    for opt in opts:
+        if hasattr(opt, attrname):
+            setattr(opt, attrname, attrvalue)
 
     with settings.override(use_dask=usedask):
         model = MOFAFLEX(anndata_dict, *opts)
 
-    if isinstance(attrname, tuple):
-        if "weight_prior" in attrname and "Horseshoe" in attrvalue:
-            assert (model.n_informed_factors > 0) | (model._n_guiding_vars > 0)
+    if attrname == "weight_prior" and attrvalue == "Horseshoe":
+        assert (model.n_informed_factors > 0) | (model._n_guiding_vars > 0)
+    elif attrname == "guiding_vars_obs_keys":
+        assert model._n_guiding_vars == 3
     else:
-        if attrname == "weight_prior" and attrvalue == "Horseshoe":
-            assert (model.n_informed_factors > 0) | (model._n_guiding_vars > 0)
-        else:
-            assert model.n_factors == model.n_dense_factors == 5
+        assert model.n_factors == model.n_dense_factors == 5
 
 
 @pytest.mark.parametrize("usedask", [False, True])
