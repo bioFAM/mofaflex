@@ -31,6 +31,13 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroLikelihoodMeta):
 
     Subclasses must implement `_model`, which returns a Pyro distribution object to be used as likelihood,
     and `_guide`, which implements the variational distribution. Its return value is ignored.
+
+    Args:
+        view_name: The view (or guiding variable) name.
+        sample_dim: The sample dimension.
+        feature_dim: The feature dimension.
+        sample_means: Averages of samples across features for each group and view.
+        feature_means: Averages of features across samples for each group and view.
     """
 
     __registry = {}
@@ -43,15 +50,6 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroLikelihoodMeta):
         sample_means: dict[str, dict[str, NDArray[np.floating]]],
         feature_means: dict[str, dict[str, NDArray[np.floating]]],
     ):
-        """Initialize the Pyro likelihood.
-
-        Args:
-            view_name: The view (or guiding variable) name.
-            sample_dim: The sample dimension.
-            feature_dim: The feature dimension.
-            sample_means: Averages of samples across features for each group and view.
-            feature_means: Averages of features across samples for each group and view.
-        """
         super().__init__()
         self._nsamples = {
             group_name: next(iter(smeans.values())).shape[0] for group_name, smeans in sample_means.items()
