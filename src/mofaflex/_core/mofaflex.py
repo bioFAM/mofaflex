@@ -585,7 +585,7 @@ class MOFAFLEX:
             [
                 self._factor_names[: self.n_dense_factors],
                 self._guiding_vars_names,
-                self._factor_names[self.n_dense_factors + self._n_guiding_vars - 1 :],
+                self._factor_names[self.n_dense_factors :],
             ]
         )
 
