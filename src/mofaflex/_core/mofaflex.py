@@ -139,7 +139,7 @@ class ModelOptions(_Options):
     guiding_vars_likelihoods: dict[str, str] | Literal["Normal", "Categorical", "Bernoulli"] | None = "Normal"
     """Likelihood for each guiding variable (if dict) or for all guiding variables (if str)."""
 
-    guiding_vars_scales: dict[str, float] | float | None = None
+    guiding_vars_scales: dict[str, float] | float = 1.0
     """Scale for the likelihood of each guiding variable, to put more or less emphasis on them during training."""
 
     nonnegative_factors: dict[str, bool] | bool = False
@@ -821,10 +821,6 @@ class MOFAFLEX:
             val = getattr(self._model_opts, opt_name)
             if not isinstance(val, dict):
                 setattr(self._model_opts, opt_name, dict.fromkeys(keys, val))
-
-        for guiding_var_name in guiding_vars_names:
-            if self._model_opts.guiding_vars_scales[guiding_var_name] is None:
-                self._model_opts.guiding_vars_scales[guiding_var_name] = 1.0
 
         for opt_name, keys in zip(
             ("covariates_obs_key", "covariates_obsm_key", "annotations_varm_key"),
