@@ -1424,11 +1424,7 @@ class MOFAFLEX:
         if "orig_covariates" in state:
             model._orig_covariates = state["orig_covariates"]
         model._covariates_names = state.get("covariates_names")
-        model._guiding_vars = state.get("guiding_vars")
         model._n_guiding_vars = state.get("n_guiding_vars")
-        model._guiding_vars_names = state.get("guiding_vars_names")
-        model._guiding_vars_factors = state.get("guiding_vars_factors")
-        model._guiding_vars_n_categories = state.get("guiding_vars_n_categories")
         model._df_r2_full = state["df_r2_full"]
         model._df_r2_factors = state["df_r2_factors"]
         model._pcgse = state.get("pcgse")
