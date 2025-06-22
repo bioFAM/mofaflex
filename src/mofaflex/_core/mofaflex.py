@@ -572,8 +572,6 @@ class MOFAFLEX:
             list(self._data_opts.guiding_vars_obs_keys.keys()) if self._data_opts.guiding_vars_obs_keys else []
         )
         self._n_guiding_vars = len(self._guiding_vars_names)
-        self._guiding_vars_factors = {}
-        self._guiding_vars_n_categories = {}
         if self._n_guiding_vars == 0:
             return
 
@@ -589,11 +587,16 @@ class MOFAFLEX:
             ]
         )
 
-        # create mapping from guiding var names to factor indices
-        for i, guiding_var_name in enumerate(self._guiding_vars_names):
-            self._guiding_vars_factors[guiding_var_name] = self._n_informed_factors + i
-
-    def _setup_svi(self, prior_scales, init_tensor, covariates, guiding_vars, feature_means, sample_means):
+    def _setup_svi(
+        self,
+        prior_scales,
+        init_tensor,
+        covariates,
+        guiding_vars_factors,
+        guiding_vars_n_categories,
+        feature_means,
+        sample_means,
+    ):
         gp_warp_groups_order = self._setup_gp(covariates=covariates)
 
         generative = Generative(
@@ -603,9 +606,9 @@ class MOFAFLEX:
             likelihoods=self._model_opts.likelihoods,
             guiding_vars_names=self._guiding_vars_names,
             guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
-            guiding_vars_n_categories=self._guiding_vars_n_categories,
+            guiding_vars_n_categories=guiding_vars_n_categories,
             guiding_vars_obs_keys=self._data_opts.guiding_vars_obs_keys,
-            guiding_vars_factors=self._guiding_vars_factors,
+            guiding_vars_factors=guiding_vars_factors,
             guiding_vars_scales=self._model_opts.guiding_vars_scales,
             prior_scales=prior_scales,
             factor_prior=self._model_opts.factor_prior,
@@ -858,24 +861,29 @@ class MOFAFLEX:
                     scale[: self._n_dense_factors, :] = dense_scale
 
         # guided factors
+        guiding_vars_factors = {}
+        for i, guiding_var_name in enumerate(self._guiding_vars_names):
+            guiding_vars_factors[guiding_var_name] = self._n_informed_factors + i
+
         guiding_vars = GuidingVarsDataset(data, self._data_opts.guiding_vars_obs_keys)
         covariates = CovariatesDataset(data, self._data_opts.covariates_obs_key, self._data_opts.covariates_obsm_key)
 
         # get unique categories for each guiding variable
+        guiding_vars_n_categories = {}
         if self._data_opts.guiding_vars_obs_keys:
             for guiding_var_name, guiding_var_likelihood in self._model_opts.guiding_vars_likelihoods.items():
                 if guiding_var_likelihood == "Categorical":
-                    guiding_var_categories = set()
+                    guiding_vars_categories = set()
                     # find number of unique categories across groups
                     for group_name in self._group_names:
-                        guiding_var_categories.update(
+                        guiding_vars_categories.update(
                             map(tuple, guiding_vars.datasets[guiding_var_name].covariates[group_name])
                         )
-                    self._guiding_vars_n_categories[guiding_var_name] = len(guiding_var_categories)
+                    guiding_vars_n_categories[guiding_var_name] = len(guiding_vars_categories)
 
                 else:
                     # if not categorical, set to default
-                    self._guiding_vars_n_categories[guiding_var_name] = 1
+                    guiding_vars_n_categories[guiding_var_name] = 1
 
         init_tensor = self._initialize_factors(data)
 
@@ -883,7 +891,8 @@ class MOFAFLEX:
             prior_scales,
             init_tensor,
             covariates.covariates,
-            guiding_vars,
+            guiding_vars_factors,
+            guiding_vars_n_categories,
             preprocessor.feature_means,
             preprocessor.sample_means,
         )
