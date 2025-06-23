@@ -25,7 +25,6 @@ class Generative(PyroModule):
         n_features: dict[str, int],
         n_factors: int,
         likelihoods: dict[str, Likelihood],
-        guiding_vars_names: list[str] | None = None,
         guiding_vars_likelihoods: dict[str, str] | None = None,
         guiding_vars_n_categories: dict[str, int] | None = None,
         guiding_vars_factors: dict[str, int] | None = None,
@@ -80,7 +79,7 @@ class Generative(PyroModule):
                 for view_name, likelihood in likelihoods.items()
             }
         )
-        self.guiding_vars_names = guiding_vars_names if guiding_vars_names is not None else []
+        self.guiding_vars_names = guiding_vars_factors.keys()
         self.guiding_vars_likelihoods = PyroModuleDict(
             {
                 guiding_var_name: PyroLikelihood(

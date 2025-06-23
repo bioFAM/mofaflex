@@ -568,10 +568,10 @@ class MOFAFLEX:
         return gp_warp_groups_order
 
     def _setup_guiding_vars(self):
-        self._guiding_vars_names = (
+        guiding_vars_names = (
             list(self._data_opts.guiding_vars_obs_keys.keys()) if self._data_opts.guiding_vars_obs_keys else []
         )
-        self._n_guiding_vars = len(self._guiding_vars_names)
+        self._n_guiding_vars = len(guiding_vars_names)
         if self._n_guiding_vars == 0:
             return
 
@@ -580,11 +580,7 @@ class MOFAFLEX:
 
         # update global factor names (dense factors + guiding vars + informed factors)
         self._factor_names = np.concatenate(
-            [
-                self._factor_names[: self.n_dense_factors],
-                self._guiding_vars_names,
-                self._factor_names[self.n_dense_factors :],
-            ]
+            [self._factor_names[: self.n_dense_factors], guiding_vars_names, self._factor_names[self.n_dense_factors :]]
         )
 
     def _setup_svi(
@@ -604,7 +600,6 @@ class MOFAFLEX:
             n_features=self.n_features,
             n_factors=self._model_opts.n_factors,
             likelihoods=self._model_opts.likelihoods,
-            guiding_vars_names=self._guiding_vars_names,
             guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
             guiding_vars_n_categories=guiding_vars_n_categories,
             guiding_vars_obs_keys=self._data_opts.guiding_vars_obs_keys,
@@ -862,7 +857,10 @@ class MOFAFLEX:
 
         # guided factors
         guiding_vars_factors = {}
-        for i, guiding_var_name in enumerate(self._guiding_vars_names):
+        guiding_vars_names = (
+            self._data_opts.guiding_vars_obs_keys.keys() if self._data_opts.guiding_vars_obs_keys else []
+        )
+        for i, guiding_var_name in enumerate(guiding_vars_names):
             guiding_vars_factors[guiding_var_name] = self._n_informed_factors + i
 
         guiding_vars = GuidingVarsDataset(data, self._data_opts.guiding_vars_obs_keys)
