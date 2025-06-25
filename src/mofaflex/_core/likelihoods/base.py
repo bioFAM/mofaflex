@@ -10,8 +10,7 @@ from numpy.typing import NDArray
 from scipy.sparse import issparse
 
 from ..pyro.likelihoods import PyroLikelihood
-
-EPS = 1e-8  # TODO: have some global definition/setting of EPS
+from ..settings import settings
 
 _logger = logging.getLogger(__name__)
 
@@ -250,7 +249,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
             sample_means: Averages of samples across features.
         """
         r2_full = cls._r2_impl_wrapper(y_true, factors, weights, dispersions, sample_means)
-        if r2_full < EPS:
+        if r2_full < settings.get("eps"):
             _logger.warning(
                 f"R2 for view {view_name} is 0. Increase the number of factors and/or the number of training epochs."
             )
