@@ -1,5 +1,5 @@
-from .base import Factor
+from .base import Prior
 from .gaussian_process import GP
-from .horseshoe import HorseShoe
+from .horseshoe import Horseshoe
 from .simple_location_scale import *  # noqa F403
 from .spike_slab import SnS

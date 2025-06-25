@@ -1,1 +1,1 @@
-from . import factors, likelihoods
+from . import likelihoods, priors
