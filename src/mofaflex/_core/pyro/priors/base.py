@@ -77,6 +77,10 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         raise NotImplementedError
 
     @property
+    def learning_rate_multipliers(self) -> dict[str, float]:
+        return {}
+
+    @property
     @abstractmethod
     def posterior(self) -> MeanStd:
         pass

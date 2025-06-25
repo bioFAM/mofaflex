@@ -414,22 +414,24 @@ class Variational(PyroModule):
         return self.sample_dict
 
     def get_lr_func(self, base_lr: float, **kwargs):
-        sns_params = {
-            f"s_w_{view_name}" for view_name, view_prior in self.generative.weight_prior.items() if view_prior == "SnS"
-        } | {
-            f"s_z_{group_name}"
-            for group_name, group_prior in self.generative.factor_prior.items()
-            if group_prior == "SnS"
-        }
+        modifiers = {}
+        for i, prior in enumerate(self.generative.weights):
+            modifiers.update(
+                {
+                    f"{__class__.__name__}.generative.weights.{i}.{pname}": mod
+                    for pname, mod in prior.learning_rate_multipliers
+                }
+            )
+        for i, prior in enumerate(self.generative.factors):
+            modifiers.update(
+                {
+                    f"{__class__.__name__}.generative.factors.{i}.{pname}": mod
+                    for pname, mod in prior.learning_rate_multipliers
+                }
+            )
 
         def lr_func(param_name):
-            idx = param_name.rfind(".")
-            if idx > -1:
-                param_name = param_name[idx + 1 :]
-            lr = base_lr
-            if param_name in sns_params:
-                lr *= 10
-            return dict(lr=lr, **kwargs)
+            return dict(lr=base_lr * modifiers.get(param_name, 1), **kwargs)
 
         return lr_func
 
