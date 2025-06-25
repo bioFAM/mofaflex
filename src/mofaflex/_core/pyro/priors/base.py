@@ -10,8 +10,6 @@ from pyro.nn import PyroModule, pyro_method
 from ...utils import MeanStd
 from ..utils import _PyroMeta
 
-PyroParameterDict = PyroModule[torch.nn.ParameterDict]
-
 
 class Prior(ABC, PyroModule, metaclass=_PyroMeta):
     """Base class for MOFA-FLEX factors."""

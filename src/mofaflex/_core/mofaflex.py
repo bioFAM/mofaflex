@@ -29,8 +29,8 @@ from . import gp, preprocessing
 from .datasets import CovariatesDataset, GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
-from .model import Generative, Variational
 from .pcgse import pcgse_test
+from .pyro import MofaFlexModel
 from .pyro.priors import FactorPriorType, WeightPriorType
 from .training import EarlyStopper
 from .utils import MeanStd, impute, sample_all_data_as_one_batch
@@ -596,14 +596,13 @@ class MOFAFLEX:
     ):
         gp_warp_groups_order = self._setup_gp(covariates=covariates)
 
-        generative = Generative(
+        model = MofaFlexModel(
             n_samples=self.n_samples,
             n_features=self.n_features,
             n_factors=self._model_opts.n_factors,
             likelihoods=self._model_opts.likelihoods,
             guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
             guiding_vars_n_categories=guiding_vars_n_categories,
-            guiding_vars_obs_keys=self._data_opts.guiding_vars_obs_keys,
             guiding_vars_factors=guiding_vars_factors,
             guiding_vars_scales=self._model_opts.guiding_vars_scales,
             prior_scales=prior_scales,
@@ -612,38 +611,36 @@ class MOFAFLEX:
             nonnegative_factors=self._model_opts.nonnegative_factors,
             nonnegative_weights=self._model_opts.nonnegative_weights,
             gp=self._gp,
-            gp_group_names=self._gp_group_names,
             feature_means=feature_means,
             sample_means=sample_means,
+            factors_init_tensor=init_tensor,
         ).to(self._train_opts.device)
-
-        variational = Variational(generative, init_tensor).to(self._train_opts.device)
 
         n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
         gamma = 0.1
         lrd = gamma ** (1 / n_iterations)
 
-        optimizer = ClippedAdam(variational.get_lr_func(self._train_opts.lr, lrd=lrd))
+        optimizer = ClippedAdam(model.get_lr_func(self._train_opts.lr, lrd=lrd))
 
         svi = SVI(
-            model=pyro.poutine.scale(generative, scale=1.0 / self.n_samples_total),
-            guide=pyro.poutine.scale(variational, scale=1.0 / self.n_samples_total),
+            model=pyro.poutine.scale(model.model, scale=1.0 / self.n_samples_total),
+            guide=pyro.poutine.scale(model.guide, scale=1.0 / self.n_samples_total),
             optim=optimizer,
             loss=TraceMeanField_ELBO(
                 retain_graph=True, num_particles=self._train_opts.n_particles, vectorize_particles=True
             ),
         )
 
-        return svi, variational, gp_warp_groups_order
+        return svi, model, gp_warp_groups_order
 
-    def _post_fit(self, data, preprocessor, covariates, variational, train_loss_elbo):
-        self._weights = variational.get_weights()
-        self._factors = variational.get_factors()
-        self._dispersions = variational.get_dispersion()
-        self._sparse_factors_probabilities = variational.get_sparse_factor_probabilities()
-        self._sparse_weights_probabilities = variational.get_sparse_weight_probabilities()
-        self._sparse_factors_precisions = variational.get_sparse_factor_precisions()
-        self._sparse_weights_precisions = variational.get_sparse_weight_precisions()
+    def _post_fit(self, data, preprocessor, covariates, model, train_loss_elbo):
+        self._weights = model.get_weights()
+        self._factors = model.get_factors()
+        self._dispersions = model.get_dispersion()
+        self._sparse_factors_probabilities = model.get_sparse_factor_probabilities()
+        self._sparse_weights_probabilities = model.get_sparse_weight_probabilities()
+        self._sparse_factors_precisions = model.get_sparse_factor_precisions()
+        self._sparse_weights_precisions = model.get_sparse_weight_precisions()
         self._covariates, self._covariates_names = (covariates.covariates, covariates.covariates_names)
         self._gps = self._get_gps(self._covariates)
         self._train_loss_elbo = np.asarray(train_loss_elbo)
@@ -697,66 +694,66 @@ class MOFAFLEX:
         init_tensor = defaultdict(dict)
         _logger.info(f"Initializing factors using `{self._model_opts.init_factors}` method...")
 
-        with self._train_opts.device:
-            if not isinstance(self._model_opts.init_factors, str):
-                for group_name, n in self.n_samples.items():
-                    init_tensor[group_name]["loc"] = (
-                        (torch.ones(size=(n, self._model_opts.n_factors)) * self._model_opts.init_factors)
-                        .T.unsqueeze(-2)
-                        .float()
-                    )
-                    init_tensor[group_name]["scale"] = (
-                        (torch.ones(size=(n, self._model_opts.n_factors)) * self._model_opts.init_scale)
-                        .T.unsqueeze(-2)
-                        .float()
-                    )
-                return init_tensor
-            match self._model_opts.init_factors:
-                case "random":
-                    for group_name, n in self.n_samples.items():
-                        init_tensor[group_name]["loc"] = torch.rand(size=(n, self._model_opts.n_factors))
-                case "orthogonal":
-                    for group_name, n in self.n_samples.items():
-                        # Compute PCA of random vectors
-                        pca = PCA(n_components=self._model_opts.n_factors, whiten=True)
-                        pca.fit(stats.norm.rvs(loc=0, scale=1, size=(n, self._model_opts.n_factors)).T)
-                        init_tensor[group_name]["loc"] = torch.as_tensor(pca.components_.T)
-                case "pca" | "nmf" as init:
-                    if init == "pca":
-                        initializer = PCA(n_components=self._model_opts.n_factors, whiten=True)
-                    elif init == "nmf":
-                        initializer = NMF(n_components=self._model_opts.n_factors, max_iter=1000)
-
-                    inits = data.apply(
-                        self._init_factor_group, by_view=False, impute_missings=impute_missings, initializer=initializer
-                    )
-                    for group_name, init in inits.items():
-                        init_tensor[group_name]["loc"] = torch.as_tensor(init)
-                case _:
-                    raise ValueError(
-                        f"Initialization method `{self._model_opts.init_factors}` not found. Please choose from `random`, `orthogonal`, `PCA`, or `NMF`."
-                    )
-
+        if not isinstance(self._model_opts.init_factors, str):
             for group_name, n in self.n_samples.items():
-                # scale factor values from -1 to 1 (per factor)
-                q = init_tensor[group_name]["loc"]
-
-                if q.shape[0] > 1:  # min and max are not defined for dimensions of size 1
-                    q = (
-                        2.0
-                        * (q - torch.min(q, dim=0).values)
-                        / (torch.max(q, dim=0).values - torch.min(q, dim=0).values)
-                        - 1
-                    )
-                else:
-                    q = 2.0 * (q - torch.min(q)) / (torch.max(q) - torch.min(q)) - 1
-
-                # Add artifical dimension at dimension -2 for broadcasting
-                init_tensor[group_name]["loc"] = q.T.unsqueeze(-2).float()
-                init_tensor[group_name]["scale"] = (
-                    self._model_opts.init_scale
-                    * torch.ones(size=(n, self._model_opts.n_factors)).T.unsqueeze(-2).float()
+                init_tensor[group_name]["loc"] = np.expand_dims(
+                    np.full(
+                        shape=(n, self._model_opts.n_factors),
+                        fill_value=self._model_opts.init_factors,
+                        dtype=np.float32,
+                    ).T,
+                    -2,
                 )
+                init_tensor[group_name]["scale"] = np.expand_dims(
+                    np.full(
+                        shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_scale, dtype=np.float32
+                    ).T,
+                    -2,
+                )
+            return init_tensor
+        match self._model_opts.init_factors:
+            case "random":
+                for group_name, n in self.n_samples.items():
+                    init_tensor[group_name]["loc"] = np.random.uniform(size=(n, self._model_opts.n_factors))
+            case "orthogonal":
+                for group_name, n in self.n_samples.items():
+                    # Compute PCA of random vectors
+                    pca = PCA(n_components=self._model_opts.n_factors, whiten=True)
+                    pca.fit(stats.norm.rvs(loc=0, scale=1, size=(n, self._model_opts.n_factors)).T)
+                    init_tensor[group_name]["loc"] = pca.components_.T
+            case "pca" | "nmf" as init:
+                if init == "pca":
+                    initializer = PCA(n_components=self._model_opts.n_factors, whiten=True)
+                elif init == "nmf":
+                    initializer = NMF(n_components=self._model_opts.n_factors, max_iter=1000)
+
+                inits = data.apply(
+                    self._init_factor_group, by_view=False, impute_missings=impute_missings, initializer=initializer
+                )
+                for group_name, init in inits.items():
+                    init_tensor[group_name]["loc"] = init
+            case _:
+                raise ValueError(
+                    f"Initialization method `{self._model_opts.init_factors}` not found. Please choose from `random`, `orthogonal`, `PCA`, or `NMF`."
+                )
+
+        for group_name, n in self.n_samples.items():
+            # scale factor values from -1 to 1 (per factor)
+            q = init_tensor[group_name]["loc"]
+
+            if q.shape[0] > 1:  # min and max are not defined for dimensions of size 1
+                q = 2.0 * (q - np.min(q, axis=0)) / (np.max(q, axis=0) - np.min(q, axis=0)) - 1
+            else:
+                q = 2.0 * (q - np.min(q)) / (np.max(q) - np.min(q)) - 1
+
+            # Add artifical dimension at dimension -2 for broadcasting
+            init_tensor[group_name]["loc"] = np.expand_dims(q.T, -2).astype(np.float32, copy=False)
+            init_tensor[group_name]["scale"] = np.expand_dims(
+                np.full(
+                    shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_scale, dtype=np.float32
+                ).T,
+                -2,
+            )
 
         return init_tensor
 
@@ -886,7 +883,7 @@ class MOFAFLEX:
 
         init_tensor = self._initialize_factors(data)
 
-        svi, variational, gp_warp_groups_order = self._setup_svi(
+        svi, model, gp_warp_groups_order = self._setup_svi(
             prior_scales,
             init_tensor,
             covariates.covariates,
@@ -950,7 +947,7 @@ class MOFAFLEX:
                     and i > 0
                     and not i % self._gp_opts.warp_interval
                 ):
-                    self._warp_covariates(covariates, variational, gp_warp_groups_order)
+                    self._warp_covariates(covariates, model, gp_warp_groups_order)
 
                 t.set_postfix({"Loss": epoch_loss}, refresh=False)
 
@@ -960,10 +957,10 @@ class MOFAFLEX:
         if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
             t.container.children[1].bar_style = "success"
 
-        self._post_fit(data, preprocessor, covariates, variational, train_loss_elbo)
+        self._post_fit(data, preprocessor, covariates, model, train_loss_elbo)
 
-    def _warp_covariates(self, covariates, variational, warp_groups_order):
-        factormeans = variational.get_factors().mean
+    def _warp_covariates(self, covariates, model, warp_groups_order):
+        factormeans = model.get_factors().mean
         refgroup = self._gp_opts.warp_reference_group
         reffactormeans = factormeans[refgroup].mean(axis=0)
         refidx = warp_groups_order[refgroup]

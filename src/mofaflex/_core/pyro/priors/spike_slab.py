@@ -10,7 +10,8 @@ from pyro.nn import PyroParam
 from ... import settings
 from ...utils import MeanStd, ShapeRate
 from ..dist import ReinMaxBernoulli
-from .base import Prior, PyroParameterDict
+from ..utils import PyroParameterDict
+from .base import Prior
 
 
 class SnS(Prior):

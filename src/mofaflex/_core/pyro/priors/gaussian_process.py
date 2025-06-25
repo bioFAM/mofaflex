@@ -46,8 +46,12 @@ class GP(Prior):
         self._full_gp_shape = tuple(shape)
 
         if init_tensor is not None:
-            loc = torch.concatenate([init_tensor[name]["loc"] for name in self._names])
-            scale = torch.concatenate([init_tensor[name]["scale"] for name in self._names])
+            loc = torch.concatenate(
+                [torch.as_tensor(init_tensor[name]["loc"]) for name in self._names], dim=nonfactor_dim
+            )
+            scale = torch.concatenate(
+                [torch.as_tensor(init_tensor[name]["scale"]) for name in self._names], dim=nonfactor_dim
+            )
         else:
             loc = torch.full(shape, init_loc)
             scale = torch.full(shape, init_scale)

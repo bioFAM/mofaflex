@@ -7,7 +7,8 @@ from pyro.distributions import constraints
 from pyro.nn import PyroParam
 
 from ...utils import MeanStd
-from .base import Prior, PyroParameterDict
+from ..utils import PyroParameterDict
+from .base import Prior
 
 
 class _SimpleLocationScale(Prior):
