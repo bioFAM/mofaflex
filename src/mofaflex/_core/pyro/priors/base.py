@@ -42,10 +42,15 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if not isabstract(cls) and cls.__name__[0] != "_":
+            for attr in ("_factors", "_weights"):
+                if not hasattr(cls, attr):
+                    raise NotImplementedError(f"Class `{cls.__name__}` does not have attribute `{attr}`.")
+            if not cls._factors and not cls._weights:
+                raise TypeError(f"Class `{cls.__name__}` cannot be used for factors or weights.")
             init_sig = signature(cls.__init__)
             for arg in ("names", "factor_dim", "nonfactor_dim", "n_factors", "n_nonfactors", "kwargs"):
                 if arg not in init_sig.parameters:
-                    raise TypeError(f"Constructor of class {cls} is missing the {arg} argument.")
+                    raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
 
             __class__.__registry[cls.__name__] = cls
 
@@ -84,3 +89,11 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
     @abstractmethod
     def posterior(self) -> MeanStd:
         pass
+
+    @staticmethod
+    def known_factor_priors() -> tuple[str]:
+        return tuple(name for name, subcls in __class__.__registry.items() if subcls._factors)
+
+    @staticmethod
+    def known_weight_priors() -> tuple[str]:
+        return tuple(name for name, subcls in __class__.__registry.items() if subcls._weights)

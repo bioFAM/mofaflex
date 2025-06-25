@@ -21,8 +21,6 @@ from torch.utils.data import BatchSampler, SequentialSampler
 
 from .datasets import MofaFlexDataset
 
-WeightPrior: TypeAlias = Literal["Normal", "Laplace", "Horseshoe", "SnS"]
-FactorPrior: TypeAlias = Literal["Normal", "Laplace", "Horseshoe", "SnS", "GP"]
 PossiblySparseArray: TypeAlias = NDArray | spmatrix | sparray
 
 MeanStd = namedtuple("MeanStd", ["mean", "std"])

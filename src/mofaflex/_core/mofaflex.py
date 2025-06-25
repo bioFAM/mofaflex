@@ -31,8 +31,9 @@ from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
 from .model import Generative, Variational
 from .pcgse import pcgse_test
+from .pyro.priors import FactorPriorType, WeightPriorType
 from .training import EarlyStopper
-from .utils import FactorPrior, MeanStd, WeightPrior, impute, sample_all_data_as_one_batch
+from .utils import MeanStd, impute, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
@@ -124,10 +125,10 @@ class ModelOptions(_Options):
     n_factors: int = 0
     """Number of latent factors."""
 
-    weight_prior: dict[str, WeightPrior] | WeightPrior = "Normal"
+    weight_prior: dict[str, WeightPriorType] | WeightPriorType = "Normal"
     """Weight priors for each view (if dict) or for all views (if str)."""
 
-    factor_prior: dict[str, FactorPrior] | FactorPrior = "Normal"
+    factor_prior: dict[str, FactorPriorType] | FactorPriorType = "Normal"
     """Factor priors for each group (if dict) or for all groups (if str)."""
 
     likelihoods: dict[str, LikelihoodType] | LikelihoodType | None = None

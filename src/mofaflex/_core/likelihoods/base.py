@@ -46,7 +46,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         - `scale_data`: indicates whether the likelihood requires data to be centered and scaled to unit variance.
     """
 
-    __subclasses = set()
+    __subclasses = {}
 
     def __init_subclass__(cls, **kwargs):
         for attr in ("_priority", "scale_data"):
@@ -58,24 +58,24 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
                     f"Class `{cls.__name__}` must be stateless, but method `{name}` is not static and not a class method."
                 )
         super().__init_subclass__(**kwargs)
-        __class__.__subclasses.add(cls)
+        __class__.__subclasses[str(cls)] = cls
 
-    @classmethod
-    def known_likelihoods(cls) -> tuple[str]:
+    @staticmethod
+    def known_likelihoods() -> tuple[str]:
         """Get all known likelihoods."""
-        return tuple(str(subcls) for subcls in cls.__subclasses)
+        return tuple(__class__.__subclasses.keys())
 
-    @classmethod
-    def get(cls, name: str) -> _LikelihoodMeta:
+    @staticmethod
+    def get(name: str) -> _LikelihoodMeta:
         """Get the likelihood based on its name.
 
         Args:
             name: The name of the likelihood.
         """
-        for subcls in __class__.__subclasses:
-            if subcls.__name__ == name:
-                return subcls
-        raise NotImplementedError(f"Unknown likelihood `{name}`")
+        try:
+            return __class__.__subclasses[name]
+        except KeyError as e:
+            raise NotImplementedError(f"Unknown likelihood `{name}`") from e
 
     @classmethod
     @abstractmethod
@@ -143,7 +143,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         xp = array_namespace(data)
         data = data[~xp.isnan(data)]
 
-        inferred = {subcls: subcls._priority for subcls in cls.__subclasses if subcls._validate(data, xp)}
+        inferred = {subcls: subcls._priority for subcls in cls.__subclasses.values() if subcls._validate(data, xp)}
         lklhdcls = max(((subcls, prio) for subcls, prio in inferred.items()), key=lambda x: x[1])[0]
         return lklhdcls
 

@@ -14,6 +14,9 @@ from .base import Prior, PyroParameterDict
 
 
 class SnS(Prior):
+    _factors = True
+    _weights = True
+
     def __init__(
         self,
         names: Sequence[str],

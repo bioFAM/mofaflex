@@ -13,6 +13,9 @@ from .base import Prior
 
 
 class GP(Prior):
+    _factors = True
+    _weights = False
+
     def __init__(
         self,
         names: Sequence[str],

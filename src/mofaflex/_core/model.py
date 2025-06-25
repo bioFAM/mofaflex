@@ -11,10 +11,8 @@ from pyro.nn import PyroModule, PyroModuleList, PyroParam
 from .gp import GP
 from .likelihoods import Likelihood
 from .pyro.likelihoods import PyroLikelihood
-from .pyro.priors import Prior
-from .utils import FactorPrior, MeanStd, WeightPrior
-
-EPS = 1e-8
+from .pyro.priors import FactorPriorType, Prior, WeightPriorType
+from .utils import MeanStd
 
 PyroModuleDict = PyroModule[torch.nn.ModuleDict]
 
@@ -31,8 +29,8 @@ class Generative(PyroModule):
         guiding_vars_factors: dict[str, int] | None = None,
         guiding_vars_scales: dict[str, float] | None = None,
         prior_scales=None,
-        factor_prior: dict[str, FactorPrior] | FactorPrior = "Normal",
-        weight_prior: dict[str, WeightPrior] | WeightPrior = "Normal",
+        factor_prior: dict[str, FactorPriorType] | FactorPriorType = "Normal",
+        weight_prior: dict[str, WeightPriorType] | WeightPriorType = "Normal",
         nonnegative_weights: dict[str, bool] | bool = False,
         nonnegative_factors: dict[str, bool] | bool = False,
         feature_means: dict[dict[str, torch.Tensor]] = None,
