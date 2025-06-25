@@ -15,6 +15,9 @@ from .priors import Prior
 from .utils import PyroModuleDict, PyroParameterDict
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from typing import Literal
+
     from numpy.typing import NDArray
 
     from ..gp import GP
@@ -25,23 +28,23 @@ if TYPE_CHECKING:
 class MofaFlexModel(PyroModule):
     def __init__(
         self,
-        n_samples: dict[str, int],
-        n_features: dict[str, int],
+        n_samples: Mapping[str, int],
+        n_features: Mapping[str, int],
         n_factors: int,
-        likelihoods: dict[str, Likelihood],
-        guiding_vars_likelihoods: dict[str, str] | None = None,
-        guiding_vars_n_categories: dict[str, int] | None = None,
-        guiding_vars_factors: dict[str, int] | None = None,
-        guiding_vars_scales: dict[str, float] | None = None,
+        likelihoods: Mapping[str, Likelihood],
+        guiding_vars_likelihoods: Mapping[str, str] | None = None,
+        guiding_vars_n_categories: Mapping[str, int] | None = None,
+        guiding_vars_factors: Mapping[str, int] | None = None,
+        guiding_vars_scales: Mapping[str, float] | None = None,
         prior_scales=None,
-        factor_prior: dict[str, FactorPriorType] | FactorPriorType = "Normal",
-        weight_prior: dict[str, WeightPriorType] | WeightPriorType = "Normal",
-        nonnegative_weights: dict[str, bool] | bool = False,
-        nonnegative_factors: dict[str, bool] | bool = False,
-        feature_means: dict[dict[str, torch.Tensor]] = None,
-        sample_means: dict[dict[str, torch.Tensor]] = None,
+        factor_prior: Mapping[str, FactorPriorType] | FactorPriorType = "Normal",
+        weight_prior: Mapping[str, WeightPriorType] | WeightPriorType = "Normal",
+        nonnegative_weights: Mapping[str, bool] | bool = False,
+        nonnegative_factors: Mapping[str, bool] | bool = False,
+        feature_means: Mapping[str, Mapping[str, NDArray]] = None,
+        sample_means: Mapping[str, Mapping[str, NDArray]] = None,
         gp: GP | None = None,
-        factors_init_tensor: dict[str, dict[str, NDArray]] = None,
+        factors_init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         init_prob: float = 0.5,

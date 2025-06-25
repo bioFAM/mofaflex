@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from typing import Literal
 
 import pyro
 import pyro.distributions as dist
@@ -23,7 +24,7 @@ class Horseshoe(Prior):
         nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[str, torch.Tensor]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], torch.Tensor]] | None = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         regularized: bool = True,

@@ -1,8 +1,8 @@
 from collections.abc import Mapping, Sequence
+from typing import Literal
 
 import pyro
 import torch
-from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroParam
 
@@ -23,7 +23,7 @@ class _SimpleLocationScale(Prior):
         nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[str, torch.Tensor]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], torch.Tensor]] | None = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
     ):
@@ -74,7 +74,7 @@ class Normal(_SimpleLocationScale):
         nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[str, NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], torch.Tensor]] | None = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         **kwargs,
@@ -100,7 +100,7 @@ class Laplace(_SimpleLocationScale):
         nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[str, NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], torch.Tensor]] | None = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         **kwargs,

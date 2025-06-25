@@ -143,11 +143,11 @@ class MofaFlexPreprocessor(Preprocessor):
         }
 
     @property
-    def feature_means(self) -> dict[str, dict[str, float]]:
+    def feature_means(self) -> dict[str, dict[str, NDArray]]:
         return self._feature_means
 
     @property
-    def sample_means(self) -> dict[str, dict[str, float]]:
+    def sample_means(self) -> dict[str, dict[str, NDArray]]:
         return self._sample_means
 
     def __call__(
