@@ -41,7 +41,7 @@ class MofaFlexModel(PyroModule):
         feature_means: dict[dict[str, torch.Tensor]] = None,
         sample_means: dict[dict[str, torch.Tensor]] = None,
         gp: GP | None = None,
-        factors_init_tensor: dict[str, NDArray] = None,
+        factors_init_tensor: dict[str, dict[str, NDArray]] = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         init_prob: float = 0.5,
@@ -66,6 +66,14 @@ class MofaFlexModel(PyroModule):
 
         if isinstance(nonnegative_weights, bool):
             nonnegative_weights = dict.fromkeys(self._view_names, nonnegative_weights)
+
+        # need to call contiguous() here, otherwise we get a warning from PyTorch:
+        # grad and param do not obey the gradient layout contract
+        if factors_init_tensor is not None:
+            factors_init_tensor = {
+                name: {sname: torch.as_tensor(sval).contiguous() for sname, sval in val.items()}
+                for name, val in factors_init_tensor.items()
+            }
 
         self._nonnegative_weights = nonnegative_weights
         self._nonnegative_factors = nonnegative_factors
@@ -183,8 +191,8 @@ class MofaFlexModel(PyroModule):
                 constraint=constraints.softplus_positive,
             )
 
-    _sample_plate_dim = -1
-    _feature_plate_dim = -2
+    _sample_plate_dim = -2
+    _feature_plate_dim = -1
 
     @property
     def _group_names(self):
@@ -277,14 +285,13 @@ class MofaFlexModel(PyroModule):
                 vnonmissing_samples = gnonmissing_samples[view_name]
                 vnonmissing_features = gnonmissing_features[view_name]
 
-                z = factors[group_name][..., vnonmissing_samples]
-                w = weights[view_name][..., vnonmissing_features, :]
+                z = factors[group_name][..., vnonmissing_samples, :]
+                w = weights[view_name][..., vnonmissing_features]
 
-                loc = torch.einsum("...ijk,...ilj->...jlk", z, w)
+                loc = torch.einsum("...ijk,...ikl->...kjl", z, w)
 
-                obs = view_obs.T
                 self._likelihoods[view_name].model(
-                    data=obs,
+                    data=view_obs,
                     estimate=loc,
                     group_name=group_name,
                     scale=self._view_scales[view_name],

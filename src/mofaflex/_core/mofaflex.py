@@ -696,20 +696,12 @@ class MOFAFLEX:
 
         if not isinstance(self._model_opts.init_factors, str):
             for group_name, n in self.n_samples.items():
-                init_tensor[group_name]["loc"] = np.expand_dims(
-                    np.full(
-                        shape=(n, self._model_opts.n_factors),
-                        fill_value=self._model_opts.init_factors,
-                        dtype=np.float32,
-                    ).T,
-                    -2,
-                )
-                init_tensor[group_name]["scale"] = np.expand_dims(
-                    np.full(
-                        shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_scale, dtype=np.float32
-                    ).T,
-                    -2,
-                )
+                init_tensor[group_name]["loc"] = np.full(
+                    shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_factors, dtype=np.float32
+                ).T[..., None]
+                init_tensor[group_name]["scale"] = np.full(
+                    shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_scale, dtype=np.float32
+                ).T[..., None]
             return init_tensor
         match self._model_opts.init_factors:
             case "random":
@@ -747,13 +739,10 @@ class MOFAFLEX:
                 q = 2.0 * (q - np.min(q)) / (np.max(q) - np.min(q)) - 1
 
             # Add artifical dimension at dimension -2 for broadcasting
-            init_tensor[group_name]["loc"] = np.expand_dims(q.T, -2).astype(np.float32, copy=False)
-            init_tensor[group_name]["scale"] = np.expand_dims(
-                np.full(
-                    shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_scale, dtype=np.float32
-                ).T,
-                -2,
-            )
+            init_tensor[group_name]["loc"] = q.T[..., None].astype(np.float32, copy=False)
+            init_tensor[group_name]["scale"] = np.full(
+                shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_scale, dtype=np.float32
+            ).T[..., None]
 
         return init_tensor
 

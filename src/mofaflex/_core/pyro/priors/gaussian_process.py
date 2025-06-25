@@ -3,7 +3,6 @@ from collections.abc import Mapping, Sequence
 import pyro
 import pyro.distributions as dist
 import torch
-from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroParam, pyro_method
 
@@ -24,7 +23,7 @@ class GP(Prior):
         n_factors: int,
         n_nonfactors: Mapping[str, int],
         gp: GP,
-        init_tensor: Mapping[str, Mapping[str, NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[str, torch.Tensor]] | None = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         **kwargs,
@@ -46,12 +45,8 @@ class GP(Prior):
         self._full_gp_shape = tuple(shape)
 
         if init_tensor is not None:
-            loc = torch.concatenate(
-                [torch.as_tensor(init_tensor[name]["loc"]) for name in self._names], dim=nonfactor_dim
-            )
-            scale = torch.concatenate(
-                [torch.as_tensor(init_tensor[name]["scale"]) for name in self._names], dim=nonfactor_dim
-            )
+            loc = torch.concatenate([init_tensor[name]["loc"] for name in self._names], dim=nonfactor_dim)
+            scale = torch.concatenate([init_tensor[name]["scale"] for name in self._names], dim=nonfactor_dim)
         else:
             loc = torch.full(shape, init_loc)
             scale = torch.full(shape, init_scale)

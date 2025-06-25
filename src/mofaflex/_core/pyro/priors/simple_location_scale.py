@@ -23,7 +23,7 @@ class _SimpleLocationScale(Prior):
         nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[str, NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[str, torch.Tensor]] | None = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
     ):
@@ -35,8 +35,8 @@ class _SimpleLocationScale(Prior):
 
         for name in self._names:
             if init_tensor is not None:
-                loc = torch.as_tensor(init_tensor[name]["loc"])
-                scale = torch.as_tensor(init_tensor[name]["scale"])
+                loc = init_tensor[name]["loc"]
+                scale = init_tensor[name]["scale"]
             else:
                 loc = torch.full(self._shapes[name], init_loc)
                 scale = torch.full(self._shapes[name], init_scale)
