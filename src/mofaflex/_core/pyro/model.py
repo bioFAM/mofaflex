@@ -238,7 +238,7 @@ class MofaFlexModel(PyroModule):
         return sample_plates, feature_plates, guiding_var_plate, factors_plate
 
     def _model_guiding_vars_weights_normal(self, guiding_var_name, **kwargs):
-        weights_dim = self.guiding_vars_n_categories[guiding_var_name]
+        weights_dim = self._guiding_vars_n_categories[guiding_var_name]
         return pyro.sample(
             f"guiding_vars_w_{guiding_var_name}",
             dist.Normal(torch.zeros(weights_dim, 2), torch.ones(weights_dim, 2)).to_event(
@@ -262,7 +262,7 @@ class MofaFlexModel(PyroModule):
 
         for group_name, group_factors in factors.items():
             if self._nonnegative_factors[group_name]:
-                factors[group_name] = self.pos_transform(group_factors)
+                factors[group_name] = self._pos_transform(group_factors)
 
         weights = {}
         for prior in self._weights:
@@ -270,12 +270,12 @@ class MofaFlexModel(PyroModule):
 
         for view_name, view_weights in weights.items():
             if self._nonnegative_weights[view_name]:
-                weights[view_name] = self.pos_transform(view_weights)
+                weights[view_name] = self._pos_transform(view_weights)
 
         # sample guiding variable weights
-        guiding_vars = {}
+        guided_vars = {}
         for guiding_var_name in self._guiding_vars_names:
-            guiding_vars[guiding_var_name] = self._model_guiding_vars_weights_normal(guiding_var_name)
+            guided_vars[guiding_var_name] = self._model_guiding_vars_weights_normal(guiding_var_name)
 
         # sample observations
         for group_name, group in data.items():
@@ -310,11 +310,11 @@ class MofaFlexModel(PyroModule):
                     continue
 
                 z_guiding = factors[group_name][self._guiding_vars_factors[guiding_var_name], 0]
-                w_guiding = guiding_vars[guiding_var_name]
+                w_guiding = guided_vars[guiding_var_name]
 
                 # (n_cats, 1) + (n_cats, 1) * (n_samples,)
                 loc = w_guiding[:, 0, None] + w_guiding[:, 1, None] * z_guiding  # (n_cats, n_samples)
-                obs_guiding_vars = guiding_vars[guiding_var_name][group_name].squeeze(-1)
+                obs_guiding_vars = guiding_vars[guiding_var_name][group_name]
 
                 self._guiding_vars_likelihoods[guiding_var_name].model(
                     data=obs_guiding_vars,
@@ -354,11 +354,17 @@ class MofaFlexModel(PyroModule):
         modifiers = {}
         for i, prior in enumerate(self._weights):
             modifiers.update(
-                {f"{__class__.__name__}._weights.{i}.{pname}": mod for pname, mod in prior.learning_rate_multipliers}
+                {
+                    f"{__class__.__name__}._weights.{i}.{pname}": mod
+                    for pname, mod in prior.learning_rate_multipliers.items()
+                }
             )
         for i, prior in enumerate(self._factors):
             modifiers.update(
-                {f"{__class__.__name__}._factors.{i}.{pname}": mod for pname, mod in prior.learning_rate_multipliers}
+                {
+                    f"{__class__.__name__}._factors.{i}.{pname}": mod
+                    for pname, mod in prior.learning_rate_multipliers.items()
+                }
             )
 
         def lr_func(param_name):
@@ -391,7 +397,7 @@ class MofaFlexModel(PyroModule):
             except AttributeError:
                 continue
             for group_name in precisions.shape.keys():
-                d = dist.Gamma(shape=precisions.shape[group_name], rate=precisions.rate[group_name])
+                d = dist.Gamma(concentration=precisions.shape[group_name], rate=precisions.rate[group_name])
                 alphas.mean[group_name] = d.mean.cpu().numpy()
                 alphas.std[group_name] = d.stddev.cpu().numpy()
         return alphas
@@ -432,7 +438,7 @@ class MofaFlexModel(PyroModule):
             except AttributeError:
                 continue
             for view_name in precisions.shape.keys():
-                d = dist.Gamma(shape=precisions.shape[view_name], rate=precisions.rate[view_name])
+                d = dist.Gamma(concentration=precisions.shape[view_name], rate=precisions.rate[view_name])
                 alphas.mean[view_name] = d.mean.cpu().numpy()
                 alphas.std[view_name] = d.stddev.cpu().numpy()
         return alphas

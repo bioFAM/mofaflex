@@ -7,7 +7,7 @@ import torch
 from pyro.distributions import constraints
 from pyro.nn import PyroParam
 
-from ... import settings
+from ...settings import settings
 from ...utils import MeanStd, ShapeRate
 from ..dist import ReinMaxBernoulli
 from ..utils import PyroParameterDict
@@ -37,7 +37,7 @@ class SnS(Prior):
     ):
         super().__init__(names, factor_dim, nonfactor_dim, n_factors, n_nonfactors)
 
-        self._shapes = PyroParameterDict()
+        self.__shapes = PyroParameterDict()
         self._rates = PyroParameterDict()
         self._alphas = PyroParameterDict()
         self._betas = PyroParameterDict()
@@ -50,7 +50,7 @@ class SnS(Prior):
         shape[factor_dim] = n_factors
 
         for name in self._names:
-            self._shapes[name] = PyroParam(torch.full(shape, init_shape), constraint=constraints.softplus_positive)
+            self.__shapes[name] = PyroParam(torch.full(shape, init_shape), constraint=constraints.softplus_positive)
             self._rates[name] = PyroParam(torch.full(shape, init_rate), constraint=constraints.softplus_positive)
             self._alphas[name] = PyroParam(torch.full(shape, init_alpha), constraint=constraints.softplus_positive)
             self._betas[name] = PyroParam(torch.full(shape, init_beta), constraint=constraints.softplus_positive)
@@ -77,7 +77,7 @@ class SnS(Prior):
 
     def _guide(self, name: str, factor_plate: pyro.plate, nonfactor_plate: pyro.plate, **kwargs) -> torch.Tensor:
         with factor_plate:
-            pyro.sample(f"alpha_z_{name}", dist.Gamma(self._shapes[name], self._rates[name]))
+            pyro.sample(f"alpha_z_{name}", dist.Gamma(self.__shapes[name], self._rates[name]))
             pyro.sample(f"theta_z_{name}", dist.Beta(self._alphas[name], self._betas[name]))
             with nonfactor_plate as index:
                 pyro.sample(
@@ -109,7 +109,7 @@ class SnS(Prior):
     def posterior_precision(self) -> ShapeRate:
         posteriors = ShapeRate({}, {})
         for name in self._names:
-            posteriors.shape[name] = self._shapes[name].squeeze(self._squeezedims)
+            posteriors.shape[name] = self.__shapes[name].squeeze(self._squeezedims)
             posteriors.rate[name] = self._rates[name].squeeze(self._squeezedims)
         return posteriors
 
