@@ -26,6 +26,7 @@ FactorPrior: TypeAlias = Literal["Normal", "Laplace", "Horseshoe", "SnS", "GP"]
 PossiblySparseArray: TypeAlias = NDArray | spmatrix | sparray
 
 MeanStd = namedtuple("MeanStd", ["mean", "std"])
+ShapeRate = namedtuple("ShapeRate", ["shape", "rate"])
 
 
 def sample_all_data_as_one_batch(data: MofaFlexDataset) -> dict[str, list[int]]:

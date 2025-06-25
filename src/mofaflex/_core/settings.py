@@ -20,6 +20,9 @@ class Settings:
     dask_chunksize_mb: float = 500
     """Size of Dask array chunks in MiB."""
 
+    eps: float = 1e-8
+    """Small epsilon for numerical stability."""
+
     def set(self, **kwargs):
         """Set settings.
 

@@ -1,7 +1,6 @@
-import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from inspect import isabstract
+from inspect import isabstract, signature
 
 import numpy as np
 import pyro
@@ -11,22 +10,10 @@ from pyro import distributions as dist
 from pyro.nn import PyroModule, PyroParam, PyroSample, pyro_method
 
 from ...utils import MeanStd
-
-EPS = 1e-8  # TODO: have some global definition/setting of EPS
-
-
-# https://stackoverflow.com/a/61350480
-class _PyroLikelihoodMeta(type(ABC), type(PyroModule)):
-    def __call__(cls, *args, **kwargs):
-        obj = cls.__new__(cls, *args, **kwargs)
-        args = list(args)
-        if obj.__class__ is not cls:
-            args = args[1:]
-        obj.__init__(*args, **kwargs)
-        return obj
+from ..utils import _PyroMeta
 
 
-class PyroLikelihood(ABC, PyroModule, metaclass=_PyroLikelihoodMeta):
+class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
     """Base class for MOFA-FLEX likelihoods used in the Pyro model.
 
     Subclasses must implement `_model`, which returns a Pyro distribution object to be used as likelihood,
@@ -63,13 +50,13 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroLikelihoodMeta):
         self._mode = None
 
     def __init_subclass__(cls, **kwargs):
-        init_sig = inspect.signature(cls.__init__)
-        for arg in ("view_name", "sample_dim", "feature_dim", "sample_means", "feature_means"):
-            if arg not in init_sig.parameters:
-                raise TypeError(f"Constructor of class {cls} is missing the {arg} argument.")
-
         super().__init_subclass__(**kwargs)
-        if not isabstract(cls):
+        if not isabstract(cls) and cls.__name__[0] != "_":
+            init_sig = signature(cls.__init__)
+            for arg in ("view_name", "sample_dim", "feature_dim", "sample_means", "feature_means"):
+                if arg not in init_sig.parameters:
+                    raise TypeError(f"Constructor of class {cls} is missing the {arg} argument.")
+
             __class__.__registry[cls.__name__ if not cls.__name__.startswith("Pyro") else cls.__name__[4:]] = cls
 
     def __new__(cls, likelihood: str, *args, **kwargs):

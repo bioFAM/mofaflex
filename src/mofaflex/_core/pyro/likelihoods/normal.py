@@ -5,7 +5,8 @@ from numpy.typing import NDArray
 from pyro import distributions as dist
 from pyro.nn import pyro_method
 
-from .base import EPS, PyroLikelihoodWithDispersion
+from ...settings import settings
+from .base import PyroLikelihoodWithDispersion
 
 
 class PyroNormal(PyroLikelihoodWithDispersion):
@@ -37,4 +38,4 @@ class PyroNormal(PyroLikelihoodWithDispersion):
         dispersion = self._model_dispersion(
             estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
         )
-        return dist.Normal(estimate, torch.reciprocal(dispersion + EPS))
+        return dist.Normal(estimate, torch.reciprocal(dispersion + settings.get("eps")))

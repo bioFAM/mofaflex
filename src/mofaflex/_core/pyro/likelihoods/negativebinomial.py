@@ -6,7 +6,8 @@ from pyro import distributions as dist
 from pyro.nn import pyro_method
 from torch.nn import functional as F
 
-from .base import EPS, PyroLikelihoodWithDispersion
+from ...settings import settings
+from .base import PyroLikelihoodWithDispersion
 
 
 class PyroNegativeBinomial(PyroLikelihoodWithDispersion):
@@ -46,4 +47,6 @@ class PyroNegativeBinomial(PyroLikelihoodWithDispersion):
             estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
         )
         rate = F.relu(estimate) * self._get_sample_means(group_name)[sample_plate.indices[nonmissing_samples]]
-        return dist.GammaPoisson(torch.reciprocal(dispersion), torch.reciprocal(rate * dispersion + EPS))
+        return dist.GammaPoisson(
+            torch.reciprocal(dispersion), torch.reciprocal(rate * dispersion + settings.get("eps"))
+        )
