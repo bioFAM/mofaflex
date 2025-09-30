@@ -1,28 +1,42 @@
 {
   "template": "https://github.com/scverse/cookiecutter-scverse",
-  "commit": "75c74be1a7c2ed7e5503510af0c535a3e105ab37",
-  "checkout": null,
+  "commit": "d383d94fadff9e4e6fdb59d77c68cb900d7cedec",
+  "checkout": "v0.6.0",
   "context": {
     "cookiecutter": {
-      "project_name": "famo",
-      "package_name": "famo",
-      "project_description": "Factor Analysis Models",
+      "project_name": "prismo",
+      "package_name": "mofaflex",
+      "project_description": "MOFA-FLEX",
       "author_full_name": "ABC",
       "author_email": "abc@dkfz.de",
-      "github_user": "martinrohbeck",
-      "project_repo": "https://github.com/bioFAM/famo",
+      "github_user": "bioFAM",
+      "github_repo": "mofaflex",
       "license": "BSD 3-Clause License",
+      "ide_integration": false,
       "_copy_without_render": [
         ".github/workflows/build.yaml",
         ".github/workflows/test.yaml",
         "docs/_templates/autosummary/**.rst"
+      ],
+      "_exclude_on_template_update": [
+        "CHANGELOG.md",
+        "LICENSE",
+        "README.md",
+        "docs/api.md",
+        "docs/index.md",
+        "docs/notebooks/example.ipynb",
+        "docs/references.bib",
+        "docs/references.md",
+        "src/**",
+        "tests/**"
       ],
       "_render_devdocs": false,
       "_jinja2_env_vars": {
         "lstrip_blocks": true,
         "trim_blocks": true
       },
-      "_template": "https://github.com/scverse/cookiecutter-scverse"
+      "_template": "https://github.com/scverse/cookiecutter-scverse",
+      "_commit": "d383d94fadff9e4e6fdb59d77c68cb900d7cedec"
     }
   },
   "directory": null

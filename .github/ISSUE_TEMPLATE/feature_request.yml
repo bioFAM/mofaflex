@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a new feature for famo
+description: Propose a new feature for prismo
 labels: enhancement
 body:
   - type: textarea
