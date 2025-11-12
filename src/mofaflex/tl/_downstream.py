@@ -66,6 +66,21 @@ def test_annotation_significance(
         return {}
 
 
+def factor_correlation(model: MOFAFLEX) -> dict[str, pd.DataFrame]:
+    """Calculate the correlation between factors.
+
+    Args:
+        model: The MOFA-FLEX model.
+
+    Returns:
+        The correlation matrix for each group.
+    """
+    return {
+        group_name: pd.DataFrame(np.corrcoef(group.to_numpy().T), index=model.factor_names, columns=model.factor_names)
+        for group_name, group in model.get_factors().items()
+    }
+
+
 def match(reference: NDArray, permutable: NDArray, axis: int) -> tuple[NDArray[int], NDArray[int], NDArray[np.uint8]]:
     """Find optimal permutation and signs to match two tensors along specified axis.
 

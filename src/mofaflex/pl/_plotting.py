@@ -13,6 +13,8 @@ from mizani.palettes import brewer_pal
 from mudata import MuData
 from numpy.typing import NDArray
 
+from .. import tl
+
 if TYPE_CHECKING:
     from .._core import MOFAFLEX, MofaFlexDataset
 
@@ -245,15 +247,12 @@ def factor_correlation(model: MOFAFLEX, figsize: tuple[float, float] = (8, 8)) -
         model: The model to plot the factor correlation for.
         figsize: Figure size in inches.
     """
-    factors = model.get_factors()
     all_corr_dfs = []
 
-    for k, v in factors.items():
-        corr_df = pd.DataFrame(np.corrcoef(v.to_numpy().T), index=model.factor_names, columns=model.factor_names)
-
-        corr_df["factor1"] = model.factor_names
+    for group_name, corr_df in tl.factor_correlation(model).items():
+        corr_df.reset_index(names="factor1", inplace=True)
         corr_df = corr_df.melt("factor1", var_name="factor2", value_name="correlation")
-        corr_df["group"] = k
+        corr_df["group"] = group_name
         all_corr_dfs.append(corr_df)
 
     final_df = pd.concat(all_corr_dfs, axis=0, ignore_index=True).assign(
@@ -705,7 +704,7 @@ def gp_covariate(
     size: int = 1,
     figsize: tuple[float, float] | None = None,
 ) -> p9.ggplot:
-    """Plot the GP posterior mean for each factor in each group at the data covariate locations.
+    """Plot the fitted GP mean for each factor in each group at the data covariate locations.
 
     If the model covariates are 2D, plot the covariate on X and Y and encode the GP posterior mean with color.
     If the model covariates are 1D, plot the covariate on X and the GP posterior mean and 95% confidence interval on Y.
