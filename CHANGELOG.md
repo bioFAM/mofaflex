@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning][].
 ### Added
 - `tl.factor_correlation` to calculate the correlation between factors
 
+### Changed
+- `pl.factor` now also accepts factor names for the `factor` argument.
+
 ## [0.1.0]
 
 - Initial release

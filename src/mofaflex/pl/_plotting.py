@@ -551,7 +551,7 @@ def all_weights(
 
 def factor(
     model: MOFAFLEX,
-    factor: int = 1,
+    factor: int | str = 1,
     show_featurenames: bool = False,
     figsize: tuple[float, float] | None = None,  # F821
 ) -> p9.ggplot:
@@ -566,9 +566,13 @@ def factor(
     factors = model.get_factors(ordered=False)
     if figsize is None:
         figsize = (5, 3 * len(factors))
+    if isinstance(factor, str):
+        factor = np.nonzero(model.factor_names == factor)[0][0]
+    else:
+        factor -= 1
     df = []
     for group_name, facs in factors.items():
-        df.append(facs.iloc[:, [factor - 1]].reset_index(names="sample").assign(group=group_name))
+        df.append(facs.iloc[:, [factor]].reset_index(names="sample").assign(group=group_name))
     df = pd.concat(df, axis=0, ignore_index=True)
     colname = df.columns[1]
 
@@ -826,7 +830,7 @@ def _prepare_weights_df(
         if not isinstance(factors, Sequence) or isinstance(factors, str):
             factors = (factors,)
         if all(isinstance(factor, str) for factor in factors):
-            factors = np.where(np.isin(model.factor_names, factors))[0] + 1
+            factors = np.nonzero(np.isin(model.factor_names, factors))[0] + 1
         factors = np.asarray(factors) - 1
 
     df = []
