@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import pyro
@@ -11,7 +10,6 @@ from pyro.nn import PyroModule, PyroModuleList, PyroParam, pyro_method
 
 from ..utils import MeanStd
 from .likelihoods import PyroLikelihood
-from .priors import Prior
 from .utils import PyroModuleDict, PyroParameterDict
 
 if TYPE_CHECKING:
@@ -36,7 +34,6 @@ class MofaFlexModel(PyroModule):
         guiding_vars_n_categories: Mapping[str, int] | None = None,
         guiding_vars_factors: Mapping[str, int] | None = None,
         guiding_vars_scales: Mapping[str, float] | None = None,
-        prior_scales=None,
         factor_prior: Mapping[str, FactorPriorType] | FactorPriorType = "Normal",
         weight_prior: Mapping[str, WeightPriorType] | WeightPriorType = "Normal",
         nonnegative_weights: Mapping[str, bool] | bool = False,
@@ -82,14 +79,9 @@ class MofaFlexModel(PyroModule):
         self._nonnegative_factors = nonnegative_factors
         self._pos_transform = torch.nn.ReLU()
 
-        factor_prior_groups = defaultdict(list)
-        for group_name, prior in factor_prior.items():
-            factor_prior_groups[prior].append(group_name)
         self._factors = PyroModuleList(
             [
-                Prior(
-                    prior,
-                    names=groups,
+                prior.pyro_prior(
                     factor_dim=-3,
                     nonfactor_dim=self._sample_plate_dim,
                     n_factors=n_factors,
@@ -104,23 +96,17 @@ class MofaFlexModel(PyroModule):
                     init_shape=init_shape,
                     init_rate=init_rate,
                 )
-                for prior, groups in factor_prior_groups.items()
+                for prior in factor_prior
             ]
         )
 
-        weight_prior_groups = defaultdict(list)
-        for view_name, prior in weight_prior.items():
-            weight_prior_groups[prior].append(view_name)
         self._weights = PyroModuleList(
             [
-                Prior(
-                    prior,
-                    names=views,
+                prior.pyro_prior(
                     factor_dim=-3,
                     nonfactor_dim=self._feature_plate_dim,
                     n_factors=n_factors,
                     n_nonfactors=n_features,
-                    prior_scales=prior_scales,
                     init_loc=init_loc,
                     init_scale=init_scale,
                     init_prob=init_prob,
@@ -129,7 +115,7 @@ class MofaFlexModel(PyroModule):
                     init_shape=init_shape,
                     init_rate=init_rate,
                 )
-                for prior, views in weight_prior_groups.items()
+                for prior in weight_prior
             ]
         )
 
@@ -285,7 +271,7 @@ class MofaFlexModel(PyroModule):
             )
 
     @pyro_method
-    def model(self, data, sample_idx, nonmissing_samples, nonmissing_features, covariates, guiding_vars):
+    def model(self, data, sample_idx, nonmissing_samples, nonmissing_features, guiding_vars=None, **kwargs):
         (
             sample_plates,
             feature_plates,
@@ -297,7 +283,7 @@ class MofaFlexModel(PyroModule):
 
         factors = {}
         for prior in self._factors:
-            factors.update(prior.model(factor_plate, sample_plates, covariates=covariates))
+            factors.update(prior.model(factor_plate, sample_plates, **kwargs))
 
         for group_name, group_factors in factors.items():
             if self._nonnegative_factors[group_name]:
@@ -367,7 +353,7 @@ class MofaFlexModel(PyroModule):
                 )
 
     @pyro_method
-    def guide(self, data, sample_idx, nonmissing_samples, nonmissing_features, covariates, guiding_vars):
+    def guide(self, data, sample_idx, nonmissing_samples, nonmissing_features, guiding_vars=None, **kwargs):
         (
             sample_plates,
             feature_plates,
@@ -378,7 +364,7 @@ class MofaFlexModel(PyroModule):
         ) = self._get_plates(subsample=sample_idx)
 
         for prior in self._factors:
-            prior.guide(factor_plate, sample_plates, covariates=covariates)
+            prior.guide(factor_plate, sample_plates, **kwargs)
 
         for prior in self._weights:
             prior.guide(factor_plate, feature_plates)

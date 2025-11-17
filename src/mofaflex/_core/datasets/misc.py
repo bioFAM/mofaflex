@@ -1,3 +1,5 @@
+from collections.abc import Mapping, Sequence
+
 import numpy as np
 import pandas as pd
 import torch
@@ -7,7 +9,7 @@ from torch.utils.data import BatchSampler, Dataset, RandomSampler, Sampler, Stac
 from .base import MofaFlexDataset
 
 
-class MofaFlexBatchSampler(Sampler[dict[str, list[int]]]):
+class MofaFlexBatchSampler(Sampler[Mapping[str, Sequence[int]]]):
     """A sampler for dicts.
 
     Given a dict with arbitrary keys and values indicating the number of data points in
@@ -17,7 +19,7 @@ class MofaFlexBatchSampler(Sampler[dict[str, list[int]]]):
     """
 
     def __init__(
-        self, n_samples: dict[str, int], batch_size: int, drop_last: bool = False, generator: torch.Generator = None
+        self, n_samples: Mapping[str, int], batch_size: int, drop_last: bool = False, generator: torch.Generator = None
     ):
         super().__init__()
         self._n_samples = n_samples
@@ -48,11 +50,24 @@ class MofaFlexBatchSampler(Sampler[dict[str, list[int]]]):
 
 class CovariatesDataset(Dataset):
     def __init__(
-        self, data: MofaFlexDataset, obs_key: dict[str, str] | None = None, obsm_key: dict[str, str] | None = None
+        self,
+        data: MofaFlexDataset,
+        obs_key: Mapping[str, str] | None = None,
+        obsm_key: Mapping[str, str] | None = None,
+        group_names: str | Sequence[str] | None = None,
     ):
         super().__init__()
 
+        if isinstance(group_names, str):
+            group_names = (group_names,)
         covariates, self.covariates_names = data.get_covariates(0, obs_key, obsm_key)
+
+        if group_names is not None:
+            for group_name in list(covariates.keys()):
+                if group_name not in group_names:
+                    del covariates[group_name]
+                    if group_name in self.covariates_names:
+                        del self.covariates_names[group_name]
 
         # if data is categorical, get unique categories
         categories = set()
@@ -72,7 +87,7 @@ class CovariatesDataset(Dataset):
                         view_covars_mapped[view_covars == k] = v
                     group_covars[view_name] = view_covars_mapped
 
-        # ensure the a covariate value is consistent across views (nanmean or first)
+        # ensure the covariate value is consistent across views (nanmean or first)
         self.covariates = {}
         for group_name, group_covars in covariates.items():
             group_covars_stacked = np.stack(tuple(group_covars.values()), axis=0)
@@ -104,11 +119,11 @@ class CovariatesDataset(Dataset):
 
 
 class StackDataset(StackDataset):
-    def __getitems__(self, idx: list | dict):
-        if isinstance(idx, list):
+    def __getitems__(self, idx: Sequence | Mapping):
+        if isinstance(idx, Sequence):
             return super().__getitems__(idx)
 
-        if isinstance(self.datasets, dict):
+        if isinstance(self.datasets, Mapping):
             return {k: self._get_items_from_dset(dataset, idx) for k, dataset in self.datasets.items()}
         else:
             return [self._get_items_from_dset(dataset, idx) for dataset in self.datasets]
@@ -122,7 +137,7 @@ class StackDataset(StackDataset):
 
 
 class GuidingVarsDataset(StackDataset):
-    def __init__(self, data: MofaFlexDataset, guiding_vars_obs_keys: dict[str, dict[str, str]] | None = None):
+    def __init__(self, data: MofaFlexDataset, guiding_vars_obs_keys: Mapping[str, Mapping[str, str]] | None = None):
         datasets = {}
         for guiding_var_name, obs_key in guiding_vars_obs_keys.items():
             datasets[guiding_var_name] = CovariatesDataset(data, obs_key=obs_key)

@@ -73,12 +73,13 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
 
             __class__.__registry[cls.__name__] = cls
 
-    def __new__(cls, prior: str, *args, **kwargs):
+    def __new__(cls, *args, **kwargs):
         if cls != __class__:
             return super().__new__(cls)
         try:
+            prior = args[0]
             subcls = cls.__registry[prior]
-            return subcls.__new__(subcls, None, *args, **kwargs)
+            return subcls.__new__(subcls, *args[1:], **kwargs)
         except KeyError as e:
             raise NotImplementedError(f"Unknown prior {prior}.") from e
 

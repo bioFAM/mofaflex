@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import pyro
 import pyro.distributions as dist
@@ -7,9 +7,11 @@ import torch
 from pyro.distributions import constraints
 from pyro.nn import PyroParam, pyro_method
 
-from ...gp import GP
 from ...utils import MeanStd
 from .base import Prior
+
+if TYPE_CHECKING:
+    from ...priors.gaussian_process import GP
 
 
 class GP(Prior):
@@ -23,7 +25,7 @@ class GP(Prior):
         nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        gp: GP,
+        gp: "GP",
         init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], torch.Tensor]] | None = None,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
@@ -77,12 +79,12 @@ class GP(Prior):
         self,
         factor_plate: pyro.plate,
         nonfactor_plates: Mapping[str, pyro.plate],
-        covariates: dict[str, torch.Tensor],
+        gp_covariates: dict[str, torch.Tensor],
         **kwargs,
     ) -> dict[str, torch.Tensor]:
-        gnames = list(filter(lambda x: x in covariates, self._names))
-        covars = torch.cat(tuple(covariates[g] for g in gnames), dim=0)
-        idx = torch.cat(tuple(self._get_idx(g).expand(covariates[g].shape[0]) for g in gnames), dim=0)
+        gnames = list(filter(lambda x: x in gp_covariates, self._names))
+        covars = torch.cat(tuple(gp_covariates[g] for g in gnames), dim=0)
+        idx = torch.cat(tuple(self._get_idx(g).expand(gp_covariates[g].shape[0]) for g in gnames), dim=0)
         f_dist = self._gp.pyro_model((idx[..., None], covars), name_prefix="gp")
 
         nonfactor_plate = self._get_nonfactor_plate(nonfactor_plates)
@@ -102,7 +104,7 @@ class GP(Prior):
                     self._names,
                     torch.split(
                         pyro.sample("z", dist.Normal(f, 1 - outputscale)),
-                        tuple(covariates[g].shape[0] for g in gnames),
+                        tuple(gp_covariates[g].shape[0] for g in gnames),
                         dim=self._nonfactor_dim,
                     ),
                     strict=False,
@@ -114,12 +116,12 @@ class GP(Prior):
         self,
         factor_plate: pyro.plate,
         nonfactor_plates: Mapping[str, pyro.plate],
-        covariates: dict[str, torch.Tensor],
+        gp_covariates: dict[str, torch.Tensor],
         **kwargs,
     ) -> dict[str, torch.Tensor]:
-        gnames = list(filter(lambda x: x in covariates, self._names))
-        covars = torch.cat(tuple(covariates[g] for g in gnames), dim=0)
-        idx = torch.cat(tuple(self._get_idx(g).expand(covariates[g].shape[0]) for g in gnames), dim=0)
+        gnames = list(filter(lambda x: x in gp_covariates, self._names))
+        covars = torch.cat(tuple(gp_covariates[g] for g in gnames), dim=0)
+        idx = torch.cat(tuple(self._get_idx(g).expand(gp_covariates[g].shape[0]) for g in gnames), dim=0)
         f_dist = self._gp.pyro_guide((idx[..., None], covars), name_prefix="gp")
 
         nonfactor_plate = self._get_nonfactor_plate(nonfactor_plates)
@@ -138,7 +140,7 @@ class GP(Prior):
                                 self._scale.index_select(nonfactor_plate.dim, index),
                             ),
                         ),
-                        tuple(covariates[g].shape[0] for g in gnames),
+                        tuple(gp_covariates[g].shape[0] for g in gnames),
                         dim=self._nonfactor_dim,
                     ),
                     strict=False,

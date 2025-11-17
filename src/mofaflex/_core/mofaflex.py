@@ -3,7 +3,7 @@ import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import MISSING, asdict, dataclass, field, fields
-from functools import reduce
+from itertools import chain
 from pathlib import Path
 from typing import Literal, get_args
 
@@ -27,11 +27,12 @@ from tqdm.auto import tqdm
 from tqdm.notebook import tqdm_notebook
 
 from .. import pl
-from . import gp, preprocessing
-from .datasets import CovariatesDataset, GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
+from . import preprocessing
+from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
 from .pcgse import pcgse_test
+from .priors import GP, Prior
 from .pyro import MofaFlexModel
 from .pyro.priors import FactorPriorType, WeightPriorType
 from .training import EarlyStopper
@@ -475,67 +476,11 @@ class MOFAFLEX:
             )
 
     def _setup_annotations(self, data):
-        annotations = None
-        if self._data_opts.annotations_varm_key is not None:
-            annotations, annotations_names = data.get_covariates(
-                axis="features",
-                mkey=self._data_opts.annotations_varm_key,
-                fill_value=lambda dt: False if dt == np.bool_ else np.nan,
-            )
-            for view_name in list(annotations.keys()):
-                annot = annotations[view_name]
-                if len(annot):
-                    if all(a.dtype == np.bool for a in annot.values()):
-                        annot = reduce(np.logical_or, annot.values())
-                    else:
-                        annot = np.nanmean(np.stack(list(annot.values()), axis=1), axis=1)
-                    annotations[view_name] = annot.T
-                else:
-                    del annotations[view_name]
-
-        informed = annotations is not None and len(annotations) > 0
-        valid_n_factors = self._model_opts.n_factors is not None and self._model_opts.n_factors > 0
-
-        n_uninformed_factors = 0
-        n_informed_factors = 0
-        factor_names = []
-
-        if informed:
-            ignored_views = []
-            for vn in data.view_names:
-                if vn in annotations and (prior := self._model_opts.weight_prior[vn]) != "Horseshoe":
-                    ignored_views.append(vn)
-                    _logger.warning(
-                        f"Horseshoe prior required for annotations, but got {prior} for view {vn}. Annotations will be ignored."
-                    )
-            if len(ignored_views) == data.view_names.size:
-                informed = False
-                n_informed_factors = 0
-
-        if not informed and not valid_n_factors:
-            raise ValueError(
-                "Invalid latent configuration, "
-                "please provide either a collection of prior masks, "
-                "or set `n_factors` to a positive integer."
-            )
-
-        if self._model_opts.n_factors is not None:
-            n_uninformed_factors = self._model_opts.n_factors
-            factor_names += [f"Factor {k + 1}" for k in range(n_uninformed_factors)]
-
-        prior_masks = {}
-
-        if informed:
-            # TODO: annotations need to be processed if not aligned or full
-            n_informed_factors = annotations[data.view_names[0]].shape[0]
-            if data.view_names[0] in annotations_names:
-                factor_names.extend(annotations_names[data.view_names[0]])
-            else:
-                factor_names += [
-                    f"Factor {k + 1}" for k in range(n_uninformed_factors, n_uninformed_factors + n_informed_factors)
-                ]
-
-            prior_masks = {vn: vm.astype(np.bool_) for vn, vm in annotations.items()}
+        n_uninformed_factors = self._model_opts.n_factors
+        factor_names = [f"Factor {k + 1}" for k in range(n_uninformed_factors)]
+        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+            factor_names = prior.adjust_factors(factor_names)
+        n_informed_factors = len(factor_names) - n_uninformed_factors
 
         self._n_uninformed_factors = n_uninformed_factors
         self._n_informed_factors = n_informed_factors
@@ -544,14 +489,14 @@ class MOFAFLEX:
         self._factor_names = np.asarray(factor_names)
         self._factor_order = np.arange(self._model_opts.n_factors)
 
-        # storing prior_masks as full annotations instead of partial annotations
-        self._annotations = prior_masks
-
     def _setup_gp(self, covariates=None, full_setup=True):
-        gp_group_names = [g for g in self.group_names if self._model_opts.factor_prior[g] == "GP"]
+        gp_group_names = None
+        for prior in self._model_opts.factor_prior:
+            if prior.__class__.__name__ == "GP":
+                gp_group_names = prior._names
 
         gp_warp_groups_order = None
-        if len(gp_group_names):
+        if gp_group_names is not None:
             if full_setup:
                 if len(self._gp_opts.warp_groups) > 1:
                     if not set(self._gp_opts.warp_groups) <= set(gp_group_names):
@@ -576,7 +521,7 @@ class MOFAFLEX:
             else:
                 covariates = self._covariates
 
-            self._gp = gp.GP(
+            self._gp = GP(
                 n_inducing=self._gp_opts.n_inducing,
                 covariates=(covariates[g] for g in gp_group_names),
                 n_factors=self._model_opts.n_factors,
@@ -602,23 +547,10 @@ class MOFAFLEX:
         self._model_opts.n_factors = self._model_opts.n_factors + self._n_guiding_vars
 
         # update global factor names (dense factors + guiding vars + informed factors)
-        self._factor_names = np.concatenate(
-            [
-                self._factor_names[: self.n_uninformed_factors],
-                guiding_vars_names,
-                self._factor_names[self.n_uninformed_factors :],
-            ]
-        )
+        self._factor_names = np.concatenate((self._factor_names, guiding_vars_names))
 
     def _setup_svi(
-        self,
-        prior_scales,
-        init_tensor,
-        covariates,
-        guiding_vars_factors,
-        guiding_vars_n_categories,
-        feature_means,
-        sample_means,
+        self, init_tensor, covariates, guiding_vars_factors, guiding_vars_n_categories, feature_means, sample_means
     ):
         gp_warp_groups_order = self._setup_gp(covariates=covariates)
 
@@ -631,7 +563,6 @@ class MOFAFLEX:
             guiding_vars_n_categories=guiding_vars_n_categories,
             guiding_vars_factors=guiding_vars_factors,
             guiding_vars_scales=self._model_opts.guiding_vars_scales,
-            prior_scales=prior_scales,
             factor_prior=self._model_opts.factor_prior,
             weight_prior=self._model_opts.weight_prior,
             nonnegative_factors=self._model_opts.nonnegative_factors,
@@ -667,7 +598,10 @@ class MOFAFLEX:
         self._sparse_weights_probabilities = model.get_sparse_weight_probabilities()
         self._sparse_factors_precisions = model.get_sparse_factor_precisions()
         self._sparse_weights_precisions = model.get_sparse_weight_precisions()
-        self._covariates, self._covariates_names = (covariates.covariates, covariates.covariates_names)
+        self._covariates, self._covariates_names = (
+            (covariates.covariates, covariates.covariates_names) if covariates is not None else None,
+            None,
+        )
         self._gps = self._get_gps(self._covariates)
         self._train_loss_elbo = np.asarray(train_loss_elbo)
 
@@ -851,46 +785,35 @@ class MOFAFLEX:
         if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= data.n_samples_total):
             self._train_opts.batch_size = data.n_samples_total
 
+        factor_prior_groups = defaultdict(list)
+        for group_name, prior in self._model_opts.factor_prior.items():
+            factor_prior_groups[prior].append(group_name)
+        self._model_opts.factor_prior = [
+            Prior(prior, axis=0, names=gnames) for prior, gnames in factor_prior_groups.items()
+        ]
+
+        weight_prior_groups = defaultdict(list)
+        for view_name, prior in self._model_opts.weight_prior.items():
+            weight_prior_groups[prior].append(view_name)
+        self._model_opts.weight_prior = [
+            Prior(prior, axis=0, names=gnames) for prior, gnames in weight_prior_groups.items()
+        ]
+
     def _fit(self, data, preprocessor):
         pyro.set_rng_seed(self._train_opts.seed)
 
-        # informed factors
-        prior_scales = None
-        if self.n_informed_factors > 0:
-            prior_scales = {
-                vn: np.clip(
-                    self._annotations.get(
-                        vn, np.broadcast_to(0, (self.n_informed_factors, self.n_features[vn]))
-                    ).astype(np.float32)
-                    + (1 - self._model_opts.annotation_confidence),
-                    1e-8,
-                    1.0,
-                )
-                for vn in self.view_names
-            }
-
-            if self.n_uninformed_factors + self.n_guided_factors > 0:
-                prior_scales = {
-                    vn: np.concatenate(
-                        (
-                            np.ones(
-                                (self.n_uninformed_factors + self.n_guided_factors, data.n_features[vn]), dtype=vm.dtype
-                            ),
-                            vm,
-                        ),
-                        axis=0,
-                    )
-                    for vn, vm in prior_scales.items()
-                }
-
         # guided factors
         guiding_vars_factors = {
-            self.factor_names[self.n_uninformed_factors + i]: self.n_uninformed_factors + i
+            self.factor_names[self._model_opts.n_factors - self.n_guided_factors + i]: self._model_opts.n_factors
+            - self.n_guided_factors
+            + i
             for i in range(self.n_guided_factors)
         }
 
-        covariates = CovariatesDataset(data, self._data_opts.covariates_obs_key, self._data_opts.covariates_obsm_key)
-        datasets = {"data": data, "covariates": covariates}
+        datasets = {"data": data}
+        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+            if priordsets := prior.get_datasets(data):
+                datasets.update(priordsets)
 
         # get unique categories for each guiding variable
         guiding_vars_n_categories = {}
@@ -913,10 +836,10 @@ class MOFAFLEX:
 
         init_tensor = self._initialize_factors(data)
 
+        covariates = datasets.get("gp_covariates")
         svi, model, gp_warp_groups_order = self._setup_svi(
-            prior_scales,
             init_tensor,
-            covariates.covariates,
+            covariates.covariates if covariates else None,
             guiding_vars_factors,
             guiding_vars_n_categories,
             preprocessor.feature_means,
@@ -960,20 +883,12 @@ class MOFAFLEX:
                 epoch_loss = 0
                 if singlebatch:
                     with self._train_opts.device:
-                        epoch_loss += svi.step(
-                            **batch["data"],
-                            covariates=batch["covariates"],
-                            guiding_vars=batch["guiding_vars"] if self.n_guided_factors > 0 else None,
-                        )
+                        epoch_loss += svi.step(**batch.pop("data"), **batch)
                 else:
                     for batch in loader:
                         batch = collate((batch,), collate_fn_map=collate_fn_map)
                         with self._train_opts.device:
-                            epoch_loss += svi.step(
-                                **batch["data"],
-                                covariates=batch["covariates"],
-                                guiding_vars=batch["guiding_vars"] if self.n_guided_factors > 0 else None,
-                            )
+                            epoch_loss += svi.step(**batch.pop("data"), **batch)
                 train_loss_elbo.append(epoch_loss)
                 if (
                     self._gp is not None
