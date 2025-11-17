@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
-    from ..gp import GP
     from ..likelihoods import Likelihood
     from .priors import FactorPriorType, WeightPriorType
 
@@ -40,8 +39,8 @@ class MofaFlexModel(PyroModule):
         nonnegative_factors: Mapping[str, bool] | bool = False,
         feature_means: Mapping[str, Mapping[str, NDArray]] = None,
         sample_means: Mapping[str, Mapping[str, NDArray]] = None,
-        gp: GP | None = None,
         factors_init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] = None,
+        annotation_confidence: float = 0.99,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         init_prob: float = 0.5,
@@ -86,7 +85,6 @@ class MofaFlexModel(PyroModule):
                     nonfactor_dim=self._sample_plate_dim,
                     n_factors=n_factors,
                     n_nonfactors=n_samples,
-                    gp=gp,
                     init_tensor=factors_init_tensor,
                     init_loc=init_loc,
                     init_scale=init_scale,
@@ -107,6 +105,7 @@ class MofaFlexModel(PyroModule):
                     nonfactor_dim=self._feature_plate_dim,
                     n_factors=n_factors,
                     n_nonfactors=n_features,
+                    annotation_confidence=annotation_confidence,
                     init_loc=init_loc,
                     init_scale=init_scale,
                     init_prob=init_prob,

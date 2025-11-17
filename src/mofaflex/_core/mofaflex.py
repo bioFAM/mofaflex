@@ -2,7 +2,7 @@ import logging
 import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import MISSING, asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass
 from itertools import chain
 from pathlib import Path
 from typing import Literal, get_args
@@ -14,7 +14,6 @@ import pyro
 import torch
 from anndata import AnnData
 from array_api_compat import array_namespace
-from dtw import dtw
 from mudata import MuData
 from pyro.infer import SVI, TraceMeanField_ELBO
 from pyro.optim import ClippedAdam
@@ -32,11 +31,11 @@ from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset,
 from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
 from .pcgse import pcgse_test
-from .priors import GP, Prior
+from .priors import Prior, SmoothOptions
 from .pyro import MofaFlexModel
 from .pyro.priors import FactorPriorType, WeightPriorType
 from .training import EarlyStopper
-from .utils import MeanStd, impute, sample_all_data_as_one_batch
+from .utils import MeanStd, Options, impute, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
@@ -45,47 +44,7 @@ _ResultsTypeSeries = dict[str, pd.Series | AnnData | npt.NDArray[np.float32]]
 
 
 @dataclass(kw_only=True)
-class _Options:
-    def __or__(self, other):
-        if self.__class__ is not other.__class__:
-            raise TypeError("Can only merge objects of the same type")
-
-        kwargs = self.asdict()
-        for f in fields(other):
-            val = getattr(other, f.name)
-            if (
-                f.default is not MISSING
-                and val != f.default
-                or f.default_factory is not MISSING
-                and val != f.default_factory()
-            ):
-                kwargs[f.name] = val
-        return self.__class__(**kwargs)
-
-    def __ior__(self, other):
-        if self.__class__ is not other.__class__:
-            raise TypeError("Can only merge objects of the same type")
-
-        for f in fields(other):
-            val = getattr(other, f.name)
-            if (
-                f.default is not MISSING
-                and val != f.default
-                or f.default_factory is not MISSING
-                and val != f.default_factory()
-            ):
-                setattr(self, f.name, val)
-        return self
-
-    def __post_init__(self):
-        # after an HDF5 roundtrip, these are numpy scalars, which PyTorch doesn't handle well'
-        for f in fields(self):
-            if f.type in (float, int, bool):
-                setattr(self, f.name, f.type(getattr(self, f.name)))
-
-
-@dataclass(kw_only=True)
-class DataOptions(_Options):
+class DataOptions(Options):
     """Options for the data."""
 
     group_by: str | Sequence[str] | None = None
@@ -131,7 +90,7 @@ class DataOptions(_Options):
 
 
 @dataclass(kw_only=True)
-class ModelOptions(_Options):
+class ModelOptions(Options):
     """Options for the model."""
 
     n_factors: int = 0
@@ -171,7 +130,7 @@ class ModelOptions(_Options):
 
 
 @dataclass(kw_only=True)
-class TrainingOptions(_Options):
+class TrainingOptions(Options):
     """Options for training."""
 
     device: str | torch.device = "cuda"
@@ -213,48 +172,6 @@ class TrainingOptions(_Options):
         self.device = torch.device(self.device)
 
 
-@dataclass(kw_only=True)
-class SmoothOptions(_Options):
-    """Options for Gaussian processes."""
-
-    n_inducing: int = 100
-    """Number of inducing points."""
-
-    kernel: Literal["RBF", "Matern"] = "RBF"
-    """Kernel function to use."""
-
-    mefisto_kernel: bool = True
-    """Whether to use the MEFISTO group covariance kernel or treat groups independently."""
-
-    independent_lengthscales: bool = False
-    """Whether to use a separate lengthscale per covariate dimension."""
-
-    group_covar_rank: int = 1
-    """Rank of the group correlation matrix. Only relevant if `mefisto_kernel=True`."""
-
-    warp_groups: Sequence[str] = field(default_factory=list)
-    """List of groups to apply dynamic time warping to."""
-
-    warp_interval: int = 20
-    """Apply dynamic time warping every `warp_interval` epochs."""
-
-    warp_open_begin: bool = True
-    """Perform open-ended alignment."""
-
-    warp_open_end: bool = True
-    """Perform open-ended alignment."""
-
-    warp_reference_group: str | None = None
-    """Reference group to align the others to. Defaults to the first group of `warp_groups`."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        if isinstance(self.warp_groups, str):
-            self.warp_groups = [self.warp_groups]
-        else:
-            self.warp_groups = list(self.warp_groups)  # in case the user passed a tuple here, we need a list for saving
-
-
 class MOFAFLEX:
     """Fit the model using the provided data.
 
@@ -268,7 +185,7 @@ class MOFAFLEX:
         *args: Options for training.
     """
 
-    def __init__(self, data: MuData | Mapping[str, Mapping[str, AnnData]], *args: _Options):
+    def __init__(self, data: MuData | Mapping[str, Mapping[str, AnnData]], *args: Options):
         self._preprocess_options(*args)
         data = self._make_dataset(data)
         self._adjust_options(data)
@@ -280,9 +197,6 @@ class MOFAFLEX:
         preprocessor = self._make_preprocessor(data)
 
         # this needs to be after preprocessor, since preprocessor may filter out features with zero variance
-        self._setup_annotations(data)
-        self._setup_guiding_vars()
-
         self._metadata = data.get_obs()
         self._view_names = data.view_names
         self._group_names = data.group_names
@@ -489,54 +403,6 @@ class MOFAFLEX:
         self._factor_names = np.asarray(factor_names)
         self._factor_order = np.arange(self._model_opts.n_factors)
 
-    def _setup_gp(self, covariates=None, full_setup=True):
-        gp_group_names = None
-        for prior in self._model_opts.factor_prior:
-            if prior.__class__.__name__ == "GP":
-                gp_group_names = prior._names
-
-        gp_warp_groups_order = None
-        if gp_group_names is not None:
-            if full_setup:
-                if len(self._gp_opts.warp_groups) > 1:
-                    if not set(self._gp_opts.warp_groups) <= set(gp_group_names):
-                        raise ValueError(
-                            "The set of groups with dynamic time warping must be a subset of groups with a GP factor prior."
-                        )
-                    gp_warp_groups_order = {}
-                    for g in self._gp_opts.warp_groups:
-                        ccov = covariates[g].squeeze()
-                        if ccov.ndim > 1:
-                            raise ValueError(
-                                f"Warping can only be performed with 1D covariates, but the covariate for group {g} has {ccov.ndim} dimensions."
-                            )
-                        gp_warp_groups_order[g] = ccov.argsort()
-                    self._orig_covariates = {g: c.copy() for g, c in covariates.items()}
-
-                    if self._gp_opts.warp_reference_group is None:
-                        self._gp_opts.warp_reference_group = self._gp_opts.warp_groups[0]
-                elif len(self._gp_opts.warp_groups) == 1:
-                    _logger.warning("Need at least 2 groups for warping, but only one was given. Ignoring warping.")
-                    self._gp_opts.warp_groups = []
-            else:
-                covariates = self._covariates
-
-            self._gp = GP(
-                n_inducing=self._gp_opts.n_inducing,
-                covariates=(covariates[g] for g in gp_group_names),
-                n_factors=self._model_opts.n_factors,
-                n_groups=len(gp_group_names),
-                kernel=self._gp_opts.kernel,
-                independent_lengthscales=self._gp_opts.independent_lengthscales,
-                rank=self._gp_opts.group_covar_rank,
-                use_mefisto_kernel=self._gp_opts.mefisto_kernel,
-            ).to(self._train_opts.device)
-            self._gp_group_names = gp_group_names
-        else:
-            self._gp = None
-            self._gp_group_names = None
-        return gp_warp_groups_order
-
     def _setup_guiding_vars(self):
         guiding_vars_names = (
             list(self._data_opts.guiding_vars_obs_keys.keys()) if self._data_opts.guiding_vars_obs_keys else []
@@ -552,8 +418,6 @@ class MOFAFLEX:
     def _setup_svi(
         self, init_tensor, covariates, guiding_vars_factors, guiding_vars_n_categories, feature_means, sample_means
     ):
-        gp_warp_groups_order = self._setup_gp(covariates=covariates)
-
         model = MofaFlexModel(
             n_samples=self.n_samples,
             n_features=self.n_features,
@@ -567,10 +431,10 @@ class MOFAFLEX:
             weight_prior=self._model_opts.weight_prior,
             nonnegative_factors=self._model_opts.nonnegative_factors,
             nonnegative_weights=self._model_opts.nonnegative_weights,
-            gp=self._gp,
             feature_means=feature_means,
             sample_means=sample_means,
             factors_init_tensor=init_tensor,
+            annotation_confidence=self._model_opts.annotation_confidence,
         ).to(self._train_opts.device)
 
         n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
@@ -588,7 +452,7 @@ class MOFAFLEX:
             ),
         )
 
-        return svi, model, gp_warp_groups_order
+        return svi, model
 
     def _post_fit(self, data, preprocessor, covariates, model, train_loss_elbo):
         self._weights = model.get_weights()
@@ -708,7 +572,7 @@ class MOFAFLEX:
 
         return init_tensor
 
-    def _preprocess_options(self, *args: _Options):
+    def _preprocess_options(self, *args: Options):
         self._data_opts = DataOptions()
         self._model_opts = ModelOptions()
         self._train_opts = TrainingOptions()
@@ -789,31 +653,43 @@ class MOFAFLEX:
         for group_name, prior in self._model_opts.factor_prior.items():
             factor_prior_groups[prior].append(group_name)
         self._model_opts.factor_prior = [
-            Prior(prior, axis=0, names=gnames) for prior, gnames in factor_prior_groups.items()
+            Prior(
+                prior,
+                axis=0,
+                names=gnames,
+                covariates_obs_key=self._data_opts.covariates_obs_key,
+                covariates_obsm_key=self._data_opts.covariates_obsm_key,
+                options=self._gp_opts,
+            )
+            for prior, gnames in factor_prior_groups.items()
         ]
 
         weight_prior_groups = defaultdict(list)
         for view_name, prior in self._model_opts.weight_prior.items():
             weight_prior_groups[prior].append(view_name)
         self._model_opts.weight_prior = [
-            Prior(prior, axis=0, names=gnames) for prior, gnames in weight_prior_groups.items()
+            Prior(prior, axis=1, names=gnames, annotations_varm_key=self._data_opts.annotations_varm_key)
+            for prior, gnames in weight_prior_groups.items()
         ]
 
     def _fit(self, data, preprocessor):
         pyro.set_rng_seed(self._train_opts.seed)
 
-        # guided factors
+        datasets = {"data": data}
+        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+            if priordsets := prior.get_datasets(data):
+                datasets.update(priordsets)
+
+        # this needs to run after prior.get_datasets()
+        self._setup_annotations(data)
+        self._setup_guiding_vars()
+
         guiding_vars_factors = {
             self.factor_names[self._model_opts.n_factors - self.n_guided_factors + i]: self._model_opts.n_factors
             - self.n_guided_factors
             + i
             for i in range(self.n_guided_factors)
         }
-
-        datasets = {"data": data}
-        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-            if priordsets := prior.get_datasets(data):
-                datasets.update(priordsets)
 
         # get unique categories for each guiding variable
         guiding_vars_n_categories = {}
@@ -837,7 +713,7 @@ class MOFAFLEX:
         init_tensor = self._initialize_factors(data)
 
         covariates = datasets.get("gp_covariates")
-        svi, model, gp_warp_groups_order = self._setup_svi(
+        svi, model = self._setup_svi(
             init_tensor,
             covariates.covariates if covariates else None,
             guiding_vars_factors,
@@ -862,6 +738,7 @@ class MOFAFLEX:
                 (default_convert(dataset.__getitems__(sample_all_data_as_one_batch(data))),),
                 collate_fn_map=collate_fn_map,
             )
+            batchdata = batch.pop("data")
         else:
             loader = DataLoader(
                 dataset,
@@ -878,55 +755,34 @@ class MOFAFLEX:
         earlystopper = EarlyStopper(
             mode="min", min_delta=0.1, patience=self._train_opts.early_stopper_patience, percentage=True
         )
-        with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
-            for i in t:
-                epoch_loss = 0
-                if singlebatch:
-                    with self._train_opts.device:
-                        epoch_loss += svi.step(**batch.pop("data"), **batch)
-                else:
-                    for batch in loader:
-                        batch = collate((batch,), collate_fn_map=collate_fn_map)
-                        with self._train_opts.device:
+        with self._train_opts.device:
+            for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                prior.on_train_start()
+
+            with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
+                for i in t:
+                    for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                        prior.on_train_epoch_start(i)
+                    epoch_loss = 0
+                    if singlebatch:
+                        epoch_loss += svi.step(**batchdata, **batch)
+                    else:
+                        for batch in loader:
+                            batch = collate((batch,), collate_fn_map=collate_fn_map)
                             epoch_loss += svi.step(**batch.pop("data"), **batch)
-                train_loss_elbo.append(epoch_loss)
-                if (
-                    self._gp is not None
-                    and len(self._gp_opts.warp_groups)
-                    and i > 0
-                    and not i % self._gp_opts.warp_interval
-                ):
-                    self._warp_covariates(covariates, model, gp_warp_groups_order)
+                    for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                        prior.on_train_epoch_end(i)
 
-                t.set_postfix({"Loss": epoch_loss}, refresh=False)
+                    train_loss_elbo.append(epoch_loss)
+                    t.set_postfix({"Loss": epoch_loss}, refresh=False)
 
-                if earlystopper.step(epoch_loss):
-                    _logger.info(f"Training converged after {i} epochs.")
-                    break
+                    if earlystopper.step(epoch_loss):
+                        _logger.info(f"Training converged after {i} epochs.")
+                        break
         if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
             t.container.children[1].bar_style = "success"
 
         self._post_fit(data, preprocessor, covariates, model, train_loss_elbo)
-
-    def _warp_covariates(self, covariates, model, warp_groups_order):
-        factormeans = model.get_factors().mean
-        refgroup = self._gp_opts.warp_reference_group
-        reffactormeans = factormeans[refgroup].mean(axis=0)
-        refidx = warp_groups_order[refgroup]
-        for g in self._gp_opts.warp_groups[1:]:
-            idx = warp_groups_order[g]
-            alignment = dtw(
-                reffactormeans[refidx],
-                factormeans[g][:, idx].mean(axis=0),
-                open_begin=self._gp_opts.warp_open_begin,
-                open_end=self._gp_opts.warp_open_end,
-                step_pattern="asymmetric",
-            )
-            covariates.covariates[g] = self._orig_covariates[g].copy()
-            covariates.covariates[g][idx[alignment.index2], 0] = self._orig_covariates[refgroup][
-                refidx[alignment.index1], 0
-            ]
-        self._gp.update_inducing_points(covariates.covariates.values())
 
     def _sort_factors(self, data, weights, factors, subsample=1000):
         # Loop over all groups

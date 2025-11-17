@@ -18,6 +18,7 @@ class Horseshoe(Prior):
         axis: Literal[0, 1, "samples", "features"],
         names: str | Sequence[str] | None,
         annotations_varm_key: str | None = None,
+        **kwargs,
     ):
         super().__init__(axis, names)
         if self._axis != 1 and annotations_varm_key is not None:
@@ -57,7 +58,7 @@ class Horseshoe(Prior):
         if self._annotations is None:
             return factors
         else:
-            n_factors = factors.size
+            n_factors = len(factors)
             annotated_name = next(iter(self._annotations.keys()))
             n_informed_factors = self._annotations[annotated_name].shape[0]
             if annotated_name in self._annotations_names:

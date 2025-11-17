@@ -32,7 +32,7 @@ class Prior(metaclass=_PriorMeta):
             obj.__prior = args[0]
             return obj
 
-    def __init__(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str] | None):
+    def __init__(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str] | None, **kwargs):
         if isinstance(axis, int):
             self._axis = axis
         else:
@@ -47,3 +47,15 @@ class Prior(metaclass=_PriorMeta):
 
     def adjust_factors(self, factors: list[str]) -> list[str]:
         return factors
+
+    def on_train_start(self):
+        pass
+
+    def on_train_epoch_start(self, epoch: int):
+        pass
+
+    def on_train_epoch_end(self, epoch: int):
+        pass
+
+    def on_train_end(self):
+        pass
