@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -9,7 +9,7 @@ from dtw import dtw
 
 from ...datasets import CovariatesDataset, MofaFlexDataset
 from ...pyro.priors import GP as PyroGP
-from ...utils import MeanStd, Options
+from ...utils import MeanStd, Options, pickle_torch_state, unpickle_torch_state
 from .. import Prior
 from .gp import GP
 
@@ -59,6 +59,8 @@ class SmoothOptions(Options):
 
 
 class GaussianProcess(Prior):
+    _state_attrs = "_obs_key", "_obsm_key", "_covariates", "_covariates_names", "_orig_covariates", "_warp_groups_order"
+
     def __init__(
         self,
         axis: Literal[0, 1, "samples", "features"],
@@ -83,6 +85,7 @@ class GaussianProcess(Prior):
         self._opts = options if options is not None else SmoothOptions()
         self._warp_groups_order = None
 
+        self._gp = None
         self._gps = None
 
         self._pyro_prior = None
@@ -181,3 +184,20 @@ class GaussianProcess(Prior):
             gps.mean[group_name] = np.concatenate(mean, axis=1)
             gps.std[group_name] = np.concatenate(std, axis=1)
         return gps
+
+    def _save(self) -> dict:
+        state = {}
+        state["opts"] = asdict(self._opts)
+        state["gps"] = self._gps._asdict()
+        if self._gp is not None:
+            state["gp_state"] = pickle_torch_state(self._gp.state_dict())
+        return state
+
+    def _load(self, state: dict, n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
+        self._opts = SmoothOptions(**state["opts"])
+        self._gps = MeanStd(**state["gps"])
+        self._init_gp(n_factors)
+        try:
+            self._gp.load_state_dict(unpickle_torch_state(state["gp_state"], map_location=map_location))
+        except KeyError:
+            pass

@@ -13,6 +13,15 @@ _logger = logging.getLogger()
 
 
 class Horseshoe(Prior):
+    _state_attrs = (
+        "_annotations_varm_key",
+        "_annotations",
+        "_annotations_names",
+        "_informed_factors_start_idx",
+        "_n_informed_factors",
+        "_pcgse",
+    )
+
     def __init__(
         self,
         axis: Literal[0, 1, "samples", "features"],
@@ -27,7 +36,7 @@ class Horseshoe(Prior):
         self._annotations_varm_key = annotations_varm_key
         self._annotations = None
         self._annotations_names = None
-        self._informed_factors = None
+        self._informed_factors_start_idx = self._n_informed_factors = None
         self._pcgse = None
 
     def get_datasets(self, data: MofaFlexDataset) -> None:
@@ -59,15 +68,14 @@ class Horseshoe(Prior):
         if self._annotations is None:
             return factors
         else:
-            n_factors = len(factors)
+            self._informed_factors_start_idx = len(factors)
             annotated_name = next(iter(self._annotations.keys()))
-            n_informed_factors = self._annotations[annotated_name].shape[0]
+            self._n_informed_factors = self._annotations[annotated_name].shape[0]
             if annotated_name in self._annotations_names:
                 factors.extend(self._annotations_names[annotated_name])
             else:
-                factors += [f"Informed Factor {i + 1}" for i in range(n_informed_factors)]
+                factors += [f"Informed Factor {i + 1}" for i in range(self._n_informed_factors)]
 
-            self._informed_factors = (n_factors, n_informed_factors)
             return factors
 
     def pyro_prior(self, n_factors, n_nonfactors, annotation_confidence=None, *args, **kwargs):
@@ -76,7 +84,7 @@ class Horseshoe(Prior):
             prior_scales = {
                 name: np.clip(
                     self._annotations.get(
-                        name, np.broadcast_to(0, (self._informed_factors[1], n_nonfactors[name]))
+                        name, np.broadcast_to(0, (self._n_informed_factors, n_nonfactors[name]))
                     ).astype(np.float32)
                     + (1 - annotation_confidence),
                     1e-8,
@@ -85,14 +93,20 @@ class Horseshoe(Prior):
                 for name in self._names
             }
 
-            if n_factors > self._informed_factors[1]:
+            if n_factors > self._n_informed_factors:
                 one = np.asarray(1, dtype=np.float32)
                 prior_scales = {
                     name: np.concatenate(
                         (
-                            np.broadcast_to(one, (self._informed_factors[0], n_nonfactors[name])),
+                            np.broadcast_to(one, (self._informed_factors_start_idx, n_nonfactors[name])),
                             scales,
-                            np.broadcast_to(one, (n_nonfactors - sum(self._informed_factors), n_nonfactors[name])),
+                            np.broadcast_to(
+                                one,
+                                (
+                                    n_factors - self._informed_factors_start_idx - self._n_informed_factors,
+                                    n_nonfactors[name],
+                                ),
+                            ),
                         ),
                         axis=0,
                     )

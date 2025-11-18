@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -10,7 +9,6 @@ import anndata as ad
 import h5py
 import numpy as np
 import pandas as pd
-import torch
 from numpy.typing import NDArray
 from packaging.version import Version
 from scipy.sparse import issparse
@@ -35,7 +33,6 @@ def _save_mofa_data(adata, group_name, view_name, data_grp, dset_kwargs):
 
 def save_model(
     model_state,
-    model_topickle,
     path: str | Path,
     mofa_compat: bool = False,
     model: MOFAFLEX | None = None,
@@ -48,7 +45,6 @@ def save_model(
 
     Args:
         model_state: The internal state of the model. Should be compatible with `anndata.io.write_elem`.
-        model_topickle: Parts of the model to save as pickle. Generally some. PyTorch state.
         path: File path where to save the model.
         mofa_compat: If True, saves additional data in MOFA-compatible format.
         model: The MOFA-FLEX model to save. Only needed for `mofa_compat=True`.
@@ -77,10 +73,6 @@ def save_model(
                 dataset_kwargs={} if Version(ad.__version__) < Version("0.11.2") else dset_kwargs,
             )  # https://github.com/h5py/h5py/issues/2525
 
-        pkl = BytesIO()
-        torch.save(model_topickle, pkl)
-
-        mofaflexgrp.create_dataset("pickle", data=np.frombuffer(pkl.getbuffer(), dtype=np.uint8), **dset_kwargs)
         mofaflexgrp.attrs["version"] = __version__
 
         if mofa_compat:
@@ -229,7 +221,7 @@ def save_model(
                 train_stats_grp.create_dataset("Kg", data=model.gp_group_correlation, **dset_kwargs)
 
 
-def load_model(path: str | Path, map_location=None):
+def load_model(path: str | Path):
     """Load a MOFA-FLEX model from an HDF5 file.
 
     Args:
@@ -249,8 +241,5 @@ def load_model(path: str | Path, map_location=None):
                 "The stored model was created with a different version of MOFA-FLEX. Some features may not work."
             )
         state = ad.io.read_elem(mofaflexgrp["state"])
-        pickle = BytesIO(mofaflexgrp["pickle"][()].tobytes())
 
-        pickle = torch.load(pickle, map_location=map_location, weights_only=True)
-
-    return state, pickle
+    return state

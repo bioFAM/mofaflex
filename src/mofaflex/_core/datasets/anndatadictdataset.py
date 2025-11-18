@@ -453,8 +453,7 @@ class AnnDataDictDataset(MofaFlexDataset):
                     f"Number of covariate dimensions in {outer_msg} {name} must be the same across {outer_msg}s."
                 )
 
-        covariates.default_factory = None
-        return covariates, covariates_names
+        return dict(covariates), covariates_names
 
     def _view_for_apply(self, group_name: str, view_name: str) -> ad.AnnData:
         havedask = have_dask()

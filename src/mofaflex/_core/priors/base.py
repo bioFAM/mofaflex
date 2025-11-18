@@ -1,5 +1,5 @@
-from collections.abc import Sequence
-from typing import Literal
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..pyro.priors import Prior as PyroPrior
@@ -58,4 +58,35 @@ class Prior(metaclass=_PriorMeta):
         pass
 
     def on_train_end(self, data: MofaFlexDataset, batch_size: int):
+        pass
+
+    def save(self) -> dict[str, Any]:
+        state = {}
+        if hasattr(self, "_state_attrs"):
+            for attr in self._state_attrs:
+                state[attr] = getattr(self, attr)
+        state.update(self._save())
+        return {"axis": self._axis, "names": self._names, "class": self.__class__.__name__, "state": state}
+
+    def _save(self) -> dict[str, Any]:
+        return {}
+
+    @classmethod
+    def load(cls, state: dict[str, Any], n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
+        try:
+            subcls = __class__.__registry[state["class"]]
+            obj = subcls.__new__(subcls)
+        except (KeyError, AttributeError):
+            obj = __class__.__new__(cls)
+        obj._axis = state["axis"]
+        obj._names = state["names"]
+
+        substate = state["state"]
+        if hasattr(obj, "_state_attrs"):
+            for attr in obj._state_attrs:
+                setattr(obj, attr, substate.get(attr))
+        obj._load(substate, n_factors, n_nonfactors, map_location=map_location)
+        return obj
+
+    def _load(self, state, n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
         pass

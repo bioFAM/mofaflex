@@ -447,8 +447,7 @@ class MuDataDataset(MofaFlexDataset):
                 raise ValueError(
                     f"Number of covariate dimensions in {outer_msg} {name} must be the same across {inner_msg}s."
                 )
-        covariates.default_factory = None
-        return covariates, covariates_names
+        return dict(covariates), covariates_names
 
     def _data_for_apply(self):
         data = self._data

@@ -463,8 +463,7 @@ class MOFAFLEX:
         self._sparse_factors_precisions = model.get_sparse_factor_precisions()
         self._sparse_weights_precisions = model.get_sparse_weight_precisions()
         self._covariates, self._covariates_names = (
-            (covariates.covariates, covariates.covariates_names) if covariates is not None else None,
-            None,
+            (covariates.covariates, covariates.covariates_names) if covariates is not None else (None, None)
         )
         self._train_loss_elbo = np.asarray(train_loss_elbo)
 
@@ -1160,14 +1159,12 @@ class MOFAFLEX:
             "sparse_weights_probabilities": self._sparse_weights_probabilities,
             "sparse_factors_precisions": self._sparse_factors_precisions._asdict(),
             "sparse_weights_precisions": self._sparse_weights_precisions._asdict(),
-            "gps": self._gps._asdict(),
             "dispersions": self._dispersions._asdict(),
             "train_loss_elbo": self._train_loss_elbo,
             "group_names": self._group_names,
             "view_names": self._view_names,
             "feature_names": self._feature_names,
             "sample_names": self._sample_names,
-            "annotations": self._annotations,
             "metadata": self._metadata,
             "data_opts": asdict(self._data_opts),
             "model_opts": asdict(self._model_opts),
@@ -1179,14 +1176,14 @@ class MOFAFLEX:
         state["model_opts"]["likelihoods"] = {
             view_name: str(likelihood) for view_name, likelihood in state["model_opts"]["likelihoods"].items()
         }
-        if hasattr(self, "_orig_covariates"):
-            state["orig_covariates"] = self._orig_covariates
+        state["model_opts"]["factor_prior"] = {
+            str(i): prior.save() for i, prior in enumerate(state["model_opts"]["factor_prior"])
+        }
+        state["model_opts"]["weight_prior"] = {
+            str(i): prior.save() for i, prior in enumerate(state["model_opts"]["weight_prior"])
+        }
 
-        pickle = None
-        if self._gp is not None and self._gp_group_names is not None:
-            pickle = self._gp.state_dict()
-            state["gp_group_names"] = self._gp_group_names
-        save_model(state, pickle, path, mofa_compat, self, data, intercepts)
+        save_model(state, path, mofa_compat, self, data, intercepts)
 
     @classmethod
     def load(cls, path: str | Path, map_location=None) -> "MOFAFLEX":
@@ -1197,7 +1194,7 @@ class MOFAFLEX:
             map_location: Specify how to remap storage locations for PyTorch tensors. See the `torch.load`
                 documentation for details.
         """
-        state, pickle = load_model(path, map_location)
+        state = load_model(path)
 
         if map_location is not None:
             state["train_opts"]["device"] = map_location
@@ -1225,7 +1222,6 @@ class MOFAFLEX:
         model._sparse_weights_probabilities = state["sparse_weights_probabilities"]
         model._sparse_factors_precisions = MeanStd(**state["sparse_factors_precisions"])
         model._sparse_weights_precisions = MeanStd(**state["sparse_weights_precisions"])
-        model._gps = MeanStd(**state["gps"])
         model._dispersions = MeanStd(**state["dispersions"])
         model._train_loss_elbo = state["train_loss_elbo"]
         model._group_names = state["group_names"]
@@ -1242,8 +1238,13 @@ class MOFAFLEX:
         model._gp_opts = SmoothOptions(**state["gp_opts"])
         model._preprocessor_state = state["preprocessor_state"]
 
-        model._setup_gp(full_setup=False)
-        if model._gp is not None and len(pickle):
-            model._gp.load_state_dict(pickle)
+        model._model_opts.factor_prior = [
+            Prior.load(state, model.n_factors, model.n_samples, map_location=map_location)
+            for state in model._model_opts.factor_prior.values()
+        ]
+        model._model_opts.weight_prior = [
+            Prior.load(state, model.n_factors, model.n_features, map_location=map_location)
+            for state in model._model_opts.weight_prior.values()
+        ]
 
         return model

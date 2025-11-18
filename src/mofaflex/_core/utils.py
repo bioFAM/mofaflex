@@ -1,9 +1,11 @@
 from collections import namedtuple
 from dataclasses import MISSING, dataclass, fields
+from io import BytesIO
 from typing import Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
+import torch
 from anndata import AnnData
 from numpy.typing import NDArray
 from scipy.sparse import (
@@ -66,6 +68,17 @@ class Options:
         for f in fields(self):
             if f.type in (float, int, bool):
                 setattr(self, f.name, f.type(getattr(self, f.name)))
+
+
+def pickle_torch_state(state: dict) -> NDArray[np.uint8]:
+    pkl = BytesIO()
+    torch.save(state, pkl)
+    return np.frombuffer(pkl.getbuffer(), dtype=np.uint8)
+
+
+def unpickle_torch_state(state: NDArray[np.uint8], map_location=None):
+    pkl = BytesIO(state.tobytes())
+    return torch.load(pkl, map_location=map_location, weights_only=True)
 
 
 def sample_all_data_as_one_batch(data: MofaFlexDataset) -> dict[str, list[int]]:
