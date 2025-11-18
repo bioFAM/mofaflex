@@ -1,14 +1,15 @@
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
+import numpy as np
 import torch
 from dtw import dtw
 
 from ...datasets import CovariatesDataset, MofaFlexDataset
 from ...pyro.priors import GP as PyroGP
-from ...utils import Options
+from ...utils import MeanStd, Options
 from .. import Prior
 from .gp import GP
 
@@ -82,6 +83,8 @@ class GaussianProcess(Prior):
         self._opts = options if options is not None else SmoothOptions()
         self._warp_groups_order = None
 
+        self._gps = None
+
         self._pyro_prior = None
 
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
@@ -131,7 +134,7 @@ class GaussianProcess(Prior):
 
     @torch.inference_mode()
     def on_train_epoch_end(self, epoch: int):
-        if len(self._opts.warp_groups) and epoch > 0 and not epoch & self._opts.warp_interval:
+        if len(self._opts.warp_groups) and epoch > 0 and not epoch % self._opts.warp_interval:
             factormeans = {
                 group_name: mean.cpu().numpy() for group_name, mean in self._pyro_prior.posterior.mean.items()
             }  # TODO: investigate how warping interacts with non-negativity
@@ -152,3 +155,29 @@ class GaussianProcess(Prior):
                     refidx[alignment.index1], 0
                 ]
             self._gp.update_inducing_points(self._covariates.values())
+
+    def on_train_end(self, data: MofaFlexDataset, batch_size: int):
+        self._gps = self._get_gps(self._covariates, batch_size)
+
+    @torch.inference_mode()
+    def _get_gps(self, x: Mapping[str, np.ndarray | torch.Tensor], batch_size: int):
+        gps = MeanStd({}, {})
+        for group_idx, group_name in enumerate(self._names):
+            gidx = torch.as_tensor(group_idx)
+            gdata = x[group_name]
+            mean, std = [], []
+
+            for start_idx in range(0, gdata.shape[0], batch_size):
+                end_idx = min(start_idx + batch_size, gdata.shape[0])
+                minibatch = gdata[start_idx:end_idx]
+
+                gp_dist = self._gp(
+                    (gidx.expand(minibatch.shape[0], 1), torch.as_tensor(minibatch, dtype=torch.float32)), prior=False
+                )
+
+                mean.append(gp_dist.mean.cpu().numpy())
+                std.append(gp_dist.stddev.cpu().numpy())
+
+            gps.mean[group_name] = np.concatenate(mean, axis=1)
+            gps.std[group_name] = np.concatenate(std, axis=1)
+        return gps

@@ -48,7 +48,7 @@ class Prior(metaclass=_PriorMeta):
     def adjust_factors(self, factors: list[str]) -> list[str]:
         return factors
 
-    def on_train_start(self):
+    def on_train_start(self, batch_size: int):
         pass
 
     def on_train_epoch_start(self, epoch: int):
@@ -57,5 +57,5 @@ class Prior(metaclass=_PriorMeta):
     def on_train_epoch_end(self, epoch: int):
         pass
 
-    def on_train_end(self):
+    def on_train_end(self, data: MofaFlexDataset, batch_size: int):
         pass

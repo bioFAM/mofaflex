@@ -466,7 +466,6 @@ class MOFAFLEX:
             (covariates.covariates, covariates.covariates_names) if covariates is not None else None,
             None,
         )
-        self._gps = self._get_gps(self._covariates)
         self._train_loss_elbo = np.asarray(train_loss_elbo)
 
         self._df_r2_full, self._df_r2_factors, self._factor_order = self._sort_factors(
@@ -477,7 +476,7 @@ class MOFAFLEX:
 
         self._preprocessor_state = preprocessor.state_dict()
 
-        if len(self._annotations) > 0:
+        if False:  # len(self._annotations) > 0:
             self._pcgse = pcgse_test(
                 data,
                 self._model_opts.nonnegative_weights,
@@ -652,17 +651,19 @@ class MOFAFLEX:
         factor_prior_groups = defaultdict(list)
         for group_name, prior in self._model_opts.factor_prior.items():
             factor_prior_groups[prior].append(group_name)
-        self._model_opts.factor_prior = [
-            Prior(
-                prior,
+        self._model_opts.factor_prior = []
+        for priorname, gnames in factor_prior_groups.items():
+            prior = Prior(
+                priorname,
                 axis=0,
                 names=gnames,
                 covariates_obs_key=self._data_opts.covariates_obs_key,
                 covariates_obsm_key=self._data_opts.covariates_obsm_key,
                 options=self._gp_opts,
             )
-            for prior, gnames in factor_prior_groups.items()
-        ]
+            if priorname == "GP":
+                self._get_gps = prior._get_gps
+            self._model_opts.factor_prior.append(prior)
 
         weight_prior_groups = defaultdict(list)
         for view_name, prior in self._model_opts.weight_prior.items():
@@ -757,12 +758,13 @@ class MOFAFLEX:
         )
         with self._train_opts.device:
             for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                prior.on_train_start()
+                prior.on_train_start(batch_size=self._train_opts.batch_size)
 
             with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
                 for i in t:
                     for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                         prior.on_train_epoch_start(i)
+
                     epoch_loss = 0
                     if singlebatch:
                         epoch_loss += svi.step(**batchdata, **batch)
@@ -779,6 +781,10 @@ class MOFAFLEX:
                     if earlystopper.step(epoch_loss):
                         _logger.info(f"Training converged after {i} epochs.")
                         break
+
+            for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                prior.on_train_end(data, batch_size=self._train_opts.batch_size)
+
         if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
             t.container.children[1].bar_style = "success"
 
@@ -1053,7 +1059,8 @@ class MOFAFLEX:
                  minibatch size used for training.
              ordered: Whether to return the factors ordered by explained variance (highest to lowest).
         """
-        gps = getattr(self._gps if x is None else self._get_gps(x, batch_size), moment)
+        with torch.device(self._train_opts.device):
+            gps = getattr(self._gps if x is None else self._get_gps(x, batch_size), moment)
         gps = {
             group_name: pd.DataFrame(
                 group_f[self.factor_order if ordered else slice(None), :].T, columns=self.factor_names
@@ -1066,36 +1073,6 @@ class MOFAFLEX:
                 df.set_index(np.asarray(self.sample_names[gname]), inplace=True)
 
         return self._get_component(gps, return_type)
-
-    def _get_gps(self, x: Mapping[str, np.ndarray | torch.Tensor], batch_size: int | None = None):
-        if batch_size is None:
-            batch_size = self._train_opts.batch_size
-        gps = MeanStd({}, {})
-        if self._gp is not None:
-            with (
-                torch.inference_mode(),
-                self._train_opts.device,
-            ):  # FIXME: allow user to run this in a `with device` context?
-                for group_idx, group_name in enumerate(self._gp_group_names):
-                    gidx = torch.as_tensor(group_idx)
-                    gdata = x[group_name]
-                    mean, std = [], []
-
-                    for start_idx in range(0, gdata.shape[0], batch_size):
-                        end_idx = min(start_idx + batch_size, gdata.shape[0])
-                        minibatch = gdata[start_idx:end_idx]
-
-                        gp_dist = self._gp(
-                            (gidx.expand(minibatch.shape[0], 1), torch.as_tensor(minibatch, dtype=torch.float32)),
-                            prior=False,
-                        )
-
-                        mean.append(gp_dist.mean.cpu().numpy())
-                        std.append(gp_dist.stddev.cpu().numpy())
-
-                    gps.mean[group_name] = np.concatenate(mean, axis=1)
-                    gps.std[group_name] = np.concatenate(std, axis=1)
-        return gps
 
     def get_annotations(
         self, return_type: Literal["pandas", "anndata", "numpy"] = "pandas", ordered=False

@@ -28,6 +28,7 @@ class Horseshoe(Prior):
         self._annotations = None
         self._annotations_names = None
         self._informed_factors = None
+        self._pcgse = None
 
     def get_datasets(self, data: MofaFlexDataset) -> None:
         if self._annotations_varm_key is not None:
