@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..pyro.priors import Prior as PyroPrior
@@ -12,14 +12,22 @@ class _PriorMeta(type):
         return obj
 
 
+class APIMethod(NamedTuple):
+    name: str
+    has_factors: bool
+
+
 class Prior(metaclass=_PriorMeta):
     """Base class for MOFA-FLEX priors."""
 
     __registry = {}
+    _apilist = ()
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         __class__.__registry[cls.__name__] = cls
+        if "_apilist" in cls.__dict__:
+            cls._apilist = tuple(cls._apilist)
 
     def __new__(cls, *args, **kwargs):
         if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):
@@ -38,6 +46,30 @@ class Prior(metaclass=_PriorMeta):
         else:
             self._axis = 0 if axis == "samples" else 1
         self._names = names if isinstance(names, Sequence) else (names,)
+
+    @property
+    def axis(self):
+        return self._axis
+
+    def _api(func=None, *, has_factors=True):
+        class __api:
+            def __init__(self, func):
+                self._func = func
+
+            def __set_name__(self, owner, name):
+                if "_apilist" not in owner.__dict__:
+                    owner._apilist = []
+                owner._apilist.append(APIMethod(name, has_factors))
+                setattr(owner, name, self._func)
+
+        if func is not None:
+            return __api(func)
+        else:
+            return __api
+
+    @classmethod
+    def api(cls):
+        return cls._apilist
 
     def pyro_prior(self, *args, **kwargs):
         return PyroPrior(self.__prior, self._names, *args, **kwargs)

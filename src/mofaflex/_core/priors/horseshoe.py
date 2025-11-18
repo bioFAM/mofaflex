@@ -1,9 +1,11 @@
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from functools import reduce
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 
 from ..datasets import MofaFlexDataset
 from ..pyro.priors import Horseshoe as PyroHorseshoe
@@ -30,7 +32,7 @@ class Horseshoe(Prior):
         **kwargs,
     ):
         super().__init__(axis, names)
-        if self._axis != 1 and annotations_varm_key is not None:
+        if self.axis != 1 and annotations_varm_key is not None:
             raise ValueError("Annotations can only be applied on features.")
 
         self._annotations_varm_key = annotations_varm_key
@@ -42,7 +44,7 @@ class Horseshoe(Prior):
     def get_datasets(self, data: MofaFlexDataset) -> None:
         if self._annotations_varm_key is not None:
             annotations, annotations_names = data.get_covariates(
-                self._axis, mkey=self._annotations_varm_key, fill_value=lambda dt: False if dt == np.bool_ else np.nan
+                self.axis, mkey=self._annotations_varm_key, fill_value=lambda dt: False if dt == np.bool_ else np.nan
             )
             for name in list(annotations.keys()):
                 if name not in self._names:
@@ -50,10 +52,8 @@ class Horseshoe(Prior):
                         f"Horseshoe prior required for annotations for view {name}. Annotations will be ignored."
                     )
                     del annotations[name]
-                    try:
+                    with suppress(KeyError):
                         del annotations_names[name]
-                    except KeyError:
-                        pass
                 else:
                     annot = annotations[name]
                     if all(a.dtype == np.bool for a in annot.values()):
@@ -78,7 +78,7 @@ class Horseshoe(Prior):
 
             return factors
 
-    def pyro_prior(self, n_factors, n_nonfactors, annotation_confidence=None, *args, **kwargs):
+    def pyro_prior(self, n_factors: int, n_nonfactors: int, annotation_confidence: float = None, *args, **kwargs):
         prior_scales = None
         if self._annotations is not None:
             prior_scales = {
@@ -115,3 +115,19 @@ class Horseshoe(Prior):
         return PyroHorseshoe(
             self._names, *args, n_factors=n_factors, n_nonfactors=n_nonfactors, **kwargs, prior_scales=prior_scales
         )
+
+    @Prior._api
+    def get_annotations(
+        self, factor_names: Sequence[str], nonfactor_names: Mapping[str, Sequence[str]]
+    ) -> dict[str, pd.DataFrame]:
+        """Get the annotation matrices for each view."""
+        if not self._annotations:
+            return None
+
+        factor_names = factor_names[
+            self._informed_factors_start_idx : self._informed_factors_start_idx + self._n_informed_factors
+        ]
+        return {
+            view_name: pd.DataFrame(annot, index=factor_names, columns=nonfactor_names[view_name])
+            for view_name, annot in self._annotations.items()
+        }

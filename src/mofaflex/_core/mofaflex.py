@@ -2,9 +2,11 @@ import logging
 import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from itertools import chain
 from pathlib import Path
+from types import MethodWrapperType
 from typing import Literal, get_args
 
 import numpy as np
@@ -204,6 +206,60 @@ class MOFAFLEX:
         self._feature_names = data.feature_names
 
         self._fit(data, preprocessor)
+
+    def _wrap_api_method(self, func: MethodWrapperType, has_factors: bool):
+        axis = func.__self__.axis
+
+        def wrapper_func(self):
+            with torch.device(self._train_opts.device):
+                return func(
+                    factor_names=self.factor_names,
+                    nonfactor_names=self.sample_names if axis == 0 else self.feature_names,
+                )
+
+        if not has_factors:
+            wrapper_func.__doc__ = func.__doc__
+            ret = wrapper_func
+        else:
+
+            def wrapper_func_order(self, ordered: bool = False):
+                ret = wrapper_func(self)
+                if ordered:
+                    orderedret = {}
+                    for k, df in ret.items():
+                        used_factor_names = df.index if axis == 1 else df.columns
+                        used_factor_order = self.factor_order[np.isin(self.factor_names, used_factor_names)]
+                        used_factor_order = np.argsort(np.argsort(used_factor_order))
+                        df = df.iloc[used_factor_order, :] if axis == 1 else df.iloc[:, used_factor_order]
+                        orderedret[k] = df
+                    ret = orderedret
+                return ret
+
+            wrapper_func_order.__doc__ = (
+                func.__doc__ + "\n\nArgs:\n"
+                "    ordered: Whether to return the factors ordered by explained variance (highest to lowest)."
+            )
+            ret = wrapper_func_order
+        with suppress(KeyError):
+            ret.__annotations__["return"] = func.__annotations__["return"]
+        return ret.__get__(self)
+
+    def _init_api(self):
+        for priors in (self._model_opts.factor_prior, self._model_opts.weight_prior):
+            seen, duplicates = set(), set()
+            for method in chain(*(x.api() for x in priors)):
+                if method.name in seen:
+                    duplicates.add(method.name)
+                else:
+                    seen.add(method.name)
+
+            for prior in priors:
+                for method in prior.api():
+                    wrapped = self._wrap_api_method(getattr(prior, method.name), has_factors=method.has_factors)
+                    if method in duplicates:
+                        setattr(self, f"{method.name}_{prior.__class__.__name__}", wrapped)
+                    else:
+                        setattr(self, method.name, wrapped)
 
     def _make_dataset(self, data: MuData | Mapping[str, Mapping[str, AnnData]]) -> MofaFlexDataset:
         return MofaFlexDataset(
@@ -495,6 +551,8 @@ class MOFAFLEX:
             _logger.info(f"Saving results to {self._train_opts.save_path}...")
             Path(self._train_opts.save_path).parent.mkdir(parents=True, exist_ok=True)
             self._save(self._train_opts.save_path, self._train_opts.mofa_compat, data, preprocessor.feature_means)
+
+        self._init_api()
 
     @staticmethod
     def _init_factor_group(adata, group_name, view_name, impute_missings, initializer):
@@ -1073,25 +1131,6 @@ class MOFAFLEX:
 
         return self._get_component(gps, return_type)
 
-    def get_annotations(
-        self, return_type: Literal["pandas", "anndata", "numpy"] = "pandas", ordered=False
-    ) -> _ResultsTypeDF:
-        """Get the annotation matrices for each view.
-
-        Args:
-            return_type: Format of the returned object.
-            ordered: Whether to return the factors ordered by explained variance (highest to lowest).
-        """
-        informed_factors = slice(self.n_uninformed_factors, self.n_uninformed_factors + self.n_informed_factors)
-        annotations = {
-            k: pd.DataFrame(v, index=self.factor_names[informed_factors], columns=self.feature_names[k])
-            .astype(bool)
-            .iloc[np.argsort(np.argsort(self.factor_order[informed_factors])) if ordered else slice(None), :]
-            for k, v in self._annotations.items()
-        }
-
-        return self._get_component(annotations, return_type)
-
     def _setup_device(self, device):
         device = torch.device(device)
         tens = torch.tensor(())
@@ -1246,5 +1285,7 @@ class MOFAFLEX:
             Prior.load(state, model.n_factors, model.n_features, map_location=map_location)
             for state in model._model_opts.weight_prior.values()
         ]
+
+        model._init_api()
 
         return model
