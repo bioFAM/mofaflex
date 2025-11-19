@@ -3,7 +3,7 @@ import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
 from types import MethodWrapperType
@@ -32,7 +32,6 @@ from . import preprocessing
 from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
-from .pcgse import pcgse_test
 from .priors import Prior, SmoothOptions
 from .pyro import MofaFlexModel
 from .pyro.priors import FactorPriorType, WeightPriorType
@@ -235,8 +234,12 @@ class MOFAFLEX:
                     ret = orderedret
                 return ret
 
+            if func.__doc__ is not None:
+                doc = func.__doc__ + "\n\n"
+            else:
+                doc = ""
             wrapper_func_order.__doc__ = (
-                func.__doc__ + "\n\nArgs:\n"
+                doc + "Args:\n"
                 "    ordered: Whether to return the factors ordered by explained variance (highest to lowest)."
             )
             ret = wrapper_func_order
@@ -531,27 +534,6 @@ class MOFAFLEX:
 
         self._preprocessor_state = preprocessor.state_dict()
 
-        if False:  # len(self._annotations) > 0:
-            self._pcgse = pcgse_test(
-                data,
-                self._model_opts.nonnegative_weights,
-                self.get_annotations("pandas"),
-                self.get_weights("pandas"),
-                min_size=1,
-                subsample=1000,
-            )
-        else:
-            self._pcgse = None
-
-        if self._train_opts.save_path is not False:
-            if self._train_opts.save_path is None:
-                self._train_opts.save_path = f"mofaflex_{time.strftime('%Y%m%d_%H%M%S')}.h5"
-            else:
-                self._train_opts.save_path = str(self._train_opts.save_path)
-            _logger.info(f"Saving results to {self._train_opts.save_path}...")
-            Path(self._train_opts.save_path).parent.mkdir(parents=True, exist_ok=True)
-            self._save(self._train_opts.save_path, self._train_opts.mofa_compat, data, preprocessor.feature_means)
-
         self._init_api()
 
     @staticmethod
@@ -839,13 +821,38 @@ class MOFAFLEX:
                         _logger.info(f"Training converged after {i} epochs.")
                         break
 
+            if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
+                t.container.children[1].bar_style = "success"
+
+            self._post_fit(data, preprocessor, covariates, model, train_loss_elbo)
+
             for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                prior.on_train_end(data, batch_size=self._train_opts.batch_size)
+                if prior.axis == 0:
+                    kwargs = {
+                        "nonfactor_names": self.sample_names,
+                        "results_mean": self.get_factors(moment="mean"),
+                        "results_std": self.get_factors(moment="std"),
+                        "results_nonnegative": self._model_opts.nonnegative_factors,
+                    }
+                else:
+                    kwargs = {
+                        "nonfactor_names": self.feature_names,
+                        "results_mean": self.get_weights(moment="mean"),
+                        "results_std": self.get_weights(moment="std"),
+                        "results_nonnegative": self._model_opts.nonnegative_weights,
+                    }
+                prior.on_train_end(
+                    data, factor_names=self.factor_names, batch_size=self._train_opts.batch_size, **kwargs
+                )
 
-        if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
-            t.container.children[1].bar_style = "success"
-
-        self._post_fit(data, preprocessor, covariates, model, train_loss_elbo)
+        if self._train_opts.save_path is not False:
+            if self._train_opts.save_path is None:
+                self._train_opts.save_path = f"mofaflex_{time.strftime('%Y%m%d_%H%M%S')}.h5"
+            else:
+                self._train_opts.save_path = str(self._train_opts.save_path)
+            _logger.info(f"Saving results to {self._train_opts.save_path}...")
+            Path(self._train_opts.save_path).parent.mkdir(parents=True, exist_ok=True)
+            self._save(self._train_opts.save_path, self._train_opts.mofa_compat, data, preprocessor.feature_means)
 
     def _sort_factors(self, data, weights, factors, subsample=1000):
         # Loop over all groups
@@ -1002,18 +1009,6 @@ class MOFAFLEX:
                 group_name: df.set_index(self.factor_names).iloc[self.factor_order if ordered else slice(None), :]
                 for group_name, df in self._df_r2_factors.items()
             }
-
-    def get_significant_factor_annotations(self) -> dict[str, pd.DataFrame] | None:
-        """Get the results of significance testing of annotations against factors.
-
-        The significance testing is an implementation of PCGSE :cite:p:`pmid26300978`. While
-        originally intended to assign annotations to uninformed factors, here it is used
-        as a diagnostic plot to find factors that are mismatched to their annotations.
-
-        Returns:
-            PCGSE results for each view or `None` if the model does not have prior annotations.
-        """
-        return self._pcgse
 
     def get_weights(
         self,
@@ -1189,7 +1184,6 @@ class MOFAFLEX:
             "n_guiding_vars": self._n_guiding_vars,
             "df_r2_full": self._df_r2_full,
             "df_r2_factors": self._df_r2_factors,
-            "pcgse": self._pcgse,
             "n_uninformed_factors": self._n_uninformed_factors,
             "n_informed_factors": self._n_informed_factors,
             "factor_names": self._factor_names,
@@ -1205,10 +1199,10 @@ class MOFAFLEX:
             "feature_names": self._feature_names,
             "sample_names": self._sample_names,
             "metadata": self._metadata,
-            "data_opts": asdict(self._data_opts),
-            "model_opts": asdict(self._model_opts),
-            "train_opts": asdict(self._train_opts),
-            "gp_opts": asdict(self._gp_opts),
+            "data_opts": self._data_opts.asdict(),
+            "model_opts": self._model_opts.asdict(),
+            "train_opts": self._train_opts.asdict(),
+            "gp_opts": self._gp_opts.asdict(),
             "preprocessor_state": self._preprocessor_state,
         }
         state["train_opts"]["device"] = str(state["train_opts"]["device"])
@@ -1252,7 +1246,6 @@ class MOFAFLEX:
         model._n_guiding_vars = state.get("n_guiding_vars")
         model._df_r2_full = state["df_r2_full"]
         model._df_r2_factors = state["df_r2_factors"]
-        model._pcgse = state.get("pcgse")
         model._n_uninformed_factors = state["n_uninformed_factors"]
         model._n_informed_factors = state["n_informed_factors"]
         model._factor_names = state["factor_names"]

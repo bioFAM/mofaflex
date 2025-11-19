@@ -63,6 +63,10 @@ class Options:
                 setattr(self, f.name, val)
         return self
 
+    def asdict(self):
+        # avoid the deepcopy done by dataclasses.asdict
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
     def __post_init__(self):
         # after an HDF5 roundtrip, these are numpy scalars, which PyTorch doesn't handle well'
         for f in fields(self):

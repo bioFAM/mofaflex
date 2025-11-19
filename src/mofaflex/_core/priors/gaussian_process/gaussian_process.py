@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 import torch
 from dtw import dtw
 
@@ -159,7 +160,16 @@ class GaussianProcess(Prior):
                 ]
             self._gp.update_inducing_points(self._covariates.values())
 
-    def on_train_end(self, data: MofaFlexDataset, batch_size: int):
+    def on_train_end(
+        self,
+        data: MofaFlexDataset,
+        factor_names: Sequence[str],
+        nonfactor_names: Mapping[str, Sequence[str]],
+        results_mean: dict[str, pd.DataFrame],
+        results_std: dict[str, pd.DataFrame],
+        results_nonnegative: dict[str, bool],
+        batch_size: int,
+    ):
         self._gps = self._get_gps(self._covariates, batch_size)
 
     @torch.inference_mode()

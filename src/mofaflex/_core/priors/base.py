@@ -1,6 +1,8 @@
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, NamedTuple
 
+import pandas as pd
+
 from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..pyro.priors import Prior as PyroPrior
 
@@ -89,7 +91,16 @@ class Prior(metaclass=_PriorMeta):
     def on_train_epoch_end(self, epoch: int):
         pass
 
-    def on_train_end(self, data: MofaFlexDataset, batch_size: int):
+    def on_train_end(
+        self,
+        data: MofaFlexDataset,
+        factor_names: Sequence[str],
+        nonfactor_names: Sequence[str],
+        results_mean: dict[str, pd.DataFrame],
+        results_std: dict[str, pd.DataFrame],
+        results_nonnegative: dict[str, bool],
+        batch_size: int,
+    ):
         pass
 
     def save(self) -> dict[str, Any]:

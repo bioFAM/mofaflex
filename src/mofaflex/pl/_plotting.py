@@ -420,7 +420,7 @@ def factor_significance(
         alpha: False discovery rate threshold.
         figsize: Figure size in inches.
     """
-    pcgse_results = model.get_significant_factor_annotations()
+    pcgse_results = model.get_significant_annotations()
     if pcgse_results is None:
         raise ValueError("PCGSE results not available.")
 

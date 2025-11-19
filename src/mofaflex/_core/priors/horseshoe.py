@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ..datasets import MofaFlexDataset
+from ..pcgse import pcgse_test
 from ..pyro.priors import Horseshoe as PyroHorseshoe
 from . import Prior
 
@@ -116,18 +117,62 @@ class Horseshoe(Prior):
             self._names, *args, n_factors=n_factors, n_nonfactors=n_nonfactors, **kwargs, prior_scales=prior_scales
         )
 
+    def on_train_end(
+        self,
+        data: MofaFlexDataset,
+        factor_names: Sequence[str],
+        nonfactor_names: Mapping[str, Sequence[str]],
+        results_mean: dict[str, pd.DataFrame],
+        results_std: dict[str, pd.DataFrame],
+        results_nonnegative: dict[str, bool],
+        batch_size: int,
+    ):
+        if self._annotations is not None:
+            self._pcgse = pcgse_test(
+                data,
+                nonnegative_weights=results_nonnegative,
+                annotations=self.get_annotations(factor_names, nonfactor_names),
+                weights=results_mean,
+                min_size=1,
+                subsample=1000,
+            )
+
+    @Prior._api
+    def get_significant_annotations(
+        self, factor_names: Sequence[str], nonfactor_names: Mapping[str, Sequence[str]]
+    ) -> dict[str, pd.DataFrame]:
+        """Get the results of significance testing of annotations against factors.
+
+        The significance testing is an implementation of PCGSE :cite:p:`pmid26300978`. While
+        originally intended to assign annotations to uninformed factors, here it is used
+        as a diagnostic plot to find factors that are mismatched to their annotations.
+
+        Returns:
+            PCGSE results for each view or `None` if the model does not have prior annotations.
+        """
+        if not self._pcgse:
+            return None
+        return self._pcgse
+
     @Prior._api
     def get_annotations(
         self, factor_names: Sequence[str], nonfactor_names: Mapping[str, Sequence[str]]
     ) -> dict[str, pd.DataFrame]:
-        """Get the annotation matrices for each view."""
+        """Get the annotation matrices for each view.
+
+        Returns:
+            The annotations for each view or `None` if the model does not have prior annotations.
+        """
         if not self._annotations:
             return None
 
-        factor_names = factor_names[
-            self._informed_factors_start_idx : self._informed_factors_start_idx + self._n_informed_factors
-        ]
+        factor_names = self._subset_factor_names(factor_names)
         return {
             view_name: pd.DataFrame(annot, index=factor_names, columns=nonfactor_names[view_name])
             for view_name, annot in self._annotations.items()
         }
+
+    def _subset_factor_names(self, factor_names):
+        return factor_names[
+            self._informed_factors_start_idx : self._informed_factors_start_idx + self._n_informed_factors
+        ]
