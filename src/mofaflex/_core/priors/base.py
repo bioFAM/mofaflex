@@ -1,4 +1,5 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from types import MethodType
 from typing import Any, Literal, NamedTuple
 
 import pandas as pd
@@ -23,13 +24,11 @@ class Prior(metaclass=_PriorMeta):
     """Base class for MOFA-FLEX priors."""
 
     __registry = {}
-    _apilist = ()
+    _apilist = []
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         __class__.__registry[cls.__name__] = cls
-        if "_apilist" in cls.__dict__:
-            cls._apilist = tuple(cls._apilist)
 
     def __new__(cls, *args, **kwargs):
         if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):
@@ -53,15 +52,30 @@ class Prior(metaclass=_PriorMeta):
     def axis(self):
         return self._axis
 
-    def _api(func=None, *, has_factors=True):
+    @staticmethod
+    def _api(func: Callable = None, *, has_factors: bool = True):
         class __api:
-            def __init__(self, func):
+            @staticmethod
+            def _add_method(owner, method: APIMethod):
+                if "_apilist" not in owner.__dict__:
+                    if isinstance(owner, type):
+                        owner._apilist = []
+                    else:
+                        owner._apilist = owner._apilist.copy()
+                owner._apilist.append(method)
+
+            def __new__(cls, func: Callable):
+                if isinstance(func, MethodType):
+                    cls._add_method(func.__self__, APIMethod(func.__name__, has_factors))
+                    return None
+                else:
+                    return super().__new__(cls)
+
+            def __init__(self, func: Callable):
                 self._func = func
 
-            def __set_name__(self, owner, name):
-                if "_apilist" not in owner.__dict__:
-                    owner._apilist = []
-                owner._apilist.append(APIMethod(name, has_factors))
+            def __set_name__(self, owner, name: str):
+                self._add_method(owner, APIMethod(name, has_factors))
                 setattr(owner, name, self._func)
 
         if func is not None:
@@ -69,9 +83,8 @@ class Prior(metaclass=_PriorMeta):
         else:
             return __api
 
-    @classmethod
-    def api(cls):
-        return cls._apilist
+    def api(self):
+        return self._apilist
 
     def pyro_prior(self, *args, **kwargs):
         return PyroPrior(self.__prior, self._names, *args, **kwargs)

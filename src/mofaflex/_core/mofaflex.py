@@ -534,8 +534,6 @@ class MOFAFLEX:
 
         self._preprocessor_state = preprocessor.state_dict()
 
-        self._init_api()
-
     @staticmethod
     def _init_factor_group(adata, group_name, view_name, impute_missings, initializer):
         arr = adata.X
@@ -853,6 +851,8 @@ class MOFAFLEX:
             _logger.info(f"Saving results to {self._train_opts.save_path}...")
             Path(self._train_opts.save_path).parent.mkdir(parents=True, exist_ok=True)
             self._save(self._train_opts.save_path, self._train_opts.mofa_compat, data, preprocessor.feature_means)
+
+        self._init_api()
 
     def _sort_factors(self, data, weights, factors, subsample=1000):
         # Loop over all groups

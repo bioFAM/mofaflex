@@ -137,7 +137,9 @@ class Horseshoe(Prior):
                 subsample=1000,
             )
 
-    @Prior._api
+        self._api(self.get_annotations)
+        self._api(self.get_significant_annotations)
+
     def get_significant_annotations(
         self, factor_names: Sequence[str], nonfactor_names: Mapping[str, Sequence[str]]
     ) -> dict[str, pd.DataFrame]:
@@ -154,7 +156,6 @@ class Horseshoe(Prior):
             return None
         return self._pcgse
 
-    @Prior._api
     def get_annotations(
         self, factor_names: Sequence[str], nonfactor_names: Mapping[str, Sequence[str]]
     ) -> dict[str, pd.DataFrame]:
