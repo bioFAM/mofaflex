@@ -188,12 +188,38 @@ class GaussianProcess(Prior):
                     (gidx.expand(minibatch.shape[0], 1), torch.as_tensor(minibatch, dtype=torch.float32)), prior=False
                 )
 
-                mean.append(gp_dist.mean.cpu().numpy())
-                std.append(gp_dist.stddev.cpu().numpy())
+                mean.append(gp_dist.mean.cpu().numpy().T)
+                std.append(gp_dist.stddev.cpu().numpy().T)
 
-            gps.mean[group_name] = np.concatenate(mean, axis=1)
-            gps.std[group_name] = np.concatenate(std, axis=1)
+            gps.mean[group_name] = np.concatenate(mean, axis=0)
+            gps.std[group_name] = np.concatenate(std, axis=0)
         return gps
+
+    @Prior._api
+    def get_gps(  # noqa D417
+        self,
+        factor_names: Sequence[str],
+        nonfactor_names: Mapping[str, Sequence[str]],
+        moment: Literal["mean", "std"] = "mean",
+        x: Mapping[str, np.ndarray | torch.Tensor] | None = None,
+        batch_size: int | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        """Get all latent functions.
+
+        Args:
+             moment: Which moment of the posterior distribution to return.
+             x: Covariate values for each group. If `None`, will return latent function values at
+                 covariate coordinates used for training.
+             batch_size: Minibatch size. Only has an effect if `x` is not `None`. Defaults to the
+                 minibatch size used for training.
+        """
+        gps = getattr(self._gps if x is None else self._get_gps(x, batch_size), moment)
+        return {
+            group_name: pd.DataFrame(
+                group_f, index=nonfactor_names[group_name] if x is None else None, columns=factor_names
+            )
+            for group_name, group_f in gps.items()
+        }
 
     def _save(self) -> dict:
         state = {}

@@ -1,3 +1,4 @@
+import inspect
 import logging
 import time
 from collections import defaultdict
@@ -6,7 +7,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from types import MethodWrapperType
+from types import MethodType
 from typing import Literal, get_args
 
 import numpy as np
@@ -206,23 +207,33 @@ class MOFAFLEX:
 
         self._fit(data, preprocessor)
 
-    def _wrap_api_method(self, func: MethodWrapperType, has_factors: bool):
+    def _wrap_api_method(self, func: MethodType, has_factors: bool):
         axis = func.__self__.axis
 
-        def wrapper_func(self):
+        def wrapper_func(self, *args, **kwargs):
             with torch.device(self._train_opts.device):
-                return func(
-                    factor_names=self.factor_names,
-                    nonfactor_names=self.sample_names if axis == 0 else self.feature_names,
-                )
+                return func(self.factor_names, self.sample_names if axis == 0 else self.feature_names, *args, **kwargs)
+
+        sig = inspect.signature(func)
+        params = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD)] + [
+            param for param in sig.parameters.values() if param.name not in ("factor_names", "nonfactor_names")
+        ]
+        annots = {
+            param: annot
+            for param, annot in func.__annotations__.items()
+            if param not in ("factor_names", "nonfactor_names")
+        }
 
         if not has_factors:
             wrapper_func.__doc__ = func.__doc__
             ret = wrapper_func
         else:
+            params.append(
+                inspect.Parameter("ordered", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False, annotation=bool)
+            )
 
-            def wrapper_func_order(self, ordered: bool = False):
-                ret = wrapper_func(self)
+            def wrapper_func_order(self, *args, ordered: bool = False, **kwargs):
+                ret = wrapper_func(self, *args, **kwargs)
                 if ordered:
                     orderedret = {}
                     for k, df in ret.items():
@@ -239,12 +250,14 @@ class MOFAFLEX:
             else:
                 doc = ""
             wrapper_func_order.__doc__ = (
-                doc + "Args:\n"
-                "    ordered: Whether to return the factors ordered by explained variance (highest to lowest)."
+                doc + "    Args:\n"
+                "        ordered: Whether to return the factors ordered by explained variance (highest to lowest)."
             )
             ret = wrapper_func_order
         with suppress(KeyError):
-            ret.__annotations__["return"] = func.__annotations__["return"]
+            annots["return"] = func.__annotations__["return"]
+        ret.__annotations__ = annots
+        ret.__signature__ = sig.replace(parameters=params)
         return ret.__get__(self)
 
     def _init_api(self):
@@ -698,8 +711,6 @@ class MOFAFLEX:
                 covariates_obsm_key=self._data_opts.covariates_obsm_key,
                 options=self._gp_opts,
             )
-            if priorname == "GP":
-                self._get_gps = prior._get_gps
             self._model_opts.factor_prior.append(prior)
 
         weight_prior_groups = defaultdict(list)
@@ -1091,40 +1102,6 @@ class MOFAFLEX:
         }
 
         return self._get_component(dispersion, return_type)
-
-    def get_gps(
-        self,
-        return_type: Literal["pandas", "anndata", "numpy"] = "pandas",
-        moment: Literal["mean", "std"] = "mean",
-        x: Mapping[str, np.ndarray | torch.Tensor] | None = None,
-        batch_size: int | None = None,
-        ordered: bool = False,
-    ) -> _ResultsTypeDF:
-        """Get all latent functions.
-
-        Args:
-             return_type: Format of the returned object.
-             moment: Which moment of the posterior distribution to return.
-             x: Covariate values for each group. If `None`, will return latent function values at
-                 covariate coordinates used for training.
-             batch_size: Minibatch size. Only has an effect if `x` is not `None`. Defaults to the
-                 minibatch size used for training.
-             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
-        """
-        with torch.device(self._train_opts.device):
-            gps = getattr(self._gps if x is None else self._get_gps(x, batch_size), moment)
-        gps = {
-            group_name: pd.DataFrame(
-                group_f[self.factor_order if ordered else slice(None), :].T, columns=self.factor_names
-            )
-            for group_name, group_f in gps.items()
-        }
-
-        if x is None:
-            for gname, df in gps.items():
-                df.set_index(np.asarray(self.sample_names[gname]), inplace=True)
-
-        return self._get_component(gps, return_type)
 
     def _setup_device(self, device):
         device = torch.device(device)
