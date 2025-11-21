@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Callable, Mapping, Sequence
 from types import MethodType
 from typing import Any, Literal, NamedTuple
@@ -24,7 +26,8 @@ class Prior(metaclass=_PriorMeta):
     """Base class for MOFA-FLEX priors."""
 
     __registry = {}
-    _apilist = []
+    _api_methods = []
+    _api_properties = []
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -52,39 +55,63 @@ class Prior(metaclass=_PriorMeta):
     def axis(self):
         return self._axis
 
-    @staticmethod
-    def _api(func: Callable = None, *, has_factors: bool = True):
+    def _api(
+        obj: Prior | Callable | None = None, attr: MethodType | property | str = None, *, has_factors: bool = True
+    ):
         class __api:
             @staticmethod
-            def _add_method(owner, method: APIMethod):
-                if "_apilist" not in owner.__dict__:
+            def _add_api(owner, api: APIMethod | str):
+                if isinstance(api, APIMethod):
+                    attr = "_api_metods"
+                else:
+                    attr = "_api_properties"
+                if attr not in owner.__dict__:
                     if isinstance(owner, type):
-                        owner._apilist = []
+                        setattr(owner, attr, [])
                     else:
-                        owner._apilist = owner._apilist.copy()
-                owner._apilist.append(method)
+                        setattr(owner, attr, getattr(owner, attr).copy())
+                getattr(owner, attr).append(api)
 
-            def __new__(cls, func: Callable):
+            def __new__(cls, func: Callable | MethodType | property):
                 if isinstance(func, MethodType):
-                    cls._add_method(func.__self__, APIMethod(func.__name__, has_factors))
+                    cls._add_api(func.__self__, APIMethod(func.__name__, has_factors))
                     return None
                 else:
                     return super().__new__(cls)
 
-            def __init__(self, func: Callable):
+            def __init__(self, func: Callable | property):
                 self._func = func
 
             def __set_name__(self, owner, name: str):
-                self._add_method(owner, APIMethod(name, has_factors))
+                if isinstance(self._func, Callable):
+                    self._add_api(owner, APIMethod(name, has_factors))
+                else:
+                    self._add_api(owner, name)
+                    self._func.__set_name__(owner, name)
                 setattr(owner, name, self._func)
 
-        if func is not None:
-            return __api(func)
+        if obj is not None:
+            if isinstance(obj, Callable | property):
+                return __api(obj)
+            elif isinstance(attr, MethodType):
+                return __api(attr)
+            elif attr is None:
+                raise ValueError("need attr if invoked on a Prior instance")
+
+            if "_api_properties" not in obj.__dict__:
+                obj._api_properties = obj._api_properties.copy()
+            obj._api_properties.append(attr)
+            return obj
         else:
             return __api
 
-    def api(self):
-        return self._apilist
+    @property
+    def api_methods(self) -> Sequence[str]:
+        return self._api_methods
+
+    @property
+    def api_properties(self) -> Sequence[str]:
+        return self._api_properties
 
     def pyro_prior(self, *args, **kwargs):
         return PyroPrior(self.__prior, self._names, *args, **kwargs)

@@ -196,6 +196,11 @@ class GaussianProcess(Prior):
         return gps
 
     @Prior._api
+    @property
+    def has_gps(self):  # for testing
+        return True
+
+    @Prior._api
     def get_gps(  # noqa D417
         self,
         factor_names: Sequence[str],

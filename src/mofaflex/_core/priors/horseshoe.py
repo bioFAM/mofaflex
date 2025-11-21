@@ -139,6 +139,11 @@ class Horseshoe(Prior):
 
         self._api(self.get_annotations)
         self._api(self.get_significant_annotations)
+        self._api("n_informed_factors")
+
+    @property
+    def n_informed_factors(self):
+        return self._n_informed_factors
 
     def get_significant_annotations(
         self, factor_names: Sequence[str], nonfactor_names: Mapping[str, Sequence[str]]
@@ -152,8 +157,6 @@ class Horseshoe(Prior):
         Returns:
             PCGSE results for each view or `None` if the model does not have prior annotations.
         """
-        if not self._pcgse:
-            return None
         return self._pcgse
 
     def get_annotations(

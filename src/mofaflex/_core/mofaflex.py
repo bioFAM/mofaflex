@@ -1,14 +1,14 @@
 import inspect
 import logging
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
 from types import MethodType
-from typing import Literal, get_args
+from typing import Literal, NamedTuple, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -43,6 +43,11 @@ _logger = logging.getLogger(__name__)
 
 _ResultsTypeDF = dict[str, pd.DataFrame | AnnData | npt.NDArray[np.float32]]
 _ResultsTypeSeries = dict[str, pd.Series | AnnData | npt.NDArray[np.float32]]
+
+
+class _PriorApiProperty(NamedTuple):
+    obj: Prior
+    attr: str
 
 
 @dataclass(kw_only=True)
@@ -205,6 +210,8 @@ class MOFAFLEX:
         self._sample_names = data.sample_names
         self._feature_names = data.feature_names
 
+        self._prior_api_properties: dict[str, _PriorApiProperty] = {}
+
         self._fit(data, preprocessor)
 
     def _wrap_api_method(self, func: MethodType, has_factors: bool):
@@ -262,20 +269,33 @@ class MOFAFLEX:
 
     def _init_api(self):
         for priors in (self._model_opts.factor_prior, self._model_opts.weight_prior):
-            seen, duplicates = set(), set()
-            for method in chain(*(x.api() for x in priors)):
-                if method.name in seen:
-                    duplicates.add(method.name)
-                else:
-                    seen.add(method.name)
+            namescount = Counter()
+            for method in chain(*(x.api_methods for x in priors)):
+                namescount[method.name] += 1
+            for prop in chain(*(x.api_properties for x in priors)):
+                namescount[prop] += 1
+            duplicates = {k for k, v in namescount.items() if v > 1}
 
             for prior in priors:
-                for method in prior.api():
+                for method in prior.api_methods:
                     wrapped = self._wrap_api_method(getattr(prior, method.name), has_factors=method.has_factors)
                     if method in duplicates:
                         setattr(self, f"{method.name}_{prior.__class__.__name__}", wrapped)
                     else:
                         setattr(self, method.name, wrapped)
+                for prop in prior.api_properties:
+                    propname = prop if prop not in duplicates else f"{prop}_{prior.__class__.__name__}"
+                    self._prior_api_properties[propname] = _PriorApiProperty(prior, prop)
+
+    def __getattr__(self, name):
+        try:
+            prop = self.__getattribute__("_prior_api_properties")[name]
+            return getattr(prop.obj, prop.attr)
+        except (KeyError, AttributeError) as e:
+            raise AttributeError(obj=self, name=name) from e
+
+    def __dir__(self):
+        return chain(super().__dir__(), self._prior_api_properties.keys())
 
     def _make_dataset(self, data: MuData | Mapping[str, Mapping[str, AnnData]]) -> MofaFlexDataset:
         return MofaFlexDataset(
@@ -361,19 +381,14 @@ class MOFAFLEX:
         return sum(self.n_samples.values())
 
     @property
-    def n_factors(self):
+    def n_total_factors(self):
         """Total number of factors."""
         return self._model_opts.n_factors
 
     @property
-    def n_uninformed_factors(self) -> int:
+    def n_factors(self) -> int:
         """Number of uninformed factors."""
-        return self._n_uninformed_factors
-
-    @property
-    def n_informed_factors(self) -> int:
-        """Number of informed factors."""
-        return self._n_informed_factors
+        return self._n_factors
 
     @property
     def factor_order(self) -> npt.NDArray[int]:
@@ -462,15 +477,12 @@ class MOFAFLEX:
             )
 
     def _setup_annotations(self, data):
-        n_uninformed_factors = self._model_opts.n_factors
-        factor_names = [f"Factor {k + 1}" for k in range(n_uninformed_factors)]
+        self._n_factors = self._model_opts.n_factors
+        factor_names = [f"Factor {k + 1}" for k in range(self._model_opts.n_factors)]
         for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
             factor_names = prior.adjust_factors(factor_names)
-        n_informed_factors = len(factor_names) - n_uninformed_factors
 
-        self._n_uninformed_factors = n_uninformed_factors
-        self._n_informed_factors = n_informed_factors
-        self._model_opts.n_factors = n_uninformed_factors + n_informed_factors
+        self._model_opts.n_factors = len(factor_names)
 
         self._factor_names = np.asarray(factor_names)
         self._factor_order = np.arange(self._model_opts.n_factors)
@@ -1161,8 +1173,7 @@ class MOFAFLEX:
             "n_guiding_vars": self._n_guiding_vars,
             "df_r2_full": self._df_r2_full,
             "df_r2_factors": self._df_r2_factors,
-            "n_uninformed_factors": self._n_uninformed_factors,
-            "n_informed_factors": self._n_informed_factors,
+            "n_factors": self._n_factors,
             "factor_names": self._factor_names,
             "factor_order": self._factor_order,
             "sparse_factors_probabilities": self._sparse_factors_probabilities,
@@ -1223,8 +1234,7 @@ class MOFAFLEX:
         model._n_guiding_vars = state.get("n_guiding_vars")
         model._df_r2_full = state["df_r2_full"]
         model._df_r2_factors = state["df_r2_factors"]
-        model._n_uninformed_factors = state["n_uninformed_factors"]
-        model._n_informed_factors = state["n_informed_factors"]
+        model._n_factors = state["n_factors"]
         model._factor_names = state["factor_names"]
         model._factor_order = state["factor_order"]
         model._sparse_factors_probabilities = state["sparse_factors_probabilities"]
