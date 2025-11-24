@@ -14,7 +14,7 @@ from ..utils import PyroParameterDict
 from .base import Prior
 
 
-class SnS(Prior):
+class SpikeSlab(Prior):
     _factors = True
     _weights = True
 

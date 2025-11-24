@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ...priors.gaussian_process import GP
 
 
-class GP(Prior):
+class GaussianProcess(Prior):
     _factors = True
     _weights = False
 

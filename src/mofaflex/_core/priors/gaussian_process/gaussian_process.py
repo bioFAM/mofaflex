@@ -10,7 +10,7 @@ from dtw import dtw
 from numpy.typing import NDArray
 
 from ...datasets import CovariatesDataset, MofaFlexDataset
-from ...pyro.priors import GP as PyroGP
+from ...pyro.priors import GaussianProcess as PyroGP
 from ...utils import MeanStd, Options, pickle_torch_state, unpickle_torch_state
 from .. import Prior
 from .gp import GP
@@ -81,11 +81,7 @@ class GaussianProcess(Prior):
 
         self._obs_key = covariates_obs_key
         self._obsm_key = covariates_obsm_key
-        self._covariates = None
-        self._covariates_names = None
-        self._orig_covariates = None
         self._opts = options if options is not None else SmoothOptions()
-        self._warp_groups_order = None
 
         self._gp = None
         self._gps = None
@@ -98,7 +94,7 @@ class GaussianProcess(Prior):
         self._covariates_names = dset.covariates_names
         return {"gp_covariates": dset}
 
-    def pyro_prior(self, n_factors: int, *args, **kwargs):
+    def _get_pyro_prior(self, n_factors: int, *args, **kwargs):
         if len(self._opts.warp_groups) > 1:
             if not set(self._opts.warp_groups) <= set(self._names):
                 raise ValueError(
@@ -122,8 +118,7 @@ class GaussianProcess(Prior):
 
         self._init_gp(n_factors)
 
-        self._pyro_prior = PyroGP(self._names, *args, n_factors=n_factors, gp=self._gp, **kwargs)
-        return self._pyro_prior
+        return PyroGP(self._names, *args, n_factors=n_factors, gp=self._gp, **kwargs)
 
     def _init_gp(self, n_factors: int):
         self._gp = GP(
@@ -137,7 +132,6 @@ class GaussianProcess(Prior):
             use_mefisto_kernel=self._opts.mefisto_kernel,
         )
 
-    @torch.inference_mode()
     def on_train_epoch_end(self, epoch: int):
         if len(self._opts.warp_groups) and epoch > 0 and not epoch % self._opts.warp_interval:
             factormeans = {
@@ -166,8 +160,7 @@ class GaussianProcess(Prior):
         data: MofaFlexDataset,
         factor_names: Sequence[str],
         nonfactor_names: Mapping[str, Sequence[str]],
-        results_mean: dict[str, pd.DataFrame],
-        results_std: dict[str, pd.DataFrame],
+        results: MeanStd,
         results_nonnegative: dict[str, bool],
         batch_size: int,
     ):

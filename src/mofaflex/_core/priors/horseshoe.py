@@ -10,7 +10,8 @@ import pandas as pd
 from ..datasets import MofaFlexDataset
 from ..pcgse import pcgse_test
 from ..pyro.priors import Horseshoe as PyroHorseshoe
-from . import Prior
+from ..utils import MeanStd
+from .base import Prior
 
 _logger = logging.getLogger()
 
@@ -37,10 +38,6 @@ class Horseshoe(Prior):
             raise ValueError("Annotations can only be applied on features.")
 
         self._annotations_varm_key = annotations_varm_key
-        self._annotations = None
-        self._annotations_names = None
-        self._informed_factors_start_idx = self._n_informed_factors = None
-        self._pcgse = None
 
     def get_datasets(self, data: MofaFlexDataset) -> None:
         if self._annotations_varm_key is not None:
@@ -79,7 +76,7 @@ class Horseshoe(Prior):
 
             return factors
 
-    def pyro_prior(self, n_factors: int, n_nonfactors: int, annotation_confidence: float = None, *args, **kwargs):
+    def _get_pyro_prior(self, n_factors: int, n_nonfactors: int, annotation_confidence: float = None, *args, **kwargs):
         prior_scales = None
         if self._annotations is not None:
             prior_scales = {
@@ -122,8 +119,7 @@ class Horseshoe(Prior):
         data: MofaFlexDataset,
         factor_names: Sequence[str],
         nonfactor_names: Mapping[str, Sequence[str]],
-        results_mean: dict[str, pd.DataFrame],
-        results_std: dict[str, pd.DataFrame],
+        results: MeanStd,
         results_nonnegative: dict[str, bool],
         batch_size: int,
     ):
@@ -132,7 +128,10 @@ class Horseshoe(Prior):
                 data,
                 nonnegative_weights=results_nonnegative,
                 annotations=self.get_annotations(factor_names, nonfactor_names),
-                weights=results_mean,
+                weights={
+                    view_name: pd.DataFrame(res, index=factor_names, columns=nonfactor_names[view_name])
+                    for view_name, res in results.mean.items()
+                },
                 min_size=1,
                 subsample=1000,
             )

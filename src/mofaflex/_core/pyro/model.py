@@ -413,31 +413,6 @@ class MofaFlexModel(PyroModule):
         return factors
 
     @torch.inference_mode()
-    def get_sparse_factor_precisions(self):
-        alphas = MeanStd({}, {})
-        for prior in self._factors:
-            try:
-                precisions = prior.posterior_precision
-            except AttributeError:
-                continue
-            for group_name in precisions.shape.keys():
-                d = dist.Gamma(concentration=precisions.shape[group_name], rate=precisions.rate[group_name])
-                alphas.mean[group_name] = d.mean.cpu().numpy()
-                alphas.std[group_name] = d.stddev.cpu().numpy()
-        return alphas
-
-    @torch.inference_mode()
-    def get_sparse_factor_probabilities(self):
-        probs = {}
-        for prior in self._factors:
-            try:
-                for group_name, prob in prior.posterior_probability.items():
-                    probs[group_name] = prob.cpu().numpy()
-            except AttributeError:
-                continue
-        return probs
-
-    @torch.inference_mode()
     def get_weights(self):
         """Get all weight matrices, w_x."""
         weights = MeanStd({}, {})
@@ -452,31 +427,6 @@ class MofaFlexModel(PyroModule):
             weights.std[view_name] = weights.std[view_name].cpu().numpy()
 
         return weights
-
-    @torch.inference_mode()
-    def get_sparse_weight_precisions(self):
-        alphas = MeanStd({}, {})
-        for prior in self._weights:
-            try:
-                precisions = prior.posterior_precision
-            except AttributeError:
-                continue
-            for view_name in precisions.shape.keys():
-                d = dist.Gamma(concentration=precisions.shape[view_name], rate=precisions.rate[view_name])
-                alphas.mean[view_name] = d.mean.cpu().numpy()
-                alphas.std[view_name] = d.stddev.cpu().numpy()
-        return alphas
-
-    @torch.inference_mode()
-    def get_sparse_weight_probabilities(self):
-        probs = {}
-        for prior in self._weights:
-            try:
-                for view_name, prob in prior.posterior_probability.items():
-                    probs[view_name] = prob.cpu().numpy()
-            except AttributeError:
-                continue
-        return probs
 
     @torch.inference_mode()
     def get_dispersion(self):

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from types import MethodType
 from typing import Any, Literal, NamedTuple
 
-import pandas as pd
+from numpy.typing import NDArray
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..pyro.priors import Prior as PyroPrior
+from ..utils import MeanStd
 
 
 class _PriorMeta(type):
@@ -31,6 +33,8 @@ class Prior(metaclass=_PriorMeta):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
+        if cls._get_pyro_prior is __class__._get_pyro_prior:
+            cls.__prior = cls.__name__
         __class__.__registry[cls.__name__] = cls
 
     def __new__(cls, *args, **kwargs):
@@ -50,6 +54,10 @@ class Prior(metaclass=_PriorMeta):
         else:
             self._axis = 0 if axis == "samples" else 1
         self._names = names if isinstance(names, Sequence) else (names,)
+
+        with suppress(AttributeError):
+            for attr in self._state_attrs:
+                setattr(self, attr, None)
 
     @property
     def axis(self):
@@ -114,6 +122,10 @@ class Prior(metaclass=_PriorMeta):
         return self._api_properties
 
     def pyro_prior(self, *args, **kwargs):
+        self._pyro_prior = self._get_pyro_prior(*args, **kwargs)
+        return self._pyro_prior
+
+    def _get_pyro_prior(self, *args, **kwargs):
         return PyroPrior(self.__prior, self._names, *args, **kwargs)
 
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset] | None:
@@ -121,6 +133,12 @@ class Prior(metaclass=_PriorMeta):
 
     def adjust_factors(self, factors: list[str]) -> list[str]:
         return factors
+
+    def postprocess_results(
+        self, results: MeanStd, moment: Literal["mean", "std"] = "mean", **kwargs
+    ) -> dict[str, NDArray]:
+        results = getattr(results, moment)
+        return {name: results[name] for name in self._names}
 
     def on_train_start(self, batch_size: int):
         pass
@@ -136,8 +154,7 @@ class Prior(metaclass=_PriorMeta):
         data: MofaFlexDataset,
         factor_names: Sequence[str],
         nonfactor_names: Sequence[str],
-        results_mean: dict[str, pd.DataFrame],
-        results_std: dict[str, pd.DataFrame],
+        results: MeanStd,
         results_nonnegative: dict[str, bool],
         batch_size: int,
     ):

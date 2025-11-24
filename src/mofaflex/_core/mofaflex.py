@@ -257,8 +257,8 @@ class MOFAFLEX:
             else:
                 doc = ""
             wrapper_func_order.__doc__ = (
-                doc + "    Args:\n"
-                "        ordered: Whether to return the factors ordered by explained variance (highest to lowest)."
+                doc + "Args:\n"
+                "     ordered: Whether to return the factors ordered by explained variance (highest to lowest)."
             )
             ret = wrapper_func_order
         with suppress(KeyError):
@@ -268,7 +268,26 @@ class MOFAFLEX:
         return ret.__get__(self)
 
     def _init_api(self):
-        for priors in (self._model_opts.factor_prior, self._model_opts.weight_prior):
+        getters = self.get_factors, self.get_weights
+        getter_sigs = tuple(inspect.signature(getter) for getter in getters)
+        getter_params = tuple(
+            [param for param in sig.parameters.values() if param.name != "kwargs"] for sig in getter_sigs
+        )
+        getter_annots = tuple(getter.__annotations__ for getter in getters)
+        getter_docs = [getter.__doc__ for getter in getters]
+        axis_names = ("factors", "weights")
+
+        api_names = {}
+
+        def fix_api_name(name: str, axis: int):
+            if name in api_names:
+                tmp = api_names[name]
+                api_names[f"{name}_{axis_names[tmp[0]]}"] = tmp
+                del api_names[name]
+                name = f"{name}_{axis_names[axis]}"
+            return name
+
+        for axis, priors in ((0, self._model_opts.factor_prior), (1, self._model_opts.weight_prior)):
             namescount = Counter()
             for method in chain(*(x.api_methods for x in priors)):
                 namescount[method.name] += 1
@@ -278,14 +297,42 @@ class MOFAFLEX:
 
             for prior in priors:
                 for method in prior.api_methods:
-                    wrapped = self._wrap_api_method(getattr(prior, method.name), has_factors=method.has_factors)
-                    if method in duplicates:
-                        setattr(self, f"{method.name}_{prior.__class__.__name__}", wrapped)
-                    else:
-                        setattr(self, method.name, wrapped)
+                    name = method.name if method.name not in duplicates else f"{method.name}_{prior.__class__.__name__}"
+                    name = fix_api_name(name, axis)
+                    api_names[name] = (axis, prior, method)
                 for prop in prior.api_properties:
                     propname = prop if prop not in duplicates else f"{prop}_{prior.__class__.__name__}"
-                    self._prior_api_properties[propname] = _PriorApiProperty(prior, prop)
+                    propname = fix_api_name(propname, axis)
+                    api_names[propname] = (axis, prior, prop)
+
+                postprocess_method = prior.postprocess_results
+                params = [
+                    param
+                    for param in inspect.signature(postprocess_method).parameters.values()
+                    if param.name not in {"self", "results", "moment", "kwargs"}
+                ]
+                getter_params[axis].extend(params)
+                for param in params:
+                    getter_annots[axis][param.name] = param.annotation
+                if doc := postprocess_method.__doc__:
+                    getter_docs[axis] += "     " + doc
+
+        for name, (_, prior, api) in api_names.items():
+            if isinstance(api, str):
+                self._prior_api_properties[name] = _PriorApiProperty(prior, api)
+            else:
+                setattr(self, name, self._wrap_api_method(getattr(prior, api.name), has_factors=api.has_factors))
+
+        # can't move this inside the loop due to Python's late binding closures
+        getter_wrappers = (
+            lambda self, *args, **kwargs: getters[0](*args, **kwargs),
+            lambda self, *args, **kwargs: getters[1](*args, **kwargs),
+        )
+        for axis, (method, wrapper) in enumerate(zip(getters, getter_wrappers, strict=True)):
+            wrapper.__signature__ = getter_sigs[axis].replace(parameters=getter_params[axis])
+            wrapper.__annotations__ = getter_annots[axis]
+            wrapper.__doc__ = getter_docs[axis]
+            setattr(self, method.__name__, wrapper.__get__(self))
 
     def __getattr__(self, name):
         try:
@@ -512,17 +559,7 @@ class MOFAFLEX:
         self._weights = model.get_weights()
         self._factors = model.get_factors()
         self._dispersions = model.get_dispersion()
-        self._sparse_factors_probabilities = model.get_sparse_factor_probabilities()
-        self._sparse_weights_probabilities = model.get_sparse_weight_probabilities()
-        self._sparse_factors_precisions = model.get_sparse_factor_precisions()
-        self._sparse_weights_precisions = model.get_sparse_weight_precisions()
         self._train_loss_elbo = np.asarray(train_loss_elbo)
-
-        self._df_r2_full, self._df_r2_factors, self._factor_order = self._sort_factors(
-            data,
-            weights=self.get_weights(return_type="numpy", moment="mean", sparse_type="mix", ordered=False),
-            factors=self.get_factors(return_type="numpy", moment="mean", sparse_type="mix", ordered=False),
-        )
 
         self._preprocessor_state = preprocessor.state_dict()
 
@@ -789,8 +826,9 @@ class MOFAFLEX:
 
             with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
                 for i in t:
-                    for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                        prior.on_train_epoch_start(i)
+                    with torch.inference_mode():
+                        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                            prior.on_train_epoch_start(i)
 
                     epoch_loss = 0
                     if singlebatch:
@@ -799,8 +837,10 @@ class MOFAFLEX:
                         for batch in loader:
                             batch = collate((batch,), collate_fn_map=collate_fn_map)
                             epoch_loss += svi.step(**batch.pop("data"), **batch)
-                    for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                        prior.on_train_epoch_end(i)
+
+                    with torch.inference_mode():
+                        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                            prior.on_train_epoch_end(i)
 
                     train_loss_elbo.append(epoch_loss)
                     t.set_postfix({"Loss": epoch_loss}, refresh=False)
@@ -814,24 +854,29 @@ class MOFAFLEX:
 
             self._post_fit(data, preprocessor, covariates, model, train_loss_elbo)
 
-            for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                if prior.axis == 0:
-                    kwargs = {
-                        "nonfactor_names": self.sample_names,
-                        "results_mean": self.get_factors(moment="mean"),
-                        "results_std": self.get_factors(moment="std"),
-                        "results_nonnegative": self._model_opts.nonnegative_factors,
-                    }
-                else:
-                    kwargs = {
-                        "nonfactor_names": self.feature_names,
-                        "results_mean": self.get_weights(moment="mean"),
-                        "results_std": self.get_weights(moment="std"),
-                        "results_nonnegative": self._model_opts.nonnegative_weights,
-                    }
-                prior.on_train_end(
-                    data, factor_names=self.factor_names, batch_size=self._train_opts.batch_size, **kwargs
-                )
+            with torch.inference_mode():
+                for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                    if prior.axis == 0:
+                        kwargs = {
+                            "nonfactor_names": self.sample_names,
+                            "results": self._factors,
+                            "results_nonnegative": self._model_opts.nonnegative_factors,
+                        }
+                    else:
+                        kwargs = {
+                            "nonfactor_names": self.feature_names,
+                            "results": self._weights,
+                            "results_nonnegative": self._model_opts.nonnegative_weights,
+                        }
+                    prior.on_train_end(
+                        data, factor_names=self.factor_names, batch_size=self._train_opts.batch_size, **kwargs
+                    )
+
+        self._df_r2_full, self._df_r2_factors, self._factor_order = self._sort_factors(
+            data,
+            weights=self.get_weights(moment="mean", sparse_type="mix", ordered=False),
+            factors=self.get_factors(moment="mean", sparse_type="mix", ordered=False),
+        )
 
         if self._train_opts.save_path is not False:
             if self._train_opts.save_path is None:
@@ -865,10 +910,10 @@ class MOFAFLEX:
                     view_name,
                     y_true=cdata,
                     factors=align_global_array_to_local(  # noqa F821
-                        factors[group_name], group_name, view_name, align_to="samples", axis=0
+                        factors[group_name].to_numpy(), group_name, view_name, align_to="samples", axis=0
                     )[sample_idx, :],
                     weights=align_global_array_to_local(  # noqa F821
-                        weights[view_name], group_name, view_name, align_to="features", axis=1
+                        weights[view_name].to_numpy(), group_name, view_name, align_to="features", axis=1
                     ),
                     dispersions=dispersions,
                     sample_means=align_global_array_to_local(  # noqa F821
@@ -921,63 +966,36 @@ class MOFAFLEX:
             case "anndata":
                 return {k: AnnData(v) for k, v in component.items()}
 
-    def _get_sparse(self, what, moment, sparse_type):
-        ret = {}
-        probs = getattr(self, f"_sparse_{what}_probabilities")
-        vals = getattr(self, "_" + what)
-        precs = getattr(self, f"_sparse_{what}_precisions")
-        for name, cvals in getattr(vals, moment).items():
-            if name in probs:
-                if sparse_type == "mix":
-                    if moment == "mean":
-                        cvals = cvals * probs[name]
-                    else:
-                        p = probs[name]
-                        a = precs.mean[name][:, None]
-                        cvals = np.sqrt(vals.mean[name] ** 2 * p * (1 - p) + p * cvals**2 + (1 - p) / a**2)
-                elif sparse_type == "thresh":
-                    if moment == "mean":
-                        cvals = cvals * (vals[name].mean >= 0.5)
-                    else:
-                        cvals = 1 / precs.mean[name]
-            ret[name] = cvals
-        return ret
-
-    def get_factors(
+    def get_factors(  # noqa: D417
         self,
-        return_type: Literal["pandas", "anndata", "numpy"] = "pandas",
+        return_type: Literal["pandas", "anndata"] = "pandas",
         moment: Literal["mean", "std"] = "mean",
-        sparse_type: Literal["raw", "mix", "thresh"] = "mix",
         ordered: bool = False,
+        **kwargs,
     ) -> _ResultsTypeDF:
         """Get the factor matrices Z for each group.
 
         Args:
              return_type: Format of the returned object.
              moment: Which moment of the posterior distribution to return.
-             sparse_type: How to handle sparsity when using the spike and slab prior.
-
-                 - raw: Do nothing, return inferred values for all entries.
-                 - mix: Return the corresponding moment of a mixture distribution of two
-                   Normal distributions: One centered at 0 and the other centered at the
-                   inferred non-sparse value. The mixture is weighted by the inferred
-                   sparsity probability. This is what MOFA does.
-                 - thresh: Set all values with a sparsity probablity > 0.5 to 0.
-
              ordered: Whether to return the factors ordered by explained variance (highest to lowest).
         """
+        factors = {}
+        for prior in self._model_opts.factor_prior:
+            factors.update(prior.postprocess_results(self._factors, moment=moment, **kwargs))
         factors = {
             group_name: pd.DataFrame(
                 group_factors.T, index=self.sample_names[group_name], columns=self.factor_names
             ).iloc[:, self.factor_order if ordered else slice(None)]
-            for group_name, group_factors in self._get_sparse("factors", moment, sparse_type).items()
+            for group_name, group_factors in factors.items()
         }
-        factors = self._get_component(factors, return_type)
 
         if return_type == "anndata":
-            for group_name, group_adata in factors.items():
+            for group_name, group_factors in factors.items():
+                group_adata = AnnData(group_factors)
                 group_adata.obs = pd.concat(self._metadata[group_name].values(), axis=1)
                 group_adata.obs = group_adata.obs.loc[:, ~group_adata.obs.columns.duplicated()]
+                factors[group_name] = group_adata
 
         return factors
 
@@ -1000,71 +1018,25 @@ class MOFAFLEX:
                 for group_name, df in self._df_r2_factors.items()
             }
 
-    def get_weights(
-        self,
-        return_type: Literal["pandas", "anndata", "numpy"] = "pandas",
-        moment: Literal["mean", "std"] = "mean",
-        sparse_type: Literal["raw", "mix", "thresh"] = "mix",
-        ordered: bool = False,
-    ) -> _ResultsTypeDF:
+    def get_weights(self, moment: Literal["mean", "std"] = "mean", ordered: bool = False, **kwargs) -> _ResultsTypeDF:  # noqa: D417
         """Get the weight matrices W for each view.
 
         Args:
              return_type: Format of the returned object.
              moment: Which moment of the posterior distribution to return.
-             sparse_type: How to handle sparsity when using the spike and slab prior.
-
-                 - raw: Do nothing, return inferred values for all entries.
-                 - mix: Return the corresponding moment of a mixture distribution of two
-                   Normal distributions: One centered at 0 and the other centered at the
-                   inferred non-sparse value. The mixture is weighted by the inferred
-                   sparsity probability. This is what MOFA does.
-                 - thresh: Set all values with a sparsity probablity > 0.5 to 0.
-
              ordered: Whether to return the factors ordered by explained variance (highest to lowest).
         """
+        weights = {}
+        for prior in self._model_opts.weight_prior:
+            weights.update(prior.postprocess_results(self._weights, moment=moment, **kwargs))
         weights = {
             view_name: pd.DataFrame(view_weights, index=self.factor_names, columns=self.feature_names[view_name]).iloc[
                 self.factor_order if ordered else slice(None), :
             ]
-            for view_name, view_weights in self._get_sparse("weights", moment, sparse_type).items()
+            for view_name, view_weights in weights.items()
         }
 
-        return self._get_component(weights, return_type)
-
-    def get_sparse_factor_probabilities(
-        self, return_type: Literal["pandas", "anndata", "numpy"] = "pandas", ordered: bool = False
-    ) -> _ResultsTypeDF:
-        """Get the probabilties that a factor value is non-sparse for each group with a spike and slab factor prior.
-
-        Args:
-             return_type: Format of the returned object.
-             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
-        """
-        probs = {
-            group_name: pd.DataFrame(group_prob.T, index=self.sample_names[group_name], columns=self.factor_names).iloc[
-                :, self.factor_order if ordered else slice(None)
-            ]
-            for group_name, group_prob in self._sparse_factors_probabilities.items()
-        }
-        return self._get_component(probs, return_type)
-
-    def get_sparse_weight_probabilities(
-        self, return_type: Literal["pandas", "anndata", "numpy"] = "pandas", ordered: bool = False
-    ) -> _ResultsTypeDF:
-        """Get the probabilties that a weight value is non-sparse for each view with a spike and slab view prior.
-
-        Args:
-             return_type: Format of the returned object.
-             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
-        """
-        probs = {
-            view_name: pd.DataFrame(view_prob, index=self.factor_names, columns=self.feature_names[view_name]).iloc[
-                self.factor_order if ordered else slice(None), :
-            ]
-            for view_name, view_prob in self._sparse_weights_probabilities.items()
-        }
-        return self._get_component(probs, return_type)
+        return weights
 
     def get_dispersion(
         self, return_type: Literal["pandas", "anndata", "numpy"] = "pandas", moment: Literal["mean", "std"] = "mean"
@@ -1141,10 +1113,6 @@ class MOFAFLEX:
             "n_factors": self._n_factors,
             "factor_names": self._factor_names,
             "factor_order": self._factor_order,
-            "sparse_factors_probabilities": self._sparse_factors_probabilities,
-            "sparse_weights_probabilities": self._sparse_weights_probabilities,
-            "sparse_factors_precisions": self._sparse_factors_precisions._asdict(),
-            "sparse_weights_precisions": self._sparse_weights_precisions._asdict(),
             "dispersions": self._dispersions._asdict(),
             "train_loss_elbo": self._train_loss_elbo,
             "group_names": self._group_names,
@@ -1198,10 +1166,6 @@ class MOFAFLEX:
         model._n_factors = state["n_factors"]
         model._factor_names = state["factor_names"]
         model._factor_order = state["factor_order"]
-        model._sparse_factors_probabilities = state["sparse_factors_probabilities"]
-        model._sparse_weights_probabilities = state["sparse_weights_probabilities"]
-        model._sparse_factors_precisions = MeanStd(**state["sparse_factors_precisions"])
-        model._sparse_weights_precisions = MeanStd(**state["sparse_weights_precisions"])
         model._dispersions = MeanStd(**state["dispersions"])
         model._train_loss_elbo = state["train_loss_elbo"]
         model._group_names = state["group_names"]
