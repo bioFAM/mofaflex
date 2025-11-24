@@ -62,7 +62,7 @@ class Prior(metaclass=_PriorMeta):
             @staticmethod
             def _add_api(owner, api: APIMethod | str):
                 if isinstance(api, APIMethod):
-                    attr = "_api_metods"
+                    attr = "_api_methods"
                 else:
                     attr = "_api_properties"
                 if attr not in owner.__dict__:

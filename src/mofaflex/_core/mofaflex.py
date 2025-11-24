@@ -412,36 +412,6 @@ class MOFAFLEX:
         return self._factor_names
 
     @property
-    def warped_covariates(self) -> dict[str, npt.NDArray[np.float32]] | None:
-        """Time-warped covariates for each group, if using a GP prior and dynamic time warping was enabled."""
-        return self._covariates if hasattr(self, "_orig_covariates") else None
-
-    @property
-    def covariates(self) -> dict[str, npt.NDArray[np.float32]]:
-        """Covariates for each group, if using a GP prior."""
-        return self._orig_covariates if hasattr(self, "_orig_covariates") else self._covariates
-
-    @property
-    def covariates_names(self) -> dict[str, str | npt.NDArray[str | np.str_]]:
-        """Covariate names for each group where they could be inferred from the input."""
-        return self._covariates_names
-
-    @property
-    def gp_lengthscale(self) -> npt.NDArray[np.float32] | None:
-        """Inferred lengthscales for each factor, if using a GP prior."""
-        return self._gp.lengthscale.detach().cpu().numpy() if self._gp is not None else None
-
-    @property
-    def gp_scale(self) -> npt.NDArray[np.float32] | None:
-        """Inferred variance scales (smoothness) for each factor, if using a GP prior."""
-        return self._gp.outputscale.detach().cpu().numpy() if self._gp is not None else None
-
-    @property
-    def gp_group_correlation(self) -> npt.NDArray[np.float32]:
-        """Between-group correlation for each factor, if using a GP prior."""
-        return self._gp.group_corr.detach().cpu().numpy() if self._gp is not None else None
-
-    @property
     def training_loss(self) -> npt.NDArray[np.float32]:
         """Total loss (negative ELBO) for each training epoch."""
         return self._train_loss_elbo
@@ -546,9 +516,6 @@ class MOFAFLEX:
         self._sparse_weights_probabilities = model.get_sparse_weight_probabilities()
         self._sparse_factors_precisions = model.get_sparse_factor_precisions()
         self._sparse_weights_precisions = model.get_sparse_weight_precisions()
-        self._covariates, self._covariates_names = (
-            (covariates.covariates, covariates.covariates_names) if covariates is not None else (None, None)
-        )
         self._train_loss_elbo = np.asarray(train_loss_elbo)
 
         self._df_r2_full, self._df_r2_factors, self._factor_order = self._sort_factors(
@@ -1168,8 +1135,6 @@ class MOFAFLEX:
         state = {
             "weights": self._weights._asdict(),
             "factors": self._factors._asdict(),
-            "covariates": self._covariates,
-            "covariates_names": self._covariates_names,
             "n_guiding_vars": self._n_guiding_vars,
             "df_r2_full": self._df_r2_full,
             "df_r2_factors": self._df_r2_factors,
@@ -1227,10 +1192,6 @@ class MOFAFLEX:
         model = cls.__new__(cls)
         model._weights = MeanStd(**state["weights"])
         model._factors = MeanStd(**state["factors"])
-        model._covariates = state.get("covariates")
-        if "orig_covariates" in state:
-            model._orig_covariates = state["orig_covariates"]
-        model._covariates_names = state.get("covariates_names")
         model._n_guiding_vars = state.get("n_guiding_vars")
         model._df_r2_full = state["df_r2_full"]
         model._df_r2_factors = state["df_r2_factors"]
@@ -1244,8 +1205,6 @@ class MOFAFLEX:
         model._dispersions = MeanStd(**state["dispersions"])
         model._train_loss_elbo = state["train_loss_elbo"]
         model._group_names = state["group_names"]
-        if "gp_group_names" in state:
-            model._gp_group_names = state["gp_group_names"]
         model._view_names = state["view_names"]
         model._feature_names = state["feature_names"]
         model._sample_names = state["sample_names"]

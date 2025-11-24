@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 from dtw import dtw
+from numpy.typing import NDArray
 
 from ...datasets import CovariatesDataset, MofaFlexDataset
 from ...pyro.priors import GP as PyroGP
@@ -197,8 +198,39 @@ class GaussianProcess(Prior):
 
     @Prior._api
     @property
-    def has_gps(self):  # for testing
-        return True
+    def covariates_names(self) -> dict[str, str | NDArray[str | np.str_]]:
+        """Covariate names for each group where they could be inferred from the input."""
+        return self._covariates_names
+
+    @Prior._api
+    @property
+    def covariates(self) -> dict[str, NDArray[np.float32]]:
+        """Covariates for each group."""
+        return self._orig_covariates if self._orig_covariates is not None else self._covariates
+
+    @Prior._api
+    @property
+    def warped_covariates(self) -> dict[str, NDArray[np.float32]] | None:
+        """Time-warped covariates for each group, if dynamic time warping was enabled."""
+        return self._covariates if self._orig_covariates is not None else None
+
+    @Prior._api
+    @property
+    def gp_lengthscale(self) -> NDArray[np.float32]:
+        """Inferred lengthscales for each factor."""
+        return self._gp.lengthscale.detach().cpu().numpy()
+
+    @Prior._api
+    @property
+    def gp_scale(self) -> NDArray[np.float32]:
+        """Inferred variance scales (smoothness) for each factor."""
+        return self._gp.outputscale.detach().cpu().numpy()
+
+    @Prior._api
+    @property
+    def gp_group_correlation(self) -> NDArray[np.float32]:
+        """Between-group correlation for each factor."""
+        return self._gp.group_corr.detach().cpu().numpy()
 
     @Prior._api
     def get_gps(  # noqa D417
