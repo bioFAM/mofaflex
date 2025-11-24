@@ -36,7 +36,7 @@ class SpikeSlab(Prior):
             self._probs[name] = probs[name].cpu().numpy()
 
     @Prior._api
-    def get_sparse_probabilities(
+    def get_sparse_a̲x̲i̲s̲_probabilities(
         self, factor_names: Sequence[str], nonfactor_names: Mapping[str, Sequence[str]]
     ) -> dict[str, pd.DataFrame]:
         if self._axis == 0:

@@ -275,17 +275,7 @@ class MOFAFLEX:
         )
         getter_annots = tuple(getter.__annotations__ for getter in getters)
         getter_docs = [getter.__doc__ for getter in getters]
-        axis_names = ("factors", "weights")
-
-        api_names = {}
-
-        def fix_api_name(name: str, axis: int):
-            if name in api_names:
-                tmp = api_names[name]
-                api_names[f"{name}_{axis_names[tmp[0]]}"] = tmp
-                del api_names[name]
-                name = f"{name}_{axis_names[axis]}"
-            return name
+        axis_names = ("factor", "weight")
 
         for axis, priors in ((0, self._model_opts.factor_prior), (1, self._model_opts.weight_prior)):
             namescount = Counter()
@@ -297,13 +287,14 @@ class MOFAFLEX:
 
             for prior in priors:
                 for method in prior.api_methods:
+                    wrapped = self._wrap_api_method(getattr(prior, method.name), has_factors=method.has_factors)
                     name = method.name if method.name not in duplicates else f"{method.name}_{prior.__class__.__name__}"
-                    name = fix_api_name(name, axis)
-                    api_names[name] = (axis, prior, method)
+                    name = name.replace("a̲x̲i̲s̲", axis_names[axis])
+                    setattr(self, name, wrapped)
                 for prop in prior.api_properties:
                     propname = prop if prop not in duplicates else f"{prop}_{prior.__class__.__name__}"
-                    propname = fix_api_name(propname, axis)
-                    api_names[propname] = (axis, prior, prop)
+                    propname = propname.replace("a̲x̲i̲s̲", axis_names[axis])
+                    self._prior_api_properties[propname] = _PriorApiProperty(prior, prop)
 
                 postprocess_method = prior.postprocess_results
                 params = [
@@ -316,12 +307,6 @@ class MOFAFLEX:
                     getter_annots[axis][param.name] = param.annotation
                 if doc := postprocess_method.__doc__:
                     getter_docs[axis] += "     " + doc
-
-        for name, (_, prior, api) in api_names.items():
-            if isinstance(api, str):
-                self._prior_api_properties[name] = _PriorApiProperty(prior, api)
-            else:
-                setattr(self, name, self._wrap_api_method(getattr(prior, api.name), has_factors=api.has_factors))
 
         # can't move this inside the loop due to Python's late binding closures
         getter_wrappers = (
