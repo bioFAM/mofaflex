@@ -41,9 +41,6 @@ from .utils import MeanStd, Options, impute, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
-_ResultsTypeDF = dict[str, pd.DataFrame | AnnData | npt.NDArray[np.float32]]
-_ResultsTypeSeries = dict[str, pd.Series | AnnData | npt.NDArray[np.float32]]
-
 
 class _PriorApiProperty(NamedTuple):
     obj: Prior
@@ -940,24 +937,13 @@ class MOFAFLEX:
 
         return dfs_full, dfs_factors, factor_order
 
-    def _get_component(self, component, return_type="pandas"):
-        match return_type:
-            case "numpy":
-                return {k: v.to_numpy() for k, v in component.items()}
-            case "pandas":
-                return component
-            case "torch":
-                return {k: torch.tensor(v.values, dtype=torch.float).clone().detach() for k, v in component.items()}
-            case "anndata":
-                return {k: AnnData(v) for k, v in component.items()}
-
     def get_factors(  # noqa: D417
         self,
-        return_type: Literal["pandas", "anndata"] = "pandas",
         moment: Literal["mean", "std"] = "mean",
         ordered: bool = False,
+        return_type: Literal["pandas", "anndata"] = "pandas",
         **kwargs,
-    ) -> _ResultsTypeDF:
+    ) -> dict[str, pd.DataFrame | AnnData]:
         """Get the factor matrices Z for each group.
 
         Args:
@@ -1003,7 +989,9 @@ class MOFAFLEX:
                 for group_name, df in self._df_r2_factors.items()
             }
 
-    def get_weights(self, moment: Literal["mean", "std"] = "mean", ordered: bool = False, **kwargs) -> _ResultsTypeDF:  # noqa: D417
+    def get_weights(  # noqa: D417
+        self, moment: Literal["mean", "std"] = "mean", ordered: bool = False, **kwargs
+    ) -> dict[str, pd.DataFrame]:
         """Get the weight matrices W for each view.
 
         Args:
@@ -1023,21 +1011,16 @@ class MOFAFLEX:
 
         return weights
 
-    def get_dispersion(
-        self, return_type: Literal["pandas", "anndata", "numpy"] = "pandas", moment: Literal["mean", "std"] = "mean"
-    ) -> _ResultsTypeSeries:
+    def get_dispersion(self, moment: Literal["mean", "std"] = "mean") -> dict[str, pd.Series]:
         """Get the dispersion vectors for each view.
 
         Args:
-             return_type: Format of the returned object.
              moment: Which moment of the posterior distribution to return.
         """
-        dispersion = {
+        return {
             view_name: pd.Series(view_dispersion, index=self.feature_names[view_name])
             for view_name, view_dispersion in getattr(self._dispersions, moment).items()
         }
-
-        return self._get_component(dispersion, return_type)
 
     def _setup_device(self, device):
         device = torch.device(device)
