@@ -216,17 +216,11 @@ class MOFAFLEX:
 
         def wrapper_func(self, *args, **kwargs):
             with torch.device(self._train_opts.device):
-                return func(self.factor_names, self.sample_names if axis == 0 else self.feature_names, *args, **kwargs)
+                return func(*args, **kwargs)
 
         sig = inspect.signature(func)
-        params = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD)] + [
-            param for param in sig.parameters.values() if param.name not in ("factor_names", "nonfactor_names")
-        ]
-        annots = {
-            param: annot
-            for param, annot in func.__annotations__.items()
-            if param not in ("factor_names", "nonfactor_names")
-        }
+        params = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD)] + list(sig.parameters.values())
+        annots = func.__annotations__.copy()
 
         if not has_factors:
             wrapper_func.__doc__ = func.__doc__
@@ -947,16 +941,16 @@ class MOFAFLEX:
         """Get the factor matrices Z for each group.
 
         Args:
-             return_type: Format of the returned object.
              moment: Which moment of the posterior distribution to return.
              ordered: Whether to return the factors ordered by explained variance (highest to lowest).
+             return_type: Format of the returned object.
         """
         factors = {}
         for prior in self._model_opts.factor_prior:
             factors.update(prior.postprocess_results(self._factors, moment=moment, **kwargs))
         factors = {
             group_name: pd.DataFrame(
-                group_factors.T, index=self.sample_names[group_name], columns=self.factor_names
+                group_factors, index=self.sample_names[group_name], columns=self.factor_names
             ).iloc[:, self.factor_order if ordered else slice(None)]
             for group_name, group_factors in factors.items()
         }

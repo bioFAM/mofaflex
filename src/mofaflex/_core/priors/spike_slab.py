@@ -30,25 +30,18 @@ class SpikeSlab(Prior):
 
         for name in self._names:
             d = dist.Gamma(concentration=precisions.shape[name], rate=precisions.rate[name])
-            self._precisions.mean[name] = d.mean.cpu().numpy()
-            self._precisions.std[name] = d.stddev.cpu().numpy()
-
-            self._probs[name] = probs[name].cpu().numpy()
+            mean, std, prob = d.mean.cpu().numpy(), d.stddev.cpu().numpy(), probs[name].cpu().numpy()
+            if self._axis == 0:
+                mean, std, prob = mean.T, std.T, pd.DataFrame(prob.T, index=nonfactor_names[name], columns=factor_names)
+            else:
+                prob = pd.DataFrame(prob, index=factor_names, columns=nonfactor_names[name])
+            self._precisions.mean[name] = mean
+            self._precisions.std[name] = std
+            self._probs[name] = prob
 
     @Prior._api
-    def get_sparse_a̲x̲i̲s̲_probabilities(
-        self, factor_names: Sequence[str], nonfactor_names: Mapping[str, Sequence[str]]
-    ) -> dict[str, pd.DataFrame]:
-        if self._axis == 0:
-            return {
-                name: pd.DataFrame(probs.T, index=nonfactor_names[name], columns=factor_names)
-                for name, probs in self._probs.items()
-            }
-        else:
-            return {
-                name: pd.DataFrame(probs, index=factor_names, columns=nonfactor_names[name])
-                for name, probs in self._probs.items()
-            }
+    def get_sparse_a̲x̲i̲s̲_probabilities(self) -> dict[str, pd.DataFrame]:
+        return self._probs
 
     def postprocess_results(
         self,

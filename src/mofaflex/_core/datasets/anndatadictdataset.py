@@ -12,7 +12,16 @@ from scipy import sparse
 
 from ..settings import settings
 from .base import ApplyCallable, ApplyToCallable, MofaFlexDataset, Preprocessor
-from .utils import AlignmentMap, anndata_to_dask, apply_to_nested, from_dask, have_dask, select_anndata_layer, warn_dask
+from .utils import (
+    AlignmentMap,
+    align_dataframe,
+    anndata_to_dask,
+    apply_to_nested,
+    from_dask,
+    have_dask,
+    select_anndata_layer,
+    warn_dask,
+)
 
 T = TypeVar("T")
 _logger = logging.getLogger(__name__)
@@ -396,20 +405,21 @@ class AnnDataDictDataset(MofaFlexDataset):
         axis: int,
         key: Mapping[str, str],
         mkey: Mapping[str, str],
-        fill_value: Callable[[np.dtype], Union[*np.ScalarType]],
+        fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]],
     ) -> tuple[dict[str, dict[str, NDArray]], dict[str, NDArray]]:
         if axis == 0:
             attr = "obs"
-            align_to = "samples"
+            align_names = self.sample_names
             dict_reorder = slice(None)
         else:
             attr = "var"
-            align_to = "features"
+            align_names = self.feature_names
             dict_reorder = slice(None, None, -1)
         attrm = f"{attr}m"
+        attrnames = f"{attr}_names"
         outer_msg, inner_msg = ("group", "view")[dict_reorder]
 
-        covariates, covariates_names = defaultdict(dict), {}
+        covariates = defaultdict(dict)
         covar_dims = defaultdict(set)
         for group_name, group in self._data.items():
             for view_name, view in group.items():
@@ -424,27 +434,25 @@ class AnnDataDictDataset(MofaFlexDataset):
                     raise ValueError(f"Provide either key or mkey for {outer_msg} {outer_key}, not both.")
 
                 if ckey is not None and ckey in getattr(view, attr).columns:
-                    arr = getattr(view, attr)[ckey].to_numpy()
-                    covariates[outer_key][inner_key] = self._align_data_array_to_global(
-                        arr, group_name, view_name, align_to=align_to, fill_value=fill_value(arr.dtype)
-                    )[:, None]
-                    covariates_names[outer_key] = np.asarray([ckey], dtype=object)
+                    covariates[outer_key][inner_key] = align_dataframe(
+                        getattr(view, attr)[[ckey]], align_names[outer_key], fill_value=fill_value
+                    )
                 elif cmkey is not None and cmkey in getattr(view, attrm):
                     covar = getattr(view, attrm)[cmkey]
-                    if isinstance(covar, pd.DataFrame):
-                        covariates_names[outer_key] = covar.columns.to_numpy()
-                    elif isinstance(covar, pd.Series):
-                        covariates_names[outer_key] = np.asarray([covar.name], dtype=object)
-                    elif sparse.issparse(covar):
+                    if sparse.issparse(covar):
                         covar = covar.toarray()
-
-                    covar = np.asarray(covar)
-                    if covar.ndim == 1:
-                        covar = covar[..., None]
+                    if isinstance(covar, pd.Series):
+                        if not covar.name:
+                            covar.name = cmkey
+                        covar = pd.DataFrame(covar)
+                    elif isinstance(covar, np.ndarray):
+                        covar = pd.DataFrame(covar, index=getattr(view, attrnames))
+                        if covar.shape[1] == 1:
+                            covar.columns = [cmkey]
                     covar_dims[outer_key].add(covar.shape[1])
 
-                    covariates[outer_key][inner_key] = self._align_data_array_to_global(
-                        covar, group_name, view_name, align_to=align_to, fill_value=fill_value(covar.dtype)
+                    covariates[outer_key][inner_key] = align_dataframe(
+                        covar, align_names[outer_key], fill_value=fill_value
                     )
 
         for name, covar_dim in covar_dims.items():
@@ -453,7 +461,7 @@ class AnnDataDictDataset(MofaFlexDataset):
                     f"Number of covariate dimensions in {outer_msg} {name} must be the same across {outer_msg}s."
                 )
 
-        return dict(covariates), covariates_names
+        return dict(covariates)
 
     def _view_for_apply(self, group_name: str, view_name: str) -> ad.AnnData:
         havedask = have_dask()

@@ -407,8 +407,8 @@ class MofaFlexModel(PyroModule):
         for group_name in self._group_names:
             if self._nonnegative_factors[group_name]:
                 factors.mean[group_name] = self._pos_transform(factors.mean[group_name])
-            factors.mean[group_name] = factors.mean[group_name].cpu().numpy()
-            factors.std[group_name] = factors.std[group_name].cpu().numpy()
+            factors.mean[group_name] = factors.mean[group_name].cpu().numpy().T
+            factors.std[group_name] = factors.std[group_name].cpu().numpy().T
 
         return factors
 

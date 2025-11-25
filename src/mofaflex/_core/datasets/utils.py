@@ -1,8 +1,9 @@
 import logging
 from collections import namedtuple
 from collections.abc import Callable, Mapping, Sequence, Set
+from contextlib import suppress
 from importlib.util import find_spec
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 import pandas as pd
@@ -151,3 +152,26 @@ def select_anndata_layer(adata: AnnData, layer: str | None = None):
             varp=adata.varp,
             uns=adata.uns,
         )
+
+
+def align_dataframe(
+    df,
+    new_index,
+    fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]] = lambda _: pd.NA,
+):
+    df = df.convert_dtypes()
+    new_cols = {}
+    for colname in df.columns:
+        col = df[colname]
+        new_cols[colname] = col.reindex(new_index, fill_value=fill_value(col.dtype))
+    for colname, col in new_cols.items():
+        with suppress(ValueError):
+            match col.dtype:
+                case pd.BooleanDtype:
+                    col = col.astype(bool)
+                case (
+                    pd.core.arrays.integer.IntegerDtype(type=dtype) | pd.core.arrays.floating.FloatingDtype(type=dtype)
+                ):
+                    col = col.astype(dtype)
+        new_cols[colname] = col
+    return pd.DataFrame(new_cols)

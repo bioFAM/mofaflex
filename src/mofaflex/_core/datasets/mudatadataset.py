@@ -13,6 +13,7 @@ from scipy import sparse
 from ..settings import settings
 from .base import ApplyCallable, ApplyToCallable, MofaFlexDataset, Preprocessor
 from .utils import (
+    align_dataframe,
     anndata_to_dask,
     apply_to_nested,
     array_to_dask,
@@ -372,20 +373,19 @@ class MuDataDataset(MofaFlexDataset):
         axis: int,
         key: Mapping[str, str],
         mkey: Mapping[str, str],
-        fill_value: Callable[[np.dtype], Union[*np.ScalarType]],
+        fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]],
     ) -> tuple[dict[str, dict[str, NDArray]], dict[str, NDArray]]:
         if axis == 0:
             attr = "obs"
-            align_to = "samples"
             dict_reorder = slice(None)
         else:
             attr = "var"
-            align_to = "features"
             dict_reorder = slice(None, None, -1)
         attrm = f"{attr}m"
+        attrnames = f"{attr}_names"
         outer_msg, inner_msg = ("group", "view")[dict_reorder]
 
-        covariates, covariates_names = defaultdict(dict), {}
+        covariates = defaultdict(dict)
         covar_dims = defaultdict(set)
         for group_name, group_idx in self._groups.items():
             for modname in self.view_names:
@@ -404,50 +404,44 @@ class MuDataDataset(MofaFlexDataset):
                 if ckey is not None:
                     ccov = None
                     if ckey in getattr(mod, attr).columns:
-                        arr = getattr(mod, attr)[ckey].to_numpy()
-                        ccov = self._align_local_array_to_global(
-                            arr, modname, subdata, align_to=align_to, fill_value=fill_value(arr.dtype)
-                        )[:, None]
+                        ccov = align_dataframe(getattr(mod, attr)[[ckey]], getattr(subdata, attrnames))
                     elif ckey in getattr(subdata, attr).columns:
-                        ccov = getattr(subdata, attr)[ckey].to_numpy()[:, None]
+                        ccov = getattr(subdata, attr)[[ckey]]
                     if ccov is not None:
                         covariates[outer_key][inner_key] = ccov
-                        covariates_names[outer_key] = np.asarray([ckey], dtype=object)
                 elif cmkey is not None:
                     needs_alignment = False
-                    name = None
                     if cmkey in getattr(mod, attrm):
                         ccov = getattr(mod, attrm)[cmkey]
                         needs_alignment = True
                     elif cmkey in getattr(subdata, attrm):
                         ccov = getattr(subdata, attrm)[cmkey]
                     if ccov is not None:
-                        if isinstance(ccov, pd.DataFrame):
-                            name = ccov.columns.to_numpy()
-                            ccov = ccov.to_numpy()
-                        elif isinstance(ccov, pd.Series):
-                            ccov = np.asarray([ccov.name], dtype=object)
-                            ccov = ccov.to_numpy()
-                        elif sparse.issparse(ccov):
+                        if sparse.issparse(ccov):
                             ccov = ccov.toarray()
-                        if ccov.ndim == 1:
-                            ccov = ccov[..., None]
+                        if isinstance(ccov, pd.Series):
+                            if not ccov.name:
+                                ccov.name = cmkey
+                            ccov = pd.DataFrame(ccov)
+                        elif isinstance(ccov, np.ndarray):
+                            ccov = pd.DataFrame(
+                                ccov,
+                                index=getattr(subdata, attrnames) if not needs_alignment else getattr(mod, attrnames),
+                            )
+                            if ccov.shape[1] == 1:
+                                ccov.columns = [cmkey]
                         covar_dims[outer_key].add(ccov.shape[1])
 
                         if needs_alignment:
-                            ccov = self._align_local_array_to_global(
-                                ccov, modname, subdata, align_to=align_to, fill_value=fill_value(ccov.dtype)
-                            )
+                            ccov = align_dataframe(ccov, getattr(subdata, attrnames), fill_value=fill_value)
                         covariates[outer_key][inner_key] = ccov
-                        if name is not None:
-                            covariates_names[outer_key] = name
 
         for name, covar_dim in covar_dims.items():
             if len(covar_dim) > 1:
                 raise ValueError(
                     f"Number of covariate dimensions in {outer_msg} {name} must be the same across {inner_msg}s."
                 )
-        return dict(covariates), covariates_names
+        return dict(covariates)
 
     def _data_for_apply(self):
         data = self._data

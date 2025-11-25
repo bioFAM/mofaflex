@@ -61,7 +61,7 @@ class SmoothOptions(Options):
 
 
 class GaussianProcess(Prior):
-    _state_attrs = "_obs_key", "_obsm_key", "_covariates", "_covariates_names", "_orig_covariates", "_warp_groups_order"
+    _state_attrs = "_obs_key", "_obsm_key", "_covariates", "_orig_covariates", "_warp_groups_order"
 
     def __init__(
         self,
@@ -91,7 +91,6 @@ class GaussianProcess(Prior):
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
         dset = CovariatesDataset(data, self._obs_key, self._obsm_key, self._names)
         self._covariates = dset.covariates
-        self._covariates_names = dset.covariates_names
         return {"gp_covariates": dset}
 
     def _get_pyro_prior(self, n_factors: int, *args, **kwargs):
@@ -102,7 +101,7 @@ class GaussianProcess(Prior):
                 )
             self._warp_groups_order = {}
             for g in self._opts.warp_groups:
-                ccov = self._covariates[g].squeeze()
+                ccov = self._covariates[g].to_numpy().squeeze()
                 if ccov.ndim > 1:
                     raise ValueError(
                         f"Warping can only be performed with 1D covariates, but the covariate for group {g} has {ccov.ndim} dimensions."
@@ -123,7 +122,7 @@ class GaussianProcess(Prior):
     def _init_gp(self, n_factors: int):
         self._gp = GP(
             n_inducing=self._opts.n_inducing,
-            covariates=self._covariates.values(),
+            covariates=(covar.to_numpy() for covar in self._covariates.values()),
             n_factors=n_factors,
             n_groups=len(self._names),
             kernel=self._opts.kernel,
@@ -150,10 +149,10 @@ class GaussianProcess(Prior):
                     step_pattern="asymmetric",
                 )
                 self._covariates[g] = self._orig_covariates[g].copy()
-                self._covariates[g][idx[alignment.index2], 0] = self._orig_covariates[refgroup][
+                self._covariates[g].iloc[idx[alignment.index2], 0] = self._orig_covariates[refgroup].iloc[
                     refidx[alignment.index1], 0
                 ]
-            self._gp.update_inducing_points(self._covariates.values())
+            self._gp.update_inducing_points(covar.to_numpy() for covar in self._covariates.values())
 
     def on_train_end(
         self,
@@ -164,7 +163,10 @@ class GaussianProcess(Prior):
         results_nonnegative: dict[str, bool],
         batch_size: int,
     ):
-        self._gps = self._get_gps(self._covariates, batch_size)
+        self._gps = self._get_gps({g: covar.to_numpy() for g, covar in self._covariates.items()}, batch_size)
+        for moment in self._gps:
+            for group_name, gp in moment.items():
+                moment[group_name] = pd.DataFrame(gp, index=nonfactor_names[group_name], columns=factor_names)
 
     @torch.inference_mode()
     def _get_gps(self, x: Mapping[str, np.ndarray | torch.Tensor], batch_size: int):
@@ -191,9 +193,9 @@ class GaussianProcess(Prior):
 
     @Prior._api
     @property
-    def covariates_names(self) -> dict[str, str | NDArray[str | np.str_]]:
+    def covariates_names(self) -> dict[str, NDArray[str | np.str_]]:
         """Covariate names for each group where they could be inferred from the input."""
-        return self._covariates_names
+        return {group_name: covar.columns.to_numpy() for group_name, covar in self.covariates.items()}
 
     @Prior._api
     @property
@@ -226,10 +228,8 @@ class GaussianProcess(Prior):
         return self._gp.group_corr.detach().cpu().numpy()
 
     @Prior._api
-    def get_gps(  # noqa D417
+    def get_gps(
         self,
-        factor_names: Sequence[str],
-        nonfactor_names: Mapping[str, Sequence[str]],
         moment: Literal["mean", "std"] = "mean",
         x: Mapping[str, np.ndarray | torch.Tensor] | None = None,
         batch_size: int | None = None,
@@ -243,13 +243,15 @@ class GaussianProcess(Prior):
              batch_size: Minibatch size. Only has an effect if `x` is not `None`. Defaults to the
                  minibatch size used for training.
         """
-        gps = getattr(self._gps if x is None else self._get_gps(x, batch_size), moment)
-        return {
-            group_name: pd.DataFrame(
-                group_f, index=nonfactor_names[group_name] if x is None else None, columns=factor_names
-            )
-            for group_name, group_f in gps.items()
-        }
+        if x is None:
+            gps = getattr(self._gps, moment)
+        else:
+            gps = getattr(self._get_gps(x, batch_size), moment)
+            for (group_name_calc, gp_calc), gp_old in zip(
+                gps.items(), getattr(self._gps, moment).values(), strict=True
+            ):
+                gps[group_name_calc] = pd.DataFrame(gp_calc, index=gp_old.index, columns=gp_old.columns)
+        return gps
 
     def _save(self) -> dict:
         state = {}

@@ -311,8 +311,8 @@ class MofaFlexDataset(Dataset, ABC):
         axis: Literal[0, 1, "samples", "features"],
         key: str | dict[str, str] | None = None,
         mkey: str | dict[str, str] | None = None,
-        fill_value: Callable[[np.dtype], Union[*np.ScalarType]] = lambda _: np.nan,
-    ) -> tuple[dict[str, dict[str, NDArray]], dict[str, NDArray]]:
+        fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]] = lambda _: pd.NA,
+    ) -> dict[str, dict[str, pd.DataFrame]]:
         """Get the covariates for each group (if axis in (0, "samples")) or view (if axis in (1, "features")).
 
         Args:
@@ -320,10 +320,6 @@ class MofaFlexDataset(Dataset, ABC):
             key: Column in `.obs` or `.var` for each group/view containing the covariate.
             mkey: Key in `.obsm` or `.varm` for each group/view containing the covariates.
             fill_value: Function returning the alignment fill value (see `align_local_array_to_global`) for a given array dtype.
-
-        Returns:
-            A tuple. The first element contains the covariates for each group/view, the second contains the covariate names for each group/view.
-            If the covariate names could not be determined for a group, the corresponding entry is missing from the dict.
         """
         if axis in (0, "samples"):
             names = self.group_names
