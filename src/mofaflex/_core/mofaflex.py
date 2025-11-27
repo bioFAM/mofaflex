@@ -289,19 +289,16 @@ class MOFAFLEX:
             duplicates = {k for k, v in namescount.items() if v > 1}
 
             for prior in priors:
-                for method in prior.api_methods:
-                    wrapped = self._wrap_api_method(axis, prior, method)
-                    name = method.name if method.name not in duplicates else f"{method.name}_{prior.__class__.__name__}"
+                for api in prior.api:
+                    name = api.name if api.name not in duplicates else f"{api.name}_{prior.__class__.__name__}"
                     name = name.replace("a̲x̲i̲s̲", axis_names[axis])
-                    setattr(self, name, wrapped)
-                for prop in prior.api_properties:
-                    propname = prop.name if prop not in duplicates else f"{prop.name}_{prior.__class__.__name__}"
-                    propname = propname.replace("a̲x̲i̲s̲", axis_names[axis])
-                    if not prop.has_factors:
-                        self._prior_api_properties[propname] = _PriorApiProperty(prior, prop.name)
-                    else:
-                        wrapped = self._wrap_api_method(axis, prior, prop)
-                        setattr(self, f"get_{propname}", wrapped)
+                    if api.type == APIType.property:
+                        if not api.has_factors:
+                            self._prior_api_properties[name] = _PriorApiProperty(prior, prop.name)
+                            continue
+                        else:
+                            name = f"get_{name}"
+                    setattr(self, name, self._wrap_api_method(axis, prior, api))
 
                 postprocess_method = prior.postprocess_results
                 params = [

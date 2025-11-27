@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from enum import Enum, auto
 from types import MethodType
@@ -35,8 +35,7 @@ class Prior(metaclass=_PriorMeta):
     """Base class for MOFA-FLEX priors."""
 
     __registry = {}
-    _api_methods = []
-    _api_properties = []
+    _apilist = []
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -79,13 +78,9 @@ class Prior(metaclass=_PriorMeta):
         class __api:
             @staticmethod
             def _add_api(owner, api: API):
-                if api.type == APIType.method:
-                    attr = "_api_methods"
-                else:
-                    attr = "_api_properties"
-                if attr not in owner.__dict__:
-                    setattr(owner, attr, getattr(owner, attr).copy())
-                getattr(owner, attr).append(api)
+                if "_apilist" not in owner.__dict__:
+                    owner._apilist = owner._apilist.copy()
+                owner._apilist.append(api)
 
             def __new__(cls, func: Callable | MethodType | property):
                 if isinstance(func, MethodType):
@@ -116,20 +111,24 @@ class Prior(metaclass=_PriorMeta):
             elif attr is None:
                 raise ValueError("need attr if invoked on a Prior instance")
 
-            if "_api_properties" not in obj.__dict__:
-                obj._api_properties = obj._api_properties.copy()
-            obj._api_properties.append(API(attr, APIType.property, has_factors if has_factors is not None else False))
+            if "_apilist" not in obj.__dict__:
+                obj._apilist = obj._apilist.copy()
+            obj._apilist.append(API(attr, APIType.property, has_factors if has_factors is not None else False))
             return obj
         else:
             return __api
 
     @property
-    def api_methods(self) -> Sequence[str]:
-        return self._api_methods
+    def api(self) -> Iterable[API]:
+        return self._apilist
 
     @property
-    def api_properties(self) -> Sequence[str]:
-        return self._api_properties
+    def api_methods(self) -> Iterable[API]:
+        return (api for api in self._apilist if api.type == APIType.method)
+
+    @property
+    def api_properties(self) -> Iterable[API]:
+        return (api for api in self._apilist if api.type == APIType.property)
 
     def pyro_prior(self, *args, **kwargs):
         self._pyro_prior = self._get_pyro_prior(*args, **kwargs)
