@@ -33,7 +33,7 @@ from . import preprocessing
 from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
-from .priors import Prior, SmoothOptions
+from .priors import API, APIType, Prior, SmoothOptions
 from .pyro import MofaFlexModel
 from .pyro.priors import FactorPriorType, WeightPriorType
 from .training import EarlyStopper
@@ -211,18 +211,37 @@ class MOFAFLEX:
 
         self._fit(data, preprocessor)
 
-    def _wrap_api_method(self, func: MethodType, has_factors: bool):
-        axis = func.__self__.axis
+    def _order_dfs_by_factors(self, obj: dict[pd.DataFrame], axis: Literal[0, 1]):
+        ret = {}
+        for k, df in obj.items():
+            used_factor_names = df.index if axis == 1 else df.columns
+            used_factor_order = self.factor_order[np.isin(self.factor_names, used_factor_names)]
+            used_factor_order = np.argsort(np.argsort(used_factor_order))
+            df = df.iloc[used_factor_order, :] if axis == 1 else df.iloc[:, used_factor_order]
+            ret[k] = df
+        return ret
+
+    def _wrap_api_method(self, axis: Literal[0, 1], prior: Prior, api: API):
+        if api.type == APIType.method:
+            func = getattr(prior, api.name)
+        else:
+            func = getattr(prior.__class__, api.name).fget
 
         def wrapper_func(self, *args, **kwargs):
             with torch.device(self._train_opts.device):
-                return func(*args, **kwargs)
+                ret = getattr(prior, api.name)
+                if api.type == APIType.method:
+                    ret = ret(*args, **kwargs)
+            return ret
 
+        params = []
+        if isinstance(func, MethodType):
+            params.append(inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD))
         sig = inspect.signature(func)
-        params = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD)] + list(sig.parameters.values())
+        params += list(sig.parameters.values())
         annots = func.__annotations__.copy()
 
-        if not has_factors:
+        if not api.has_factors:
             wrapper_func.__doc__ = func.__doc__
             ret = wrapper_func
         else:
@@ -233,14 +252,7 @@ class MOFAFLEX:
             def wrapper_func_order(self, *args, ordered: bool = False, **kwargs):
                 ret = wrapper_func(self, *args, **kwargs)
                 if ordered:
-                    orderedret = {}
-                    for k, df in ret.items():
-                        used_factor_names = df.index if axis == 1 else df.columns
-                        used_factor_order = self.factor_order[np.isin(self.factor_names, used_factor_names)]
-                        used_factor_order = np.argsort(np.argsort(used_factor_order))
-                        df = df.iloc[used_factor_order, :] if axis == 1 else df.iloc[:, used_factor_order]
-                        orderedret[k] = df
-                    ret = orderedret
+                    ret = self._order_dfs_by_factors(ret, axis)
                 return ret
 
             if func.__doc__ is not None:
@@ -278,14 +290,18 @@ class MOFAFLEX:
 
             for prior in priors:
                 for method in prior.api_methods:
-                    wrapped = self._wrap_api_method(getattr(prior, method.name), has_factors=method.has_factors)
+                    wrapped = self._wrap_api_method(axis, prior, method)
                     name = method.name if method.name not in duplicates else f"{method.name}_{prior.__class__.__name__}"
                     name = name.replace("a̲x̲i̲s̲", axis_names[axis])
                     setattr(self, name, wrapped)
                 for prop in prior.api_properties:
-                    propname = prop if prop not in duplicates else f"{prop}_{prior.__class__.__name__}"
+                    propname = prop.name if prop not in duplicates else f"{prop.name}_{prior.__class__.__name__}"
                     propname = propname.replace("a̲x̲i̲s̲", axis_names[axis])
-                    self._prior_api_properties[propname] = _PriorApiProperty(prior, prop)
+                    if not prop.has_factors:
+                        self._prior_api_properties[propname] = _PriorApiProperty(prior, prop.name)
+                    else:
+                        wrapped = self._wrap_api_method(axis, prior, prop)
+                        setattr(self, f"get_{propname}", wrapped)
 
                 postprocess_method = prior.postprocess_results
                 params = [

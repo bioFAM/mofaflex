@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
+from enum import Enum, auto
 from types import MethodType
 from typing import Any, Literal, NamedTuple
 
@@ -19,8 +20,14 @@ class _PriorMeta(type):
         return obj
 
 
-class APIMethod(NamedTuple):
+class APIType(Enum):
+    method = auto()
+    property = auto()
+
+
+class API(NamedTuple):
     name: str
+    type: APIType
     has_factors: bool
 
 
@@ -64,25 +71,28 @@ class Prior(metaclass=_PriorMeta):
         return self._axis
 
     def _api(
-        obj: Prior | Callable | None = None, attr: MethodType | property | str = None, *, has_factors: bool = True
+        obj: Prior | Callable | None = None,
+        attr: MethodType | property | str = None,
+        *,
+        has_factors: bool | None = None,
     ):
         class __api:
             @staticmethod
-            def _add_api(owner, api: APIMethod | str):
-                if isinstance(api, APIMethod):
+            def _add_api(owner, api: API):
+                if api.type == APIType.method:
                     attr = "_api_methods"
                 else:
                     attr = "_api_properties"
                 if attr not in owner.__dict__:
-                    if isinstance(owner, type):
-                        setattr(owner, attr, [])
-                    else:
-                        setattr(owner, attr, getattr(owner, attr).copy())
+                    setattr(owner, attr, getattr(owner, attr).copy())
                 getattr(owner, attr).append(api)
 
             def __new__(cls, func: Callable | MethodType | property):
                 if isinstance(func, MethodType):
-                    cls._add_api(func.__self__, APIMethod(func.__name__, has_factors))
+                    cls._add_api(
+                        func.__self__,
+                        API(func.__name__, APIType.method, has_factors if has_factors is not None else True),
+                    )
                     return None
                 else:
                     return super().__new__(cls)
@@ -92,9 +102,9 @@ class Prior(metaclass=_PriorMeta):
 
             def __set_name__(self, owner, name: str):
                 if isinstance(self._func, Callable):
-                    self._add_api(owner, APIMethod(name, has_factors))
+                    self._add_api(owner, API(name, APIType.method, has_factors if has_factors is not None else True))
                 else:
-                    self._add_api(owner, name)
+                    self._add_api(owner, API(name, APIType.property, has_factors if has_factors is not None else False))
                     self._func.__set_name__(owner, name)
                 setattr(owner, name, self._func)
 
@@ -108,7 +118,7 @@ class Prior(metaclass=_PriorMeta):
 
             if "_api_properties" not in obj.__dict__:
                 obj._api_properties = obj._api_properties.copy()
-            obj._api_properties.append(attr)
+            obj._api_properties.append(API(attr, APIType.property, has_factors if has_factors is not None else False))
             return obj
         else:
             return __api

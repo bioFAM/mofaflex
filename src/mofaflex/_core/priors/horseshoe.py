@@ -132,7 +132,7 @@ class Horseshoe(Prior):
             self._pcgse = pcgse_test(
                 data,
                 nonnegative_weights=results_nonnegative,
-                annotations=self.get_annotations(),
+                annotations=self._annotations,
                 weights={
                     view_name: pd.DataFrame(res, index=factor_names, columns=nonfactor_names[view_name])
                     for view_name, res in results.mean.items()
@@ -141,12 +141,13 @@ class Horseshoe(Prior):
                 subsample=1000,
             )
 
-        self._api(self.get_annotations)
+        self._api("annotations", has_factors=True)
         self._api(self.get_significant_annotations)
         self._api("n_informed_factors")
 
     @property
     def n_informed_factors(self):
+        """Number of informed factors."""
         return self._n_informed_factors
 
     def get_significant_annotations(self) -> dict[str, pd.DataFrame]:
@@ -161,12 +162,9 @@ class Horseshoe(Prior):
         """
         return self._pcgse
 
-    def get_annotations(self) -> dict[str, pd.DataFrame]:
-        """Get the annotation matrices for each view.
-
-        Returns:
-            The annotations for each view or `None` if the model does not have prior annotations.
-        """
+    @property
+    def annotations(self) -> dict[str, pd.DataFrame]:
+        """Annotation matrices for each view."""
         return self._annotations
 
     def _subset_factor_names(self, factor_names):
