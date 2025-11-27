@@ -244,8 +244,7 @@ class GaussianProcess(Prior):
         else:
             gps = getattr(self._get_gps(x, batch_size), moment)
             for group_name_calc, gp_calc in gps.items():
-                ggp_old = gp_old[group_name_calc]
-                gps[group_name_calc] = pd.DataFrame(gp_calc, index=ggp_old.index, columns=ggp_old.columns)
+                gps[group_name_calc] = pd.DataFrame(gp_calc, columns=gp_old[group_name_calc].columns)
             return gps
 
     def _save(self) -> dict:
