@@ -1,10 +1,8 @@
-from collections.abc import Mapping, Sequence
 from typing import Literal
 
 import numpy as np
 import pandas as pd
 import pyro.distributions as dist
-from numpy.typing import NDArray
 
 from ..datasets import MofaFlexDataset
 from ..utils import MeanStd
@@ -15,13 +13,7 @@ class SpikeSlab(Prior):
     _state_attrs = ("_precisions", "_probabilities")
 
     def on_train_end(
-        self,
-        data: MofaFlexDataset,
-        factor_names: Sequence[str],
-        nonfactor_names: Mapping[str, Sequence[str]],
-        results: MeanStd,
-        results_nonnegative: dict[str, bool],
-        batch_size: int,
+        self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
     ):
         self._precisions = MeanStd({}, {})
         self._probs = {}
@@ -32,9 +24,8 @@ class SpikeSlab(Prior):
             d = dist.Gamma(concentration=precisions.shape[name], rate=precisions.rate[name])
             mean, std, prob = d.mean.cpu().numpy(), d.stddev.cpu().numpy(), probs[name].cpu().numpy()
             if self._axis == 0:
-                mean, std, prob = mean.T, std.T, pd.DataFrame(prob.T, index=nonfactor_names[name], columns=factor_names)
-            else:
-                prob = pd.DataFrame(prob, index=factor_names, columns=nonfactor_names[name])
+                mean, std, prob = mean.T, std.T, prob.T
+            prob = pd.DataFrame(prob, index=results.mean[name].index, columns=results.mean[name].columns)
             self._precisions.mean[name] = mean
             self._precisions.std[name] = std
             self._probs[name] = prob
@@ -49,7 +40,7 @@ class SpikeSlab(Prior):
         moment: Literal["mean", "std"],
         sparse_type: Literal["raw", "mix", "thresh"] = "mix",
         **kwargs,
-    ) -> dict[str, NDArray]:
+    ) -> dict[str, pd.DataFrame]:
         """sparse_type: How to handle sparsity when using the spike and slab prior.
 
         - raw: Do nothing, return inferred values for all entries.

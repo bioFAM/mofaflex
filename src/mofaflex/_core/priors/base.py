@@ -159,13 +159,7 @@ class Prior(metaclass=_PriorMeta):
         pass
 
     def on_train_end(
-        self,
-        data: MofaFlexDataset,
-        factor_names: Sequence[str],
-        nonfactor_names: Sequence[str],
-        results: MeanStd,
-        results_nonnegative: dict[str, bool],
-        batch_size: int,
+        self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
     ):
         pass
 

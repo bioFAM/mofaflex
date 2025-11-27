@@ -546,7 +546,17 @@ class MOFAFLEX:
 
     def _post_fit(self, data, preprocessor, covariates, model, train_loss_elbo):
         self._weights = model.get_weights()
+        for moment in self._weights:
+            for view_name, view_weights in moment.items():
+                moment[view_name] = pd.DataFrame(
+                    view_weights, index=self.factor_names, columns=self.feature_names[view_name]
+                )
         self._factors = model.get_factors()
+        for moment in self._factors:
+            for group_name, group_factors in moment.items():
+                moment[group_name] = pd.DataFrame(
+                    group_factors, index=self.sample_names[group_name], columns=self.factor_names
+                )
         self._dispersions = model.get_dispersion()
         self._train_loss_elbo = np.asarray(train_loss_elbo)
 
@@ -846,20 +856,10 @@ class MOFAFLEX:
             with torch.inference_mode():
                 for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                     if prior.axis == 0:
-                        kwargs = {
-                            "nonfactor_names": self.sample_names,
-                            "results": self._factors,
-                            "results_nonnegative": self._model_opts.nonnegative_factors,
-                        }
+                        kwargs = {"results": self._factors, "results_nonnegative": self._model_opts.nonnegative_factors}
                     else:
-                        kwargs = {
-                            "nonfactor_names": self.feature_names,
-                            "results": self._weights,
-                            "results_nonnegative": self._model_opts.nonnegative_weights,
-                        }
-                    prior.on_train_end(
-                        data, factor_names=self.factor_names, batch_size=self._train_opts.batch_size, **kwargs
-                    )
+                        kwargs = {"results": self._weights, "results_nonnegative": self._model_opts.nonnegative_weights}
+                    prior.on_train_end(data, batch_size=self._train_opts.batch_size, **kwargs)
 
         self._df_r2_full, self._df_r2_factors, self._factor_order = self._sort_factors(
             data,
@@ -961,12 +961,6 @@ class MOFAFLEX:
         factors = {}
         for prior in self._model_opts.factor_prior:
             factors.update(prior.postprocess_results(self._factors, moment=moment, **kwargs))
-        factors = {
-            group_name: pd.DataFrame(
-                group_factors, index=self.sample_names[group_name], columns=self.factor_names
-            ).iloc[:, self.factor_order if ordered else slice(None)]
-            for group_name, group_factors in factors.items()
-        }
 
         if return_type == "anndata":
             for group_name, group_factors in factors.items():
@@ -1009,12 +1003,6 @@ class MOFAFLEX:
         weights = {}
         for prior in self._model_opts.weight_prior:
             weights.update(prior.postprocess_results(self._weights, moment=moment, **kwargs))
-        weights = {
-            view_name: pd.DataFrame(view_weights, index=self.factor_names, columns=self.feature_names[view_name]).iloc[
-                self.factor_order if ordered else slice(None), :
-            ]
-            for view_name, view_weights in weights.items()
-        }
 
         return weights
 

@@ -11,7 +11,6 @@ from anndata import AnnData
 from mizani import bounds
 from mizani.palettes import brewer_pal
 from mudata import MuData
-from numpy.typing import NDArray
 
 from .. import tl
 
@@ -1019,11 +1018,11 @@ def weights(
 
 
 def _plot_sparse_probabilities_histogram(
-    probs: dict[NDArray], bins: int = 50, nrow: int | None = None, ncol: int | None = None
+    probs: dict[str, pd.DataFrame], bins: int = 50, nrow: int | None = None, ncol: int | None = None
 ):
     df = []
-    for name, arr in probs.items():
-        df.append(pd.DataFrame({"key": name, "prob": arr.reshape(-1)}))
+    for name, cdf in probs.items():
+        df.append(pd.DataFrame({"key": name, "prob": cdf.to_numpy().reshape(-1)}))
     df = pd.concat(df, axis=0, ignore_index=True)
     plot = (
         p9.ggplot(df, p9.aes("prob"))
@@ -1050,7 +1049,7 @@ def weight_sparsity_histogram(model: MOFAFLEX, bins: int = 50, nrow: int | None 
         ncol: Number of columns in the faceted plot. If None, plotnine will determine automatically.
     """
     return _plot_sparse_probabilities_histogram(
-        model.get_sparse_weight_probabilities("numpy"), bins=bins, nrow=nrow, ncol=ncol
+        model.get_sparse_weight_probabilities(), bins=bins, nrow=nrow, ncol=ncol
     )
 
 
@@ -1068,5 +1067,5 @@ def factor_sparsity_histogram(model: MOFAFLEX, bins: int = 50, nrow: int | None 
         ncol: Number of columns in the faceted plot. If None, plotnine will determine automatically.
     """
     return _plot_sparse_probabilities_histogram(
-        model.get_sparse_factor_probabilities("numpy"), bins=bins, nrow=nrow, ncol=ncol
+        model.get_sparse_factor_probabilities(), bins=bins, nrow=nrow, ncol=ncol
     )

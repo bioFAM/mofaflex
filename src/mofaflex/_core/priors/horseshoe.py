@@ -1,6 +1,6 @@
 import logging
 import operator
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from functools import reduce
 from typing import Literal
 
@@ -120,23 +120,14 @@ class Horseshoe(Prior):
         )
 
     def on_train_end(
-        self,
-        data: MofaFlexDataset,
-        factor_names: Sequence[str],
-        nonfactor_names: Mapping[str, Sequence[str]],
-        results: MeanStd,
-        results_nonnegative: dict[str, bool],
-        batch_size: int,
+        self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
     ):
         if self._annotations is not None:
             self._pcgse = pcgse_test(
                 data,
                 nonnegative_weights=results_nonnegative,
                 annotations=self._annotations,
-                weights={
-                    view_name: pd.DataFrame(res, index=factor_names, columns=nonfactor_names[view_name])
-                    for view_name, res in results.mean.items()
-                },
+                weights=results.mean,
                 min_size=1,
                 subsample=1000,
             )

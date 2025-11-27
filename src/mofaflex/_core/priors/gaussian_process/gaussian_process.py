@@ -155,18 +155,13 @@ class GaussianProcess(Prior):
             self._gp.update_inducing_points(covar.to_numpy() for covar in self._covariates.values())
 
     def on_train_end(
-        self,
-        data: MofaFlexDataset,
-        factor_names: Sequence[str],
-        nonfactor_names: Mapping[str, Sequence[str]],
-        results: MeanStd,
-        results_nonnegative: dict[str, bool],
-        batch_size: int,
+        self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
     ):
         self._gps = self._get_gps({g: covar.to_numpy() for g, covar in self._covariates.items()}, batch_size)
-        for moment in self._gps:
-            for group_name, gp in moment.items():
-                moment[group_name] = pd.DataFrame(gp, index=nonfactor_names[group_name], columns=factor_names)
+        for gpmoment, resultsmoment in zip(self._gps, results, strict=True):
+            for group_name, gp in gpmoment.items():
+                gresults = resultsmoment[group_name]
+                gpmoment[group_name] = pd.DataFrame(gp, index=gresults.index, columns=gresults.columns)
 
     @torch.inference_mode()
     def _get_gps(self, x: Mapping[str, np.ndarray | torch.Tensor], batch_size: int):
@@ -243,15 +238,15 @@ class GaussianProcess(Prior):
              batch_size: Minibatch size. Only has an effect if `x` is not `None`. Defaults to the
                  minibatch size used for training.
         """
+        gp_old = getattr(self._gps, moment)
         if x is None:
-            gps = getattr(self._gps, moment)
+            return gp_old
         else:
             gps = getattr(self._get_gps(x, batch_size), moment)
-            for (group_name_calc, gp_calc), gp_old in zip(
-                gps.items(), getattr(self._gps, moment).values(), strict=True
-            ):
-                gps[group_name_calc] = pd.DataFrame(gp_calc, index=gp_old.index, columns=gp_old.columns)
-        return gps
+            for group_name_calc, gp_calc in gps.items():
+                ggp_old = gp_old[group_name_calc]
+                gps[group_name_calc] = pd.DataFrame(gp_calc, index=ggp_old.index, columns=ggp_old.columns)
+            return gps
 
     def _save(self) -> dict:
         state = {}
