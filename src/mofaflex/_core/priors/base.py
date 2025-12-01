@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from enum import Enum, auto
-from types import MethodType
 from typing import Any, Literal, NamedTuple
 
 from numpy.typing import NDArray
@@ -69,28 +68,14 @@ class Prior(metaclass=_PriorMeta):
     def axis(self):
         return self._axis
 
-    def _api(
-        obj: Prior | Callable | None = None,
-        attr: MethodType | property | str = None,
-        *,
-        has_factors: bool | None = None,
-    ):
+    @staticmethod
+    def _api(obj: Callable | property | None = None, *, has_factors: bool | None = None):
         class __api:
             @staticmethod
             def _add_api(owner, api: API):
                 if "_apilist" not in owner.__dict__:
                     owner._apilist = owner._apilist.copy()
                 owner._apilist.append(api)
-
-            def __new__(cls, func: Callable | MethodType | property):
-                if isinstance(func, MethodType):
-                    cls._add_api(
-                        func.__self__,
-                        API(func.__name__, APIType.method, has_factors if has_factors is not None else True),
-                    )
-                    return None
-                else:
-                    return super().__new__(cls)
 
             def __init__(self, func: Callable | property):
                 self._func = func
@@ -104,17 +89,7 @@ class Prior(metaclass=_PriorMeta):
                 setattr(owner, name, self._func)
 
         if obj is not None:
-            if isinstance(obj, Callable | property):
-                return __api(obj)
-            elif isinstance(attr, MethodType):
-                return __api(attr)
-            elif attr is None:
-                raise ValueError("need attr if invoked on a Prior instance")
-
-            if "_apilist" not in obj.__dict__:
-                obj._apilist = obj._apilist.copy()
-            obj._apilist.append(API(attr, APIType.property, has_factors if has_factors is not None else False))
-            return obj
+            return __api(obj)
         else:
             return __api
 

@@ -128,6 +128,7 @@ class InformedHorseshoe(Prior):
             subsample=1000,
         )
 
+    @Prior._api
     @property
     def n_informed_factors(self):
         """Number of informed factors."""
