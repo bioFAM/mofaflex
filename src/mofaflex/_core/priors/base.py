@@ -54,7 +54,7 @@ class Prior(metaclass=_PriorMeta):
             obj.__prior = args[0]
             return obj
 
-    def __init__(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str] | None, **kwargs):
+    def __init__(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str], **kwargs):
         if isinstance(axis, int):
             self._axis = axis
         else:
@@ -193,3 +193,23 @@ class Prior(metaclass=_PriorMeta):
 
     def _load(self, state, n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
         pass
+
+    @staticmethod
+    def known_factor_priors() -> tuple[str]:
+        pyropriors = PyroPrior.known_factor_priors()
+        priors = tuple(
+            name
+            for name, subcls in __class__.__registry.items()
+            if name not in pyropriors and getattr(subcls, "_factors", False)
+        )
+        return pyropriors + priors
+
+    @staticmethod
+    def known_weight_priors() -> tuple[str]:
+        pyropriors = PyroPrior.known_weight_priors()
+        priors = tuple(
+            name
+            for name, subcls in __class__.__registry.items()
+            if name not in pyropriors and getattr(subcls, "_weights", False)
+        )
+        return pyropriors + priors

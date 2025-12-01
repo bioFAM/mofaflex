@@ -33,9 +33,8 @@ from . import preprocessing
 from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
-from .priors import API, APIType, Prior, SmoothOptions
+from .priors import API, APIType, FactorPriorType, Prior, SmoothOptions, WeightPriorType
 from .pyro import MofaFlexModel
-from .pyro.priors import FactorPriorType, WeightPriorType
 from .training import EarlyStopper
 from .utils import MeanStd, Options, impute, sample_all_data_as_one_batch
 

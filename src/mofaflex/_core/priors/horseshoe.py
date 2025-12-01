@@ -16,7 +16,9 @@ from .base import Prior
 _logger = logging.getLogger()
 
 
-class Horseshoe(Prior):
+class InformedHorseshoe(Prior):
+    _factors = False
+    _weights = True
     _state_attrs = (
         "_annotations_varm_key",
         "_annotations",
@@ -28,8 +30,8 @@ class Horseshoe(Prior):
     def __init__(
         self,
         axis: Literal[0, 1, "samples", "features"],
-        names: str | Sequence[str] | None,
-        annotations_varm_key: str | None = None,
+        names: str | Sequence[str],
+        annotations_varm_key: str | None,
         **kwargs,
     ):
         super().__init__(axis, names)
@@ -39,82 +41,77 @@ class Horseshoe(Prior):
         self._annotations_varm_key = annotations_varm_key
 
     def get_datasets(self, data: MofaFlexDataset) -> None:
-        if self._annotations_varm_key is not None:
-            annotations = data.get_covariates(
-                self.axis,
-                mkey=self._annotations_varm_key,
-                fill_value=lambda dt: False if dt == "boolean" or dt == np.bool else pd.NA,
-            )
-            for name in list(annotations.keys()):
-                if name not in self._names:
-                    _logger.warning(
-                        f"Horseshoe prior required for annotations for view {name}. Annotations will be ignored."
-                    )
-                    del annotations[name]
+        annotations = data.get_covariates(
+            self.axis,
+            mkey=self._annotations_varm_key,
+            fill_value=lambda dt: False if dt == "boolean" or dt == np.bool else pd.NA,
+        )
+        for name in list(annotations.keys()):
+            if name not in self._names:
+                _logger.warning(
+                    f"Horseshoe prior required for annotations for view {name}. Annotations will be ignored."
+                )
+                del annotations[name]
+            else:
+                annot = annotations[name]
+                if all(np.all((a.dtypes == np.bool) | (a.dtypes == "boolean")) for a in annot.values()):
+                    annot = reduce(operator.or_, annot.values())
                 else:
-                    annot = annotations[name]
-                    if all(np.all((a.dtypes == np.bool) | (a.dtypes == "boolean")) for a in annot.values()):
-                        annot = reduce(operator.or_, annot.values())
-                    else:
-                        annot = (
-                            pd.concat(annot, axis=0, names=["view", "feature"])
-                            .groupby("feature")
-                            .mean()
-                            .rename_axis(index=None)
-                        )
-                    annot = annot.T
-                    if pd.api.types.is_integer_dtype(annot.index.dtype):
-                        annot.index = [f"Informed Factor {i + 1}" for i in range(annot.shape[0])]
-                    annotations[name] = annot
-            if len(annotations) > 0:
-                self._annotations = annotations
+                    annot = (
+                        pd.concat(annot, axis=0, names=["view", "feature"])
+                        .groupby("feature")
+                        .mean()
+                        .rename_axis(index=None)
+                    )
+                annot = annot.T
+                if pd.api.types.is_integer_dtype(annot.index.dtype):
+                    annot.index = [f"Informed Factor {i + 1}" for i in range(annot.shape[0])]
+                annotations[name] = annot
+        if len(annotations) == 0:
+            raise ValueError("No annotations found.")
+        self._annotations = annotations
 
     def adjust_factors(self, factors: list[str]) -> list[str]:
-        if self._annotations is None:
-            return factors
-        else:
-            self._informed_factors_start_idx = len(factors)
-            annotated_name = next(iter(self._annotations.keys()))
-            self._n_informed_factors = self._annotations[annotated_name].shape[0]
-            factors.extend(self._annotations[annotated_name].index.to_list())
+        self._informed_factors_start_idx = len(factors)
+        annotated_name = next(iter(self._annotations.keys()))
+        self._n_informed_factors = self._annotations[annotated_name].shape[0]
+        factors.extend(self._annotations[annotated_name].index.to_list())
 
-            return factors
+        return factors
 
     def _get_pyro_prior(self, n_factors: int, n_nonfactors: int, annotation_confidence: float = None, *args, **kwargs):
-        prior_scales = None
-        if self._annotations is not None:
-            annotations = {name: annot.to_numpy() for name, annot in self._annotations.items()}
-            prior_scales = {
-                name: np.clip(
-                    annotations.get(name, np.broadcast_to(0, (self._n_informed_factors, n_nonfactors[name]))).astype(
-                        np.float32
-                    )
-                    + (1 - annotation_confidence),
-                    1e-8,
-                    1.0,
+        annotations = {name: annot.to_numpy() for name, annot in self._annotations.items()}
+        prior_scales = {
+            name: np.clip(
+                annotations.get(name, np.broadcast_to(0, (self._n_informed_factors, n_nonfactors[name]))).astype(
+                    np.float32
                 )
-                for name in self._names
-            }
+                + (1 - annotation_confidence),
+                1e-8,
+                1.0,
+            )
+            for name in self._names
+        }
 
-            if n_factors > self._n_informed_factors:
-                one = np.asarray(1, dtype=np.float32)
-                prior_scales = {
-                    name: np.concatenate(
-                        (
-                            np.broadcast_to(one, (self._informed_factors_start_idx, n_nonfactors[name])),
-                            scales,
-                            np.broadcast_to(
-                                one,
-                                (
-                                    n_factors - self._informed_factors_start_idx - self._n_informed_factors,
-                                    n_nonfactors[name],
-                                ),
+        if n_factors > self._n_informed_factors:
+            one = np.asarray(1, dtype=np.float32)
+            prior_scales = {
+                name: np.concatenate(
+                    (
+                        np.broadcast_to(one, (self._informed_factors_start_idx, n_nonfactors[name])),
+                        scales,
+                        np.broadcast_to(
+                            one,
+                            (
+                                n_factors - self._informed_factors_start_idx - self._n_informed_factors,
+                                n_nonfactors[name],
                             ),
                         ),
-                        axis=0,
-                    )
-                    for name, scales in prior_scales.items()
-                }
+                    ),
+                    axis=0,
+                )
+                for name, scales in prior_scales.items()
+            }
         return PyroHorseshoe(
             self._names, *args, n_factors=n_factors, n_nonfactors=n_nonfactors, **kwargs, prior_scales=prior_scales
         )
@@ -122,25 +119,21 @@ class Horseshoe(Prior):
     def on_train_end(
         self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
     ):
-        if self._annotations is not None:
-            self._pcgse = pcgse_test(
-                data,
-                nonnegative_weights=results_nonnegative,
-                annotations=self._annotations,
-                weights=results.mean,
-                min_size=1,
-                subsample=1000,
-            )
-
-        self._api("annotations", has_factors=True)
-        self._api(self.get_significant_annotations)
-        self._api("n_informed_factors")
+        self._pcgse = pcgse_test(
+            data,
+            nonnegative_weights=results_nonnegative,
+            annotations=self._annotations,
+            weights=results.mean,
+            min_size=1,
+            subsample=1000,
+        )
 
     @property
     def n_informed_factors(self):
         """Number of informed factors."""
         return self._n_informed_factors
 
+    @Prior._api
     def get_significant_annotations(self) -> dict[str, pd.DataFrame]:
         """Get the results of significance testing of annotations against factors.
 
@@ -153,6 +146,7 @@ class Horseshoe(Prior):
         """
         return self._pcgse
 
+    @Prior._api(has_factors=True)
     @property
     def annotations(self) -> dict[str, pd.DataFrame]:
         """Annotation matrices for each view."""

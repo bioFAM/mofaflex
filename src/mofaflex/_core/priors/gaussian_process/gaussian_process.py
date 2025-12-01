@@ -66,7 +66,7 @@ class GaussianProcess(Prior):
     def __init__(
         self,
         axis: Literal[0, 1, "samples", "features"],
-        names: str | Sequence[str] | None,
+        names: str | Sequence[str],
         covariates_obs_key: str | Sequence[str] | None = None,
         covariates_obsm_key: str | Sequence[str] | None = None,
         options: SmoothOptions = None,
