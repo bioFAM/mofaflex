@@ -1075,14 +1075,15 @@ class MOFAFLEX:
         model._preprocessor_state = state["preprocessor_state"]
 
         model._model_opts.factor_prior = [
-            Prior.load(state, model.n_factors, model.n_samples, map_location=map_location)
+            Prior.load(state, model.n_total_factors, model.n_samples, map_location=map_location)
             for state in model._model_opts.factor_prior.values()
         ]
         model._model_opts.weight_prior = [
-            Prior.load(state, model.n_factors, model.n_features, map_location=map_location)
+            Prior.load(state, model.n_total_factors, model.n_features, map_location=map_location)
             for state in model._model_opts.weight_prior.values()
         ]
 
+        model._prior_api_properties = {}
         model._init_api()
 
         return model

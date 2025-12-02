@@ -64,16 +64,15 @@ def save_model(
     if path.exists():
         logger.warning(f"{path} already exists, overwriting")
     with h5py.File(path, "w") as f:
-        mofaflexgrp = f.create_group("mofaflex")
         with ad.settings.override(allow_write_nullable_strings=True):
             ad.io.write_elem(
-                mofaflexgrp,
-                "state",
+                f,
+                "mofaflex",
                 model_state,
                 dataset_kwargs={} if Version(ad.__version__) < Version("0.11.2") else dset_kwargs,
             )  # https://github.com/h5py/h5py/issues/2525
 
-        mofaflexgrp.attrs["version"] = __version__
+        f["mofaflex"].attrs["version"] = __version__
 
         if mofa_compat:
             # save MOFA-compatible output
@@ -240,6 +239,6 @@ def load_model(path: str | Path):
             logger.warning(
                 "The stored model was created with a different version of MOFA-FLEX. Some features may not work."
             )
-        state = ad.io.read_elem(mofaflexgrp["state"])
+        state = ad.io.read_elem(mofaflexgrp)
 
     return state
