@@ -542,6 +542,8 @@ class FeatureSets:
         feature_sets = set()
         for _, row in df.iterrows():
             feature_sets.add(
-                FeatureSet(row[features_col], name=row[name_col], description=desc_col is not None and row[desc_col])
+                FeatureSet(
+                    row[features_col], name=row[name_col], description=row[desc_col] if desc_col is not None else ""
+                )
             )
         return cls(feature_sets, name=name, remove_empty=remove_empty)

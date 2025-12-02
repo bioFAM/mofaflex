@@ -90,7 +90,7 @@ def save_model(
             for view_name, view_features in model.feature_names.items():
                 features_grp.create_dataset(view_name, data=view_features, **dset_kwargs)
 
-            if len(model.covariates):
+            if hasattr(model, "covariates"):
                 covar_names = None
                 if len(model.covariates_names) == 1:
                     covar_names = next(model.covariates_names.values())
@@ -167,17 +167,19 @@ def save_model(
                 **dset_kwargs,
             )
             model_opts_grp.create_dataset(
-                "spikeslab_factors", data=any(p == "SnS" for p in model._model_opts.factor_prior.values())
+                "spikeslab_factors",
+                data=any(p.__class__.__name__ == "SpikeSlab" for p in model._model_opts.factor_prior),
             )
             model_opts_grp.create_dataset(
-                "spikeslab_weights", data=any(p == "SnS" for p in model._model_opts.weight_prior.values())
+                "spikeslab_weights",
+                data=any(p.__class__.__name__ == "SpikeSlab" for p in model._model_opts.weight_prior),
             )
             # ARD used unconditionally in SnS prior
             model_opts_grp.create_dataset(
-                "ard_factors", data=any(p == "SnS" for p in model._model_opts.factor_prior.values())
+                "ard_factors", data=any(p.__class__.__name__ == "SpikeSlab" for p in model._model_opts.factor_prior)
             )
             model_opts_grp.create_dataset(
-                "ard_weights", data=any(p == "SnS" for p in model._model_opts.weight_prior.values())
+                "ard_weights", data=any(p.__class__.__name__ == "SpikeSlab" for p in model._model_opts.weight_prior)
             )
 
             train_opts_grp = f.create_group("training_opts")
@@ -187,7 +189,7 @@ def save_model(
             train_opts_grp.create_dataset("gpu_mode", data=model._train_opts.device.type != "cpu")
             train_opts_grp.create_dataset("stochastic", data=True)
 
-            if model._gp is not None:
+            if hasattr(model, "covariates"):
                 smooth_opts_grp = f.create_group("smooth_opts")
                 smooth_opts_grp.create_dataset("scale_cov", data=model._gp_opts.independent_lengthscales)
                 smooth_opts_grp.create_dataset("start_opt", data=0)
@@ -214,7 +216,7 @@ def save_model(
 
             train_stats_grp = f.create_group("training_stats")
             train_stats_grp.create_dataset("elbo", data=model.training_loss, **dset_kwargs)
-            if model._gp is not None:
+            if hasattr(model, "covariates"):
                 train_stats_grp.create_dataset("length_scales", data=model.gp_lengthscale, **dset_kwargs)
                 train_stats_grp.create_dataset("scales", data=model.gp_scale, **dset_kwargs)
                 train_stats_grp.create_dataset("Kg", data=model.gp_group_correlation, **dset_kwargs)

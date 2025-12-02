@@ -754,37 +754,39 @@ class MOFAFLEX:
             for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                 prior.on_train_start()
 
-            with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
-                for i in t:
-                    with torch.inference_mode():
-                        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                            prior.on_train_epoch_start(i)
+        with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
+            for i in t:
+                with self._train_opts.device, torch.inference_mode():
+                    for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                        prior.on_train_epoch_start(i)
 
-                    epoch_loss = 0
-                    if singlebatch:
+                epoch_loss = 0
+                if singlebatch:
+                    with self._train_opts.device:
                         epoch_loss += svi.step(**batchdata, **batch)
-                    else:
-                        for batch in loader:
-                            batch = collate((batch,), collate_fn_map=collate_fn_map)
+                else:
+                    for batch in loader:
+                        batch = collate((batch,), collate_fn_map=collate_fn_map)
+                        with self._train_opts.device:
                             epoch_loss += svi.step(**batch.pop("data"), **batch)
 
-                    with torch.inference_mode():
-                        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                            prior.on_train_epoch_end(i)
+                with self._train_opts.device, torch.inference_mode():
+                    for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
+                        prior.on_train_epoch_end(i)
 
-                    train_loss_elbo.append(epoch_loss)
-                    t.set_postfix({"Loss": epoch_loss}, refresh=False)
+                train_loss_elbo.append(epoch_loss)
+                t.set_postfix({"Loss": epoch_loss}, refresh=False)
 
-                    if earlystopper.step(epoch_loss):
-                        _logger.info(f"Training converged after {i} epochs.")
-                        break
+                if earlystopper.step(epoch_loss):
+                    _logger.info(f"Training converged after {i} epochs.")
+                    break
 
             if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
                 t.container.children[1].bar_style = "success"
 
             self._post_fit(data, preprocessor, covariates, model, train_loss_elbo)
 
-            with torch.inference_mode():
+            with self._train_opts.device, torch.inference_mode():
                 for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                     if prior.axis == 0:
                         kwargs = {"results": self._factors, "results_nonnegative": self._model_opts.nonnegative_factors}
