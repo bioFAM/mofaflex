@@ -22,10 +22,14 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
     Subclasses must also implement the `posterior` property to get the summary statistics of the posterior distribution.
     The constructor of subclasses must take a `**kwargs` argument which is ignored. This ensures that users can simply call
     `Prior(distribution, args)`, where args may be a union of arguments suitable for different priors, only a subset
-    of which will be used by the concrete Prior. Subclasses must also contain two boolean attributes:
+    of which will be used by the concrete Prior. Subclasses can also contain two boolean attributes:
 
         - `_factors`: Indicates whether the subclass is suitable for factors.
         - `_weights`: Indicates whether the subclass is suitable for weights.
+
+    By default, it is assumed that a subclass is suitable for both factors and weights. Generally, specifying these attributes
+    should only be necessary if a prior is not suitable for either factors or weights and no wrapper class in _core/priors
+    exists.
 
     Args:
         names: Names of groups/views that have the respective distribution.
@@ -61,11 +65,6 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if not isabstract(cls) and cls.__name__[0] != "_":
-            for attr in ("_factors", "_weights"):
-                if not hasattr(cls, attr):
-                    raise NotImplementedError(f"Class `{cls.__name__}` does not have attribute `{attr}`.")
-            if not cls._factors and not cls._weights:
-                raise TypeError(f"Class `{cls.__name__}` cannot be used for factors or weights.")
             init_sig = signature(cls.__init__)
             for arg in ("names", "factor_dim", "nonfactor_dim", "n_factors", "n_nonfactors", "kwargs"):
                 if arg not in init_sig.parameters:
@@ -156,9 +155,9 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
     @staticmethod
     def known_factor_priors() -> Sequence[str]:
         """Get all known factor priors."""
-        return tuple(name for name, subcls in __class__.__registry.items() if subcls._factors)
+        return tuple(name for name, subcls in __class__.__registry.items() if getattr(subcls, "_factors", True))
 
     @staticmethod
     def known_weight_priors() -> Sequence[str]:
         """Get all known weight priors."""
-        return tuple(name for name, subcls in __class__.__registry.items() if subcls._weights)
+        return tuple(name for name, subcls in __class__.__registry.items() if getattr(subcls, "_weights", True))

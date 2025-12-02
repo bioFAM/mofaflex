@@ -11,6 +11,8 @@ from .base import Prior
 
 class SpikeSlab(Prior):
     _state_attrs = ("_precisions", "_probabilities")
+    _factors = True
+    _weights = True
 
     def on_train_end(
         self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int

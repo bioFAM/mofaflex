@@ -12,9 +12,6 @@ from .base import Prior
 
 
 class _SimpleLocationScale(Prior):
-    _factors = True
-    _weights = True
-
     def __init__(
         self,
         prior_dist: type[pyro.distributions.Distribution],

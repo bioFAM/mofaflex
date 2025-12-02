@@ -15,9 +15,6 @@ from .base import Prior
 
 
 class SpikeSlab(Prior):
-    _factors = True
-    _weights = True
-
     def __init__(
         self,
         names: Sequence[str],

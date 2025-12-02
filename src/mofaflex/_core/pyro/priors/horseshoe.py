@@ -14,9 +14,6 @@ from .base import Prior
 
 
 class Horseshoe(Prior):
-    _factors = True
-    _weights = True
-
     def __init__(
         self,
         names: Sequence[str],

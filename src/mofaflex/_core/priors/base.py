@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from enum import Enum, auto
+from inspect import isabstract
 from typing import Any, Literal, NamedTuple
 
 from numpy.typing import NDArray
@@ -38,6 +39,14 @@ class Prior(metaclass=_PriorMeta):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
+
+        if not isabstract(cls) and cls.__name__[0] != "_":
+            for attr in ("_factors", "_weights"):
+                if not hasattr(cls, attr):
+                    raise NotImplementedError(f"Class `{cls.__name__}` does not have attribute `{attr}`.")
+            if not cls._factors and not cls._weights:
+                raise TypeError(f"Class `{cls.__name__}` cannot be used for factors or weights.")
+
         if cls._get_pyro_prior is __class__._get_pyro_prior:
             cls.__prior = cls.__name__
         __class__.__registry[cls.__name__] = cls
@@ -178,20 +187,16 @@ class Prior(metaclass=_PriorMeta):
 
     @staticmethod
     def known_factor_priors() -> Sequence[str]:
-        pyropriors = PyroPrior.known_factor_priors()
-        priors = tuple(
-            name
-            for name, subcls in __class__.__registry.items()
-            if name not in pyropriors and getattr(subcls, "_factors", False)
+        priors = tuple(name for name, subcls in __class__.__registry.items() if subcls._factors)
+        pyropriors = tuple(
+            pyroprior for pyroprior in PyroPrior.known_factor_priors() if pyroprior not in __class__.__registry
         )
         return pyropriors + priors
 
     @staticmethod
     def known_weight_priors() -> Sequence[str]:
-        pyropriors = PyroPrior.known_weight_priors()
-        priors = tuple(
-            name
-            for name, subcls in __class__.__registry.items()
-            if name not in pyropriors and getattr(subcls, "_weights", False)
+        priors = tuple(name for name, subcls in __class__.__registry.items() if subcls._weights)
+        pyropriors = tuple(
+            pyroprior for pyroprior in PyroPrior.known_weight_priors() if pyroprior not in __class__.__registry
         )
         return pyropriors + priors

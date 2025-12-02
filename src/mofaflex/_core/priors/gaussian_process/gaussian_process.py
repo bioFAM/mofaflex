@@ -62,6 +62,8 @@ class SmoothOptions(Options):
 
 class GaussianProcess(Prior):
     _state_attrs = "_obs_key", "_obsm_key", "_covariates", "_orig_covariates", "_warp_groups_order"
+    _factors = True
+    _weights = False
 
     def __init__(
         self,

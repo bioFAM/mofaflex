@@ -15,9 +15,6 @@ if TYPE_CHECKING:
 
 
 class GaussianProcess(Prior):
-    _factors = True
-    _weights = False
-
     def __init__(
         self,
         names: Sequence[str],
