@@ -66,6 +66,8 @@ class InformedHorseshoe(Prior):
                 annot = annot.T
                 if pd.api.types.is_integer_dtype(annot.index.dtype):
                     annot.index = [f"Informed Factor {i + 1}" for i in range(annot.shape[0])]
+                else:
+                    annot.index = annot.index.str.replace("/", "⧸")  # no slashes in column names for saving to disk
                 annotations[name] = annot
         if len(annotations) == 0:
             raise ValueError("No annotations found.")

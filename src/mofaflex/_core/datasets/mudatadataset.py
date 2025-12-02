@@ -430,6 +430,8 @@ class MuDataDataset(MofaFlexDataset):
                             )
                             if ccov.shape[1] == 1:
                                 ccov.columns = [cmkey]
+                            else:
+                                ccov.columns = ccov.columns.astype(str)
                         covar_dims[outer_key].add(ccov.shape[1])
 
                         if needs_alignment:

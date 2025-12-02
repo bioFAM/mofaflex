@@ -72,13 +72,13 @@ class CovariatesDataset(Dataset):
         for group_covars in covariates.values():
             for view_covars in group_covars.values():
                 dtypes = view_covars.dtypes
-                if len(dtypes) > 1:
+                if dtypes.nunique() > 1:
                     raise ValueError("Mixed dtypes for a covariate are not supported.")
                 if dtypes.iloc[0] == "category":
                     categories = (
-                        view_covars.cat.categories
+                        view_covars.iloc[0].cat.categories
                         if categories is None
-                        else categories.union(view_covars.cat.categories)
+                        else categories.union(view_covars.iloc[0].cat.categories)
                     )
         for group_covars in covariates.values():
             for view_covars in group_covars.values():
@@ -90,7 +90,11 @@ class CovariatesDataset(Dataset):
         self.covariates = {}
         for group_name, group_covars in covariates.items():
             group_covariates = pd.concat(group_covars, axis=0, names=["view", "sample"])
-            if group_covariates.dtypes.iloc[0] == "category":
+            if (
+                group_covariates.dtypes.iloc[0] == "category"
+                or pd.api.types.is_integer_dtype(group_covariates.dtypes.iloc[0])
+                and np.all(group_covariates.iloc[:, 0] >= 0)
+            ):
                 cov = group_covariates.groupby("sample").first()
             else:
                 cov = group_covariates.groupby("sample").mean()
@@ -109,7 +113,7 @@ class CovariatesDataset(Dataset):
             if group_name in self.covariates:
                 group = self.covariates[group_name].iloc[group_idx, :]
                 if group.dtypes.iloc[0] == "category":
-                    arr = np.stack((group[col].cat.codes.to_numpy() for col in group.columns), axis=1).astype(
+                    arr = np.stack(tuple(group[col].cat.codes.to_numpy() for col in group.columns), axis=1).astype(
                         self._cast_to
                     )
                     arr[arr < 0] = np.nan

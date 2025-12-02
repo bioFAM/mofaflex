@@ -697,7 +697,7 @@ class MOFAFLEX:
                     # find number of unique categories across groups
                     for group_name in self._group_names:
                         guiding_vars_categories.update(
-                            map(tuple, guiding_vars.datasets[guiding_var_name].covariates[group_name])
+                            guiding_vars.datasets[guiding_var_name].covariates[group_name].iloc[:, 0].to_list()
                         )
                     guiding_vars_n_categories[guiding_var_name] = len(guiding_vars_categories)
 
@@ -976,8 +976,8 @@ class MOFAFLEX:
         """
         data = self._mofaflexdataset(data)
 
-        factors = self.get_factors(return_type="numpy")
-        weights = self.get_weights(return_type="numpy")
+        factors = self.get_factors()
+        weights = self.get_weights()
 
         return data.apply(
             impute,

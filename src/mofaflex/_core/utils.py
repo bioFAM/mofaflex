@@ -263,7 +263,10 @@ def impute(
 
     if missingonly and not havemissing:
         return data
-    elif not missingonly:
+
+    factors = factors.to_numpy()
+    weights = weights.to_numpy()
+    if not missingonly:
         imputation = likelihood.transform_prediction(factors @ weights, preprocessor.sample_means)
     else:
         missing_obs = align_local_array_to_global(  # noqa F821
