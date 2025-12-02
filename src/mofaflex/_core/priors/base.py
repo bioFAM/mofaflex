@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from enum import Enum, auto
-from inspect import isabstract
+from inspect import isabstract, signature
 from typing import Any, Literal, NamedTuple
 
-from numpy.typing import NDArray
+import pandas as pd
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..pyro.priors import Prior as PyroPrior
@@ -26,13 +26,35 @@ class APIType(Enum):
 
 
 class API(NamedTuple):
+    """Description of a user-facing API attribute."""
+
     name: str
+    """The name of the attribute."""
+
     type: APIType
+    """The type of the attribute (method or property)."""
+
     has_factors: bool
+    """Whether this attribute returns a dict of dataframes with factors."""
 
 
 class Prior(metaclass=_PriorMeta):
-    """Base class for MOFA-FLEX priors."""
+    """Base class for MOFA-FLEX factors and weights priors.
+
+    Acts as a wrapper around a corresponding Pyro prior to handle additional logic and state, e.g. covariates.
+    This base class provides default behavior for simple usecases, Subclasses can reimplement any combination of
+    methods to customize aspects. The constructor of subclasses must take a `**kwargs` argument which is ignored.
+    This ensures that users can simply call `Prior(distribution, args)`, where ars may be a union of arguments
+    suitable for different priors, only a subset of which will be used by the concrete Prior. Subclasses must also
+    contain two boolean attributs:
+
+        - `_factors`: Indicates whether the subclass is suitable for factors.
+        - `_weights`: Indicates whether the subclass is suitable for weights.
+
+    Args:
+        axis: The axis that the prior is being used for. 0/`samples` for factors, 1/`features` for weights.
+        names: The names of the groups/views that the prior is responsible for.
+    """
 
     __registry = {}
     _apilist = []
@@ -46,6 +68,10 @@ class Prior(metaclass=_PriorMeta):
                     raise NotImplementedError(f"Class `{cls.__name__}` does not have attribute `{attr}`.")
             if not cls._factors and not cls._weights:
                 raise TypeError(f"Class `{cls.__name__}` cannot be used for factors or weights.")
+            init_sig = signature(cls.__init__)
+            for arg in ("axis", "names", "kwargs"):
+                if arg not in init_sig.parameters:
+                    raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
 
         if cls._get_pyro_prior is __class__._get_pyro_prior:
             cls.__prior = cls.__name__
@@ -74,18 +100,36 @@ class Prior(metaclass=_PriorMeta):
                 setattr(self, attr, None)
 
     @staticmethod
-    def class_(name: str):
+    def class_(name: str) -> _PriorMeta:
+        """The the prior class object for a name."""
         try:
             return __class__.__registry[name]
         except KeyError:
             return __class__
 
     @property
-    def axis(self):
+    def axis(self) -> Literal[0, 1]:
+        """The axis of this prior."""
         return self._axis
 
     @staticmethod
-    def _api(obj: Callable | property | None = None, *, has_factors: bool | None = None):
+    def _api(obj: Callable | property | None = None, *, has_factors: bool | None = None):  # noqa: D417
+        """Mark a method or property as user-facing.
+
+        Subclasses can use this to expose properties or methods to the end user through the main model class.
+        If a prior can be used for both factors and weights, the method or property name should contain `a̲x̲i̲s̲`
+        (that is the word `axis` with each letter followed by the unicode character U+0332 COMBINING LOW LINE).
+        The user-facing method/property will have this replaced by `factor` or `weight` as appropriate.
+
+        Args:
+            has_factors: Whether the method/property returns a dict of dataframes with factors. If `True`,
+                the user-facing method will have an additional argument `ordered`, which affects whether
+                the factors in the dataframes will be ordered by explained variance or not. For this to work,
+                the factors must be in the columns if `axis==0` and in the rows if `axis == 1`. Defaults to
+                `True` for methods and `False` for properties. A property with `has_factors=True` will be wrapped
+                in a getter method.
+        """
+
         class __api:
             @staticmethod
             def _add_api(owner, api: API):
@@ -111,50 +155,117 @@ class Prior(metaclass=_PriorMeta):
 
     @classmethod
     def api(cls) -> Iterable[API]:
+        """The user-facing API of this prior."""
         return cls._apilist
 
     @classmethod
     def api_methods(cls) -> Iterable[API]:
+        """The user-facing methods of this prior."""
         return (api for api in cls._apilist if api.type == APIType.method)
 
     @classmethod
     def api_properties(cls) -> Iterable[API]:
+        """The user-facing properties of this prior."""
         return (api for api in cls._apilist if api.type == APIType.property)
 
     def pyro_prior(self, *args, **kwargs):
+        """Get a Pyro prior for this prior.
+
+        This is used by the Pyro model. This method should not be reimplemented by subclasses, if custom behavior
+        is required, reimplement `_get_pyro_prior` instead.
+        """
         self._pyro_prior = self._get_pyro_prior(*args, **kwargs)
         return self._pyro_prior
 
     def _get_pyro_prior(self, *args, **kwargs):
+        """The default implementation for getting a Pyro prior.
+
+        Defaults to constructing a Pyro prior with the same name as the current prior.
+        """
         return PyroPrior(self.__prior, self._names, *args, **kwargs)
 
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset] | None:
+        """Hook that is called prior to training.
+
+        If a prior requires any additional covariates during training, it should return a dict of datasets. The keys of
+        the dict will be used as argument names for the `model` and `guide` methods of the Pyro prior.
+
+        Args:
+            data: The dataset.
+        """
         pass
 
     def adjust_factors(self, factors: list[str]) -> list[str]:
+        """Adjust the number and/or names of the factors in the model.
+
+        If a subclass needs to add additional factors to the entire model, this is the place to do it. The subclass should
+        store the indices of the factors it added if those need special treatment during training. This is guaranteed to be
+        called after `get_datasets`.
+
+        Args:
+            factors: A list of factor names.
+
+        Returns:
+            A list of factor names.
+        """
         return factors
 
     def postprocess_results(
         self, results: MeanStd, moment: Literal["mean", "std"] = "mean", **kwargs
-    ) -> dict[str, NDArray]:
+    ) -> dict[str, pd.DataFrame]:
+        """Hook that is called by the user-facing `get_factors` and `get_weights` methods.
+
+        Subclasses may apply additional postprocessing to the estimated factor and weight values. Any additional arguments in the
+        subclass signature will be added to the signature of the user-facing `get_factors`/`get_weights` methods.
+
+        Args:
+            results: The factors or weights.
+            moment: Which moment the user requested.
+            kwargs: Additional arguments.
+        """
         results = getattr(results, moment)
         return {name: results[name] for name in self._names}
 
-    def on_train_start(self, batch_size: int):
+    def on_train_start(self):
+        """Hook that is called immediately prior to training."""
         pass
 
     def on_train_epoch_start(self, epoch: int):
+        """Hook that is called at the beginning of each epoch.
+
+        Args:
+            epoch: The current epoch.
+        """
         pass
 
     def on_train_epoch_end(self, epoch: int):
+        """Hook that is called at the end of each epoch.
+
+        Args:
+            epoch: The current epoch.
+        """
         pass
 
     def on_train_end(
         self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
     ):
+        """Hook that is called at the end of training.
+
+        Args:
+            data: The dataset used during training.
+            results: The factors or weights.
+            results_nonnegative: Whether the factors/weights were constrained to be nonnegative for each group/view.
+            batch_size: The batch size used during training.
+        """
         pass
 
     def save(self) -> dict[str, Any]:
+        """Called by the model to save its state to disk.
+
+        If a subclass as a class attribute `_state_attrs`, which is a list of strings, each element of this list is used
+        as the name of an instance variable to be saved to disk. Subclasses must not reimplement this method. If custom
+        behavior is desired, reimplement `_save` instead.
+        """
         state = {}
         if hasattr(self, "_state_attrs"):
             for attr in self._state_attrs:
@@ -163,10 +274,23 @@ class Prior(metaclass=_PriorMeta):
         return {"axis": self._axis, "names": self._names, "class": self.__class__.__name__, "state": state}
 
     def _save(self) -> dict[str, Any]:
+        """Hook to save a prior's state to disk."""
         return {}
 
     @classmethod
     def load(cls, state: dict[str, Any], n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
+        """Called by the model to restore its state from disk.
+
+        If a subclass has a class attribute `state_attrs`, which is a list of strings, each element of this list is used
+        as the name of an instance variable to be restored. Subclasses must not reimplement this method. If custom behavior
+        is desired, reimplement `_load` instead.
+
+        Args:
+            state: The saved state.
+            n_factors: The number of factors in the model.
+            n_nonfactors: The number of samples (if `self.axis == 0`) or features (if `self.axis == 1`)
+            map_location: A device to map any potential PyTorch state to.
+        """
         try:
             subcls = __class__.__registry[state["class"]]
             obj = subcls.__new__(subcls)
@@ -183,10 +307,19 @@ class Prior(metaclass=_PriorMeta):
         return obj
 
     def _load(self, state, n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
+        """Hook to load a prior's state from disk.
+
+        Args:
+            state: The saved state.
+            n_factors: The number of factors in the model.
+            n_nonfactors: The number of samples (if `self.axis == 0`) or features (if `self.axis == 1`)
+            map_location: A device to map any potential PyTorch state to.
+        """
         pass
 
     @staticmethod
     def known_factor_priors() -> Sequence[str]:
+        """Get all known factor priors."""
         priors = tuple(name for name, subcls in __class__.__registry.items() if subcls._factors)
         pyropriors = tuple(
             pyroprior for pyroprior in PyroPrior.known_factor_priors() if pyroprior not in __class__.__registry
@@ -195,6 +328,7 @@ class Prior(metaclass=_PriorMeta):
 
     @staticmethod
     def known_weight_priors() -> Sequence[str]:
+        """Get all known weight priors."""
         priors = tuple(name for name, subcls in __class__.__registry.items() if subcls._weights)
         pyropriors = tuple(
             pyroprior for pyroprior in PyroPrior.known_weight_priors() if pyroprior not in __class__.__registry

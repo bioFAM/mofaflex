@@ -752,7 +752,7 @@ class MOFAFLEX:
         )
         with self._train_opts.device:
             for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                prior.on_train_start(batch_size=self._train_opts.batch_size)
+                prior.on_train_start()
 
             with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
                 for i in t:
