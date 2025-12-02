@@ -234,9 +234,9 @@ class GaussianProcess(Prior):
         Args:
              moment: Which moment of the posterior distribution to return.
              x: Covariate values for each group. If `None`, will return latent function values at
-                 covariate coordinates used for training.
+                covariate coordinates used for training.
              batch_size: Minibatch size. Only has an effect if `x` is not `None`. Defaults to the
-                 minibatch size used for training.
+                minibatch size used for training.
         """
         gp_old = getattr(self._gps, moment)
         if x is None:

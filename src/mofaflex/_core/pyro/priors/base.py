@@ -154,11 +154,11 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         pass
 
     @staticmethod
-    def known_factor_priors() -> tuple[str]:
+    def known_factor_priors() -> Sequence[str]:
         """Get all known factor priors."""
         return tuple(name for name, subcls in __class__.__registry.items() if subcls._factors)
 
     @staticmethod
-    def known_weight_priors() -> tuple[str]:
+    def known_weight_priors() -> Sequence[str]:
         """Get all known weight priors."""
         return tuple(name for name, subcls in __class__.__registry.items() if subcls._weights)

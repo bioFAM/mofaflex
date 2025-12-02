@@ -3,11 +3,10 @@ import logging
 import time
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
-from contextlib import suppress
 from dataclasses import dataclass
+from functools import update_wrapper
 from itertools import chain
 from pathlib import Path
-from types import MethodType
 from typing import Literal, NamedTuple, get_args
 
 import numpy as np
@@ -221,11 +220,6 @@ class MOFAFLEX:
         return ret
 
     def _wrap_api_method(self, axis: Literal[0, 1], prior: Prior, api: API):
-        if api.type == APIType.method:
-            func = getattr(prior, api.name)
-        else:
-            func = getattr(prior.__class__, api.name).fget
-
         def wrapper_func(self, *args, **kwargs):
             with torch.device(self._train_opts.device):
                 ret = getattr(prior, api.name)
@@ -233,20 +227,9 @@ class MOFAFLEX:
                     ret = ret(*args, **kwargs)
             return ret
 
-        params = []
-        if isinstance(func, MethodType):
-            params.append(inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD))
-        sig = inspect.signature(func)
-        params += list(sig.parameters.values())
-        annots = func.__annotations__.copy()
-
         if not api.has_factors:
-            wrapper_func.__doc__ = func.__doc__
-            ret = wrapper_func
+            wrapped = wrapper_func
         else:
-            params.append(
-                inspect.Parameter("ordered", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False, annotation=bool)
-            )
 
             def wrapper_func_order(self, *args, ordered: bool = False, **kwargs):
                 ret = wrapper_func(self, *args, **kwargs)
@@ -254,80 +237,29 @@ class MOFAFLEX:
                     ret = self._order_dfs_by_factors(ret, axis)
                 return ret
 
-            if func.__doc__ is not None:
-                doc = func.__doc__ + "\n\n"
-            else:
-                doc = ""
-            wrapper_func_order.__doc__ = (
-                doc + "Args:\n"
-                "     ordered: Whether to return the factors ordered by explained variance (highest to lowest)."
-            )
-            ret = wrapper_func_order
-        with suppress(KeyError):
-            annots["return"] = func.__annotations__["return"]
-        ret.__annotations__ = annots
-        ret.__signature__ = sig.replace(parameters=params)
-        return ret.__get__(self)
+            wrapped = wrapper_func_order
+
+        return wrapped
 
     def _init_api(self):
-        getters = self.get_factors, self.get_weights
-        getter_sigs = tuple(inspect.signature(getter) for getter in getters)
-        getter_params = tuple(
-            [param for param in sig.parameters.values() if param.name != "kwargs"] for sig in getter_sigs
-        )
-        getter_annots = tuple(getter.__annotations__ for getter in getters)
-        getter_docs = [getter.__doc__ for getter in getters]
-        axis_names = ("factor", "weight")
-
         for axis, priors in ((0, self._model_opts.factor_prior), (1, self._model_opts.weight_prior)):
-            namescount = Counter()
-            for method in chain(*(x.api_methods for x in priors)):
-                namescount[method.name] += 1
-            for prop in chain(*(x.api_properties for x in priors)):
-                namescount[prop] += 1
-            duplicates = {k for k, v in namescount.items() if v > 1}
-
             for prior in priors:
-                for api in prior.api:
-                    name = api.name if api.name not in duplicates else f"{api.name}_{prior.__class__.__name__}"
-                    name = name.replace("a̲x̲i̲s̲", axis_names[axis])
-                    if api.type == APIType.property:
-                        if not api.has_factors:
-                            self._prior_api_properties[name] = _PriorApiProperty(prior, prop.name)
-                            continue
-                        else:
-                            name = f"get_{name}"
-                    setattr(self, name, self._wrap_api_method(axis, prior, api))
+                for api in prior.api():
+                    name = _apinames[(axis, prior.__class__.__name__, api.name)]
+                    if api.type == APIType.property and not api.has_factors:
+                        self._prior_api_properties[name] = _PriorApiProperty(prior, api.name)
+                        continue
+                    wrapped = self._wrap_api_method(axis, prior, api)
+                    dummy = getattr(self.__class__, name)
+                    update_wrapper(wrapped, dummy)
+                    setattr(self, name, wrapped.__get__(self))
 
-                postprocess_method = prior.postprocess_results
-                params = [
-                    param
-                    for param in inspect.signature(postprocess_method).parameters.values()
-                    if param.name not in {"self", "results", "moment", "kwargs"}
-                ]
-                getter_params[axis].extend(params)
-                for param in params:
-                    getter_annots[axis][param.name] = param.annotation
-                if doc := postprocess_method.__doc__:
-                    getter_docs[axis] += "     " + doc
-
-        # can't move this inside the loop due to Python's late binding closures
-        getter_wrappers = (
-            lambda self, *args, **kwargs: getters[0](*args, **kwargs),
-            lambda self, *args, **kwargs: getters[1](*args, **kwargs),
-        )
-        for axis, (method, wrapper) in enumerate(zip(getters, getter_wrappers, strict=True)):
-            wrapper.__signature__ = getter_sigs[axis].replace(parameters=getter_params[axis])
-            wrapper.__annotations__ = getter_annots[axis]
-            wrapper.__doc__ = getter_docs[axis]
-            setattr(self, method.__name__, wrapper.__get__(self))
-
-    def __getattr__(self, name):
+    def __getattribute__(self, name):
         try:
-            prop = self.__getattribute__("_prior_api_properties")[name]
+            prop = super().__getattribute__("__dict__")["_prior_api_properties"][name]
             return getattr(prop.obj, prop.attr)
-        except (KeyError, AttributeError) as e:
-            raise AttributeError(obj=self, name=name) from e
+        except (KeyError, AttributeError):
+            return super().__getattribute__(name)
 
     def __dir__(self):
         return chain(super().__dir__(), self._prior_api_properties.keys())
@@ -953,9 +885,9 @@ class MOFAFLEX:
         """Get the factor matrices Z for each group.
 
         Args:
-             moment: Which moment of the posterior distribution to return.
-             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
-             return_type: Format of the returned object.
+            moment: Which moment of the posterior distribution to return.
+            ordered: Whether to return the factors ordered by explained variance (highest to lowest).
+            return_type: Format of the returned object.
         """
         factors = {}
         for prior in self._model_opts.factor_prior:
@@ -974,12 +906,12 @@ class MOFAFLEX:
         """Get the fraction of explained variance for each view and group.
 
         Args:
-             total: If `True`, returns a DataFrame with fraction of explained variance for the full
-                 model for each group (columns) and view (rows). Otherwise returns a dict with group
-                 names as keys containing DataFrames with the fraction of explained variance for each
-                 view (columns) and factor(rows).
-             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
-                 Has no effect if `total == True`.
+            total: If `True`, returns a DataFrame with fraction of explained variance for the full
+                model for each group (columns) and view (rows). Otherwise returns a dict with group
+                names as keys containing DataFrames with the fraction of explained variance for each
+                view (columns) and factor(rows).
+            ordered: Whether to return the factors ordered by explained variance (highest to lowest).
+                Has no effect if `total == True`.
         """
         if total:
             return self._df_r2_full
@@ -995,9 +927,9 @@ class MOFAFLEX:
         """Get the weight matrices W for each view.
 
         Args:
-             return_type: Format of the returned object.
-             moment: Which moment of the posterior distribution to return.
-             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
+            return_type: Format of the returned object.
+            moment: Which moment of the posterior distribution to return.
+            ordered: Whether to return the factors ordered by explained variance (highest to lowest).
         """
         weights = {}
         for prior in self._model_opts.weight_prior:
@@ -1009,7 +941,7 @@ class MOFAFLEX:
         """Get the dispersion vectors for each view.
 
         Args:
-             moment: Which moment of the posterior distribution to return.
+            moment: Which moment of the posterior distribution to return.
         """
         return {
             view_name: pd.Series(view_dispersion, index=self.feature_names[view_name])
@@ -1154,3 +1086,148 @@ class MOFAFLEX:
         model._init_api()
 
         return model
+
+
+# init API for docs
+def _init_api():
+    def raise_(exc):
+        raise exc
+
+    def get_line_indentation(line: str):
+        for i, s in enumerate(line):
+            if not s.isspace():
+                return i
+        return np.inf
+
+    def get_indentation(docstring: str):
+        if not docstring:
+            return 0
+        lines = docstring.expandtabs(4).splitlines()
+        min_indent = np.inf
+        for line in lines[1:]:
+            min_indent = min(min_indent, get_line_indentation(line))
+        return min_indent if np.isfinite(min_indent) else 0
+
+    def make_dummy_function(name: str, prior: str, is_property: bool):
+        if is_property:
+            return lambda self: raise_(
+                AttributeError(
+                    f"The '{name}' property is only available when using the '{prior}' prior.", obj=self, name=name
+                )
+            )
+        else:
+            return lambda self, *args, **kwargs: raise_(
+                AttributeError(
+                    f"The '{name}' method is only available when using the '{prior}' prior.", obj=self, name=name
+                )
+            )
+
+    apinames: dict[tuple[int, str, str], str] = {}
+
+    getters = MOFAFLEX.get_factors, MOFAFLEX.get_weights
+    getter_sigs = tuple(inspect.signature(getter) for getter in getters)
+    getter_params = tuple([param for param in sig.parameters.values() if param.name != "kwargs"] for sig in getter_sigs)
+    getter_annots = tuple(getter.__annotations__ for getter in getters)
+    getter_docs = [getter.__doc__ for getter in getters]
+    getter_indents = [" " * get_indentation(doc) for doc in getter_docs]
+
+    for axis, axisname, priors in (
+        (0, "factor", Prior.known_factor_priors()),
+        (1, "weight", Prior.known_weight_priors()),
+    ):
+        namescount = Counter()
+        for api in chain(*(Prior.class_(x).api() for x in priors)):
+            namescount[api.name] += 1
+        duplicates = {k for k, v in namescount.items() if v > 1}
+
+        for prior in priors:
+            priorcls = Prior.class_(prior)
+            for api in priorcls.api():
+                name = api.name if api.name not in duplicates else f"{api.name}_{prior}"
+                name = name.replace("a̲x̲i̲s̲", axisname)
+                if api.type == APIType.property and api.has_factors:
+                    name = f"get_{name}"
+                apinames[(axis, prior, api.name)] = name
+
+                if api.type == APIType.property and not api.has_factors:
+                    attr = property(make_dummy_function(name, prior, True))
+                    attr.__doc__ = (
+                        getattr(priorcls, api.name).__doc__ + "\n\n.. important::\n"
+                        f"   This property is only available when using the {prior} prior."
+                    )
+                    setattr(MOFAFLEX, name, attr)
+                    continue
+
+                func = getattr(priorcls, api.name)
+                if api.type == APIType.property:
+                    func = func.fget
+                doc = func.__doc__
+                sig = inspect.signature(func)
+                params = list(sig.parameters.values())
+                annots = func.__annotations__.copy()
+                wrapperfunc = make_dummy_function(name, prior, False)
+                if not api.has_factors:
+                    wrapperfunc.__doc__ = doc
+                else:
+                    if doc is not None:
+                        doc += "\n\n"
+                    else:
+                        doc = ""
+                    indent = " " * get_indentation(doc)
+                    wrapperfunc.__doc__ = (
+                        doc + f"{indent}Args:\n"
+                        f"{indent}    ordered: Whether to return the factors ordered by explained variance (highest to lowest).\n\n"
+                        f"{indent}.. important::\n"
+                        f"{indent}   This method is only available when using the `{prior}` prior."
+                    )
+                    params.append(
+                        inspect.Parameter(
+                            "ordered", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False, annotation=bool
+                        )
+                    )
+                    annots["ordered"] = bool
+                    wrapperfunc.__signature__ = sig.replace(parameters=params)
+                    wrapperfunc.__annotations__ = annots
+                    wrapperfunc.__qualname__ = f"{MOFAFLEX.__qualname__}.{name}"
+                    wrapperfunc.__name__ = name
+                setattr(MOFAFLEX, name, wrapperfunc)
+
+                postprocess_method = priorcls.postprocess_results
+                params = [
+                    param
+                    for param in inspect.signature(postprocess_method).parameters.values()
+                    if param.name not in {"self", "results", "moment", "kwargs"}
+                ]
+                getter_params[axis].extend(params)
+                for param in params:
+                    getter_annots[axis][param.name] = param.annotation
+                if doc := postprocess_method.__doc__:
+                    docindent = get_indentation(doc)
+                    lines = doc.expandtabs(4).splitlines()
+                    lines[0] = getter_indents[axis] + "Args:"
+                    for i, line in enumerate(lines[1:]):
+                        lines[i + 1] = getter_indents[axis] + "    " + line[docindent:]
+                    doc = "\n".join(lines)
+                    getter_docs[axis] += (
+                        "\n"
+                        + doc
+                        + f"\n{getter_indents[axis]}        .. important::\n{getter_indents[axis]}           This argument is only available when using the `{prior}` prior."
+                    )
+
+    # can't move this inside the loop due to Python's late binding closures
+    getter_wrappers = (
+        lambda self, *args, **kwargs: getters[0](self, *args, **kwargs),
+        lambda self, *args, **kwargs: getters[1](self, *args, **kwargs),
+    )
+    for axis, (method, wrapper) in enumerate(zip(getters, getter_wrappers, strict=True)):
+        wrapper.__signature__ = getter_sigs[axis].replace(parameters=getter_params[axis])
+        wrapper.__annotations__ = getter_annots[axis]
+        wrapper.__doc__ = getter_docs[axis]
+        wrapper.__qualname__ = method.__qualname__
+        wrapper.__name__ = method.__name__
+        setattr(MOFAFLEX, method.__name__, wrapper)
+
+    return apinames
+
+
+_apinames = _init_api()

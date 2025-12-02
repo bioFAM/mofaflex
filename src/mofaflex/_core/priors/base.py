@@ -64,6 +64,13 @@ class Prior(metaclass=_PriorMeta):
             for attr in self._state_attrs:
                 setattr(self, attr, None)
 
+    @staticmethod
+    def class_(name: str):
+        try:
+            return __class__.__registry[name]
+        except KeyError:
+            return __class__
+
     @property
     def axis(self):
         return self._axis
@@ -93,17 +100,17 @@ class Prior(metaclass=_PriorMeta):
         else:
             return __api
 
-    @property
-    def api(self) -> Iterable[API]:
-        return self._apilist
+    @classmethod
+    def api(cls) -> Iterable[API]:
+        return cls._apilist
 
-    @property
-    def api_methods(self) -> Iterable[API]:
-        return (api for api in self._apilist if api.type == APIType.method)
+    @classmethod
+    def api_methods(cls) -> Iterable[API]:
+        return (api for api in cls._apilist if api.type == APIType.method)
 
-    @property
-    def api_properties(self) -> Iterable[API]:
-        return (api for api in self._apilist if api.type == APIType.property)
+    @classmethod
+    def api_properties(cls) -> Iterable[API]:
+        return (api for api in cls._apilist if api.type == APIType.property)
 
     def pyro_prior(self, *args, **kwargs):
         self._pyro_prior = self._get_pyro_prior(*args, **kwargs)
@@ -170,7 +177,7 @@ class Prior(metaclass=_PriorMeta):
         pass
 
     @staticmethod
-    def known_factor_priors() -> tuple[str]:
+    def known_factor_priors() -> Sequence[str]:
         pyropriors = PyroPrior.known_factor_priors()
         priors = tuple(
             name
@@ -180,7 +187,7 @@ class Prior(metaclass=_PriorMeta):
         return pyropriors + priors
 
     @staticmethod
-    def known_weight_priors() -> tuple[str]:
+    def known_weight_priors() -> Sequence[str]:
         pyropriors = PyroPrior.known_weight_priors()
         priors = tuple(
             name

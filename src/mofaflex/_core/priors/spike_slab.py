@@ -41,14 +41,16 @@ class SpikeSlab(Prior):
         sparse_type: Literal["raw", "mix", "thresh"] = "mix",
         **kwargs,
     ) -> dict[str, pd.DataFrame]:
-        """sparse_type: How to handle sparsity when using the spike and slab prior.
+        """Args.
 
-        - raw: Do nothing, return inferred values for all entries.
-        - mix: Return the corresponding moment of a mixture distribution of two
-          Normal distributions: One centered at 0 and the other centered at the
-          inferred non-sparse value. The mixture is weighted by the inferred
-          sparsity probability. This is what MOFA does.
-        - thresh: Set all values with a sparsity probablity > 0.5 to 0.
+        sparse_type: How to handle sparsity when using the spike and slab prior.
+
+            - raw: Do nothing, return inferred values for all entries.
+            - mix: Return the corresponding moment of a mixture distribution of two
+              Normal distributions: One centered at 0 and the other centered at the
+              inferred non-sparse value. The mixture is weighted by the inferred
+              sparsity probability. This is what MOFA does.
+            - thresh: Set all values with a sparsity probablity > 0.5 to 0.
         """
         ret = {}
         for name in self._names:
