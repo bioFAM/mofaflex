@@ -167,7 +167,7 @@ def align_dataframe(
     for colname, col in new_cols.items():
         with suppress(ValueError):
             match col.dtype:
-                case pd.BooleanDtype:
+                case pd.BooleanDtype():
                     col = col.astype(bool)
                 case (
                     pd.core.arrays.integer.IntegerDtype(type=dtype) | pd.core.arrays.floating.FloatingDtype(type=dtype)
