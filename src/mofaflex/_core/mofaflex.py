@@ -256,7 +256,7 @@ class MOFAFLEX:
 
     def __getattribute__(self, name):
         try:
-            prop = super().__getattribute__("__dict__")["_prior_api_properties"][name]
+            prop = super().__getattribute__("_prior_api_properties")[name]
             return getattr(prop.obj, prop.attr)
         except (KeyError, AttributeError):
             return super().__getattribute__(name)
