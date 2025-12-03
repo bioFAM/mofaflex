@@ -1,3 +1,4 @@
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 import numpy as np
@@ -10,15 +11,22 @@ from .base import Prior
 
 
 class SpikeSlab(Prior):
-    _state_attrs = ("_precisions", "_probabilities")
+    _state_attrs = ("_probabilities",)
+    _state_attrs_meanstd = ("_precisions",)
     _factors = True
     _weights = True
 
     def on_train_end(
-        self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
+        self,
+        data: MofaFlexDataset,
+        factor_names: Sequence[str],
+        nonfactor_names: Mapping[str, Sequence[str]],
+        results: MeanStd,
+        results_nonnegative: dict[str, bool],
+        batch_size: int,
     ):
         self._precisions = MeanStd({}, {})
-        self._probs = {}
+        self._probabilities = {}
         precisions = self._pyro_prior.posterior_precision
         probs = self._pyro_prior.posterior_probability
 
@@ -27,14 +35,13 @@ class SpikeSlab(Prior):
             mean, std, prob = d.mean.cpu().numpy(), d.stddev.cpu().numpy(), probs[name].cpu().numpy()
             if self._axis == 0:
                 mean, std, prob = mean.T, std.T, prob.T
-            prob = pd.DataFrame(prob, index=results.mean[name].index, columns=results.mean[name].columns)
             self._precisions.mean[name] = mean
             self._precisions.std[name] = std
-            self._probs[name] = prob
+            self._probabilities[name] = prob
 
     @Prior._api
     def get_sparse_a̲x̲i̲s̲_probabilities(self) -> dict[str, pd.DataFrame]:
-        return self._probs
+        return self._probabilities
 
     def postprocess_results(
         self,
@@ -59,9 +66,9 @@ class SpikeSlab(Prior):
             cresults = getattr(results, moment)[name]
             if sparse_type == "mix":
                 if moment == "mean":
-                    cresults = cresults * self._probs[name]
+                    cresults = cresults * self._probabilities[name]
                 else:
-                    p = self._probs[name]
+                    p = self._probabilities[name]
                     a = self._precisions.mean[name][:, None]
                     cresults = np.sqrt(cresults**2 * p * (1 - p) + p * results.std[name] ** 2 + (1 - p) / a**2)
             elif sparse_type == "thresh":

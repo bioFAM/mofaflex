@@ -219,6 +219,27 @@ class MOFAFLEX:
             ret[k] = df
         return ret
 
+    def _results_to_df(
+        self,
+        results: Mapping[str, np.ndarray],
+        axis: Literal[0, 1],
+        ordered: bool = False,
+        factors_subset: slice = slice(None),
+    ):
+        factor_names = self.factor_names[factors_subset]
+        ret = {}
+        for name, res in results.items():
+            if ordered:
+                factor_order = self.factor_order[factors_subset]
+                factor_order = np.argsort(np.argsort(factor_order))
+                res = res[:, factor_order] if axis == 0 else res[factor_order, :]
+            ret[name] = (
+                pd.DataFrame(res, index=self.sample_names[name], columns=factor_names)
+                if axis == 0
+                else pd.DataFrame(res, index=factor_names, columns=self.feature_names[name])
+            )
+        return ret
+
     def _wrap_api_method(self, axis: Literal[0, 1], prior: Prior, api: API):
         def wrapper_func(self, *args, **kwargs):
             with torch.device(self._train_opts.device):
@@ -233,9 +254,8 @@ class MOFAFLEX:
 
             def wrapper_func_order(self, *args, ordered: bool = False, **kwargs):
                 ret = wrapper_func(self, *args, **kwargs)
-                if ordered:
-                    ret = self._order_dfs_by_factors(ret, axis)
-                return ret
+                factors_subset = getattr(prior, api.factors_subset) if api.factors_subset is not None else slice(None)
+                return self._results_to_df(ret, axis, ordered, factors_subset)
 
             wrapped = wrapper_func_order
 
@@ -477,17 +497,7 @@ class MOFAFLEX:
 
     def _post_fit(self, data, preprocessor, covariates, model, train_loss_elbo):
         self._weights = model.get_weights()
-        for moment in self._weights:
-            for view_name, view_weights in moment.items():
-                moment[view_name] = pd.DataFrame(
-                    view_weights, index=self.factor_names, columns=self.feature_names[view_name]
-                )
         self._factors = model.get_factors()
-        for moment in self._factors:
-            for group_name, group_factors in moment.items():
-                moment[group_name] = pd.DataFrame(
-                    group_factors, index=self.sample_names[group_name], columns=self.factor_names
-                )
         self._dispersions = model.get_dispersion()
         self._train_loss_elbo = np.asarray(train_loss_elbo)
 
@@ -789,15 +799,25 @@ class MOFAFLEX:
             with self._train_opts.device, torch.inference_mode():
                 for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                     if prior.axis == 0:
-                        kwargs = {"results": self._factors, "results_nonnegative": self._model_opts.nonnegative_factors}
+                        kwargs = {
+                            "results": self._factors,
+                            "results_nonnegative": self._model_opts.nonnegative_factors,
+                            "nonfactor_names": self.sample_names,
+                        }
                     else:
-                        kwargs = {"results": self._weights, "results_nonnegative": self._model_opts.nonnegative_weights}
-                    prior.on_train_end(data, batch_size=self._train_opts.batch_size, **kwargs)
+                        kwargs = {
+                            "results": self._weights,
+                            "results_nonnegative": self._model_opts.nonnegative_weights,
+                            "nonfactor_names": self.feature_names,
+                        }
+                    prior.on_train_end(
+                        data, factor_names=self.factor_names, batch_size=self._train_opts.batch_size, **kwargs
+                    )
 
         self._df_r2_full, self._df_r2_factors, self._factor_order = self._sort_factors(
             data,
-            weights=self.get_weights(moment="mean", sparse_type="mix", ordered=False),
-            factors=self.get_factors(moment="mean", sparse_type="mix", ordered=False),
+            factors=self._get_postprocessed_factors(moment="mean", sparse_type="mix", ordered=False),
+            weights=self._get_postprocessed_weights(moment="mean", sparse_type="mix", ordered=False),
         )
 
         if self._train_opts.save_path is not False:
@@ -811,7 +831,7 @@ class MOFAFLEX:
 
         self._init_api()
 
-    def _sort_factors(self, data, weights, factors, subsample=1000):
+    def _sort_factors(self, data, factors, weights, subsample=1000):
         # Loop over all groups
         dfs_factors, dfs_full = {}, {}
 
@@ -832,10 +852,10 @@ class MOFAFLEX:
                     view_name,
                     y_true=cdata,
                     factors=align_global_array_to_local(  # noqa F821
-                        factors[group_name].to_numpy(), group_name, view_name, align_to="samples", axis=0
+                        factors[group_name], group_name, view_name, align_to="samples", axis=0
                     )[sample_idx, :],
                     weights=align_global_array_to_local(  # noqa F821
-                        weights[view_name].to_numpy(), group_name, view_name, align_to="features", axis=1
+                        weights[view_name], group_name, view_name, align_to="features", axis=1
                     ),
                     dispersions=dispersions,
                     sample_means=align_global_array_to_local(  # noqa F821
@@ -877,6 +897,12 @@ class MOFAFLEX:
 
         return dfs_full, dfs_factors, factor_order
 
+    def _get_postprocessed_factors(self, moment: Literal["mean", "std"] = "mean", **kwargs) -> dict[str, np.ndarray]:
+        factors = {}
+        for prior in self._model_opts.factor_prior:
+            factors.update(prior.postprocess_results(self._factors, moment=moment, **kwargs))
+        return factors
+
     def get_factors(  # noqa: D417
         self,
         moment: Literal["mean", "std"] = "mean",
@@ -891,9 +917,8 @@ class MOFAFLEX:
             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
             return_type: Format of the returned object.
         """
-        factors = {}
-        for prior in self._model_opts.factor_prior:
-            factors.update(prior.postprocess_results(self._factors, moment=moment, **kwargs))
+        factors = self._get_postprocessed_factors(moment, **kwargs)
+        factors = self._results_to_df(factors, axis=0, ordered=ordered)
 
         if return_type == "anndata":
             for group_name, group_factors in factors.items():
@@ -923,6 +948,12 @@ class MOFAFLEX:
                 for group_name, df in self._df_r2_factors.items()
             }
 
+    def _get_postprocessed_weights(self, moment: Literal["mean", "std"] = "mean", **kwargs) -> dict[str, np.ndarray]:
+        weights = {}
+        for prior in self._model_opts.weight_prior:
+            weights.update(prior.postprocess_results(self._weights, moment=moment, **kwargs))
+        return weights
+
     def get_weights(  # noqa: D417
         self, moment: Literal["mean", "std"] = "mean", ordered: bool = False, **kwargs
     ) -> dict[str, pd.DataFrame]:
@@ -933,9 +964,8 @@ class MOFAFLEX:
             moment: Which moment of the posterior distribution to return.
             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
         """
-        weights = {}
-        for prior in self._model_opts.weight_prior:
-            weights.update(prior.postprocess_results(self._weights, moment=moment, **kwargs))
+        weights = self._get_postprocessed_weights(moment, **kwargs)
+        weights = self._results_to_df(weights, axis=1, ordered=ordered)
 
         return weights
 

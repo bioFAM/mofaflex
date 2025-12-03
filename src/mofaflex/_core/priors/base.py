@@ -37,6 +37,11 @@ class API(NamedTuple):
     has_factors: bool
     """Whether this attribute returns a dict of dataframes with factors."""
 
+    factors_subset: str | None
+    """Which property of the object to which this API attribute belongs to query for the subset of factors returned
+    by this attribute. Will only be used if `had_factors=True`. If `None`, it is assumed that this attribute returns
+    all factors. The property must return a slice or a sequence of indices."""
+
 
 class Prior(metaclass=_PriorMeta):
     """Base class for MOFA-FLEX factors and weights priors.
@@ -113,7 +118,9 @@ class Prior(metaclass=_PriorMeta):
         return self._axis
 
     @staticmethod
-    def _api(obj: Callable | property | None = None, *, has_factors: bool | None = None):  # noqa: D417
+    def _api(  # noqa: D417
+        obj: Callable | property | None = None, *, has_factors: bool | None = None, factors_subset: str | None = None
+    ):
         """Mark a method or property as user-facing.
 
         Subclasses can use this to expose properties or methods to the end user through the main model class.
@@ -142,9 +149,15 @@ class Prior(metaclass=_PriorMeta):
 
             def __set_name__(self, owner, name: str):
                 if isinstance(self._func, Callable):
-                    self._add_api(owner, API(name, APIType.method, has_factors if has_factors is not None else True))
+                    self._add_api(
+                        owner,
+                        API(name, APIType.method, has_factors if has_factors is not None else True, factors_subset),
+                    )
                 else:
-                    self._add_api(owner, API(name, APIType.property, has_factors if has_factors is not None else False))
+                    self._add_api(
+                        owner,
+                        API(name, APIType.property, has_factors if has_factors is not None else False, factors_subset),
+                    )
                     self._func.__set_name__(owner, name)
                 setattr(owner, name, self._func)
 
@@ -247,12 +260,20 @@ class Prior(metaclass=_PriorMeta):
         pass
 
     def on_train_end(
-        self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
+        self,
+        data: MofaFlexDataset,
+        factor_names: Sequence[str],
+        nonfactor_names: Mapping[str, Sequence[str]],
+        results: MeanStd,
+        results_nonnegative: dict[str, bool],
+        batch_size: int,
     ):
         """Hook that is called at the end of training.
 
         Args:
             data: The dataset used during training.
+            factor_names: Names of all factors.
+            nonfactor_names: Names of the non-factor dimension (sample names or feature names).
             results: The factors or weights.
             results_nonnegative: Whether the factors/weights were constrained to be nonnegative for each group/view.
             batch_size: The batch size used during training.
@@ -262,14 +283,18 @@ class Prior(metaclass=_PriorMeta):
     def save(self) -> dict[str, Any]:
         """Called by the model to save its state to disk.
 
-        If a subclass as a class attribute `_state_attrs`, which is a list of strings, each element of this list is used
-        as the name of an instance variable to be saved to disk. Subclasses must not reimplement this method. If custom
-        behavior is desired, reimplement `_save` instead.
+        If a subclass has a class attribute `_state_attrs`, which is a sequence of strings, each element of this list is used
+        as the name of an instance variable to be saved to disk. Similarly, if a subclass has a class attribute `_state_attrs_meanstd`,
+        which is a sequence of strings, each element of this list is assumed to be an instance variable of type `MeanStd` to be saved
+        to disk. Subclasses must not reimplement this method. If custom behavior is desired, reimplement `_save` instead.
         """
         state = {}
         if hasattr(self, "_state_attrs"):
             for attr in self._state_attrs:
                 state[attr] = getattr(self, attr)
+        if hasattr(self, "_state_attrs_meanstd"):
+            for attr in self._state_attrs_meanstd:
+                state[attr] = getattr(self, attr)._asdict()
         state.update(self._save())
         return {"axis": self._axis, "names": self._names, "class": self.__class__.__name__, "state": state}
 
@@ -281,9 +306,10 @@ class Prior(metaclass=_PriorMeta):
     def load(cls, state: dict[str, Any], n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
         """Called by the model to restore its state from disk.
 
-        If a subclass has a class attribute `state_attrs`, which is a list of strings, each element of this list is used
-        as the name of an instance variable to be restored. Subclasses must not reimplement this method. If custom behavior
-        is desired, reimplement `_load` instead.
+        If a subclass has a class attribute `state_attrs`, which is a sequence of strings, each element of this list is used
+        as the name of an instance variable to be restored. Similarly, if a subclass has a class attribute `_state_attrs_meanstd`,
+        which is a sequence of strings, each element of this list is assumed to be an instance variable of type `MeanStd` to be
+        restored.Subclasses must not reimplement this method. If custom behavior is desired, reimplement `_load` instead.
 
         Args:
             state: The saved state.
@@ -303,6 +329,11 @@ class Prior(metaclass=_PriorMeta):
         if hasattr(obj, "_state_attrs"):
             for attr in obj._state_attrs:
                 setattr(obj, attr, substate.get(attr))
+        if hasattr(obj, "_state_attrs_meanstd"):
+            for attrname in obj._state_attrs_meanstd:
+                if (attr := substate.get(attrname)) is not None:
+                    attr = MeanStd(**attr)
+                setattr(obj, attrname, attr)
         obj._load(substate, n_factors, n_nonfactors, map_location=map_location)
         return obj
 

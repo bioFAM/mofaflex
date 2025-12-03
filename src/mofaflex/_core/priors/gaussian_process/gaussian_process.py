@@ -93,6 +93,9 @@ class GaussianProcess(Prior):
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
         dset = CovariatesDataset(data, self._obs_key, self._obsm_key, self._names)
         self._covariates = dset.covariates
+        for covar in self._covariates.values():
+            if pd.api.types.is_integer_dtype(covar.columns):
+                covar.columns = "covariate_" + covar.columns.astype(str)
         return {"gp_covariates": dset}
 
     def _get_pyro_prior(self, n_factors: int, *args, **kwargs):
@@ -157,13 +160,15 @@ class GaussianProcess(Prior):
             self._gp.update_inducing_points(covar.to_numpy() for covar in self._covariates.values())
 
     def on_train_end(
-        self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
+        self,
+        data: MofaFlexDataset,
+        factor_names: Sequence[str],
+        nonfactor_names: Mapping[str, Sequence[str]],
+        results: MeanStd,
+        results_nonnegative: dict[str, bool],
+        batch_size: int,
     ):
         self._gps = self._get_gps({g: covar.to_numpy() for g, covar in self._covariates.items()}, batch_size)
-        for gpmoment, resultsmoment in zip(self._gps, results, strict=True):
-            for group_name, gp in gpmoment.items():
-                gresults = resultsmoment[group_name]
-                gpmoment[group_name] = pd.DataFrame(gp, index=gresults.index, columns=gresults.columns)
 
     @torch.inference_mode()
     def _get_gps(self, x: Mapping[str, np.ndarray | torch.Tensor], batch_size: int):

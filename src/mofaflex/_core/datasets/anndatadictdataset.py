@@ -449,8 +449,6 @@ class AnnDataDictDataset(MofaFlexDataset):
                         covar = pd.DataFrame(covar, index=getattr(view, attrnames))
                         if covar.shape[1] == 1:
                             covar.columns = [cmkey]
-                        else:
-                            covar.columns = covar.columns.astype(str)
                     covar_dims[outer_key].add(covar.shape[1])
 
                     covariates[outer_key][inner_key] = align_dataframe(

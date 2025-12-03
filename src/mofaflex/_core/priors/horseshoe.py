@@ -1,6 +1,6 @@
 import logging
 import operator
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import reduce
 from typing import Literal
 
@@ -63,29 +63,26 @@ class InformedHorseshoe(Prior):
                         .mean()
                         .rename_axis(index=None)
                     )
-                annot = annot.T
-                if pd.api.types.is_integer_dtype(annot.index.dtype):
-                    annot.index = [f"Informed Factor {i + 1}" for i in range(annot.shape[0])]
+                if pd.api.types.is_integer_dtype(annot.columns.dtype):
+                    self._annotations_names = [f"Informed Factor {i + 1}" for i in range(annot.shape[1])]
                 else:
-                    annot.index = annot.index.str.replace("/", "⧸")  # no slashes in column names for saving to disk
-                annotations[name] = annot
+                    self._annotations_names = annot.columns.to_list()
+                annotations[name] = annot.to_numpy().T
         if len(annotations) == 0:
             raise ValueError("No annotations found.")
         self._annotations = annotations
 
     def adjust_factors(self, factors: list[str]) -> list[str]:
         self._informed_factors_start_idx = len(factors)
-        annotated_name = next(iter(self._annotations.keys()))
-        self._n_informed_factors = self._annotations[annotated_name].shape[0]
-        factors.extend(self._annotations[annotated_name].index.to_list())
+        self._n_informed_factors = len(self._annotations_names)
+        factors.extend(self._annotations_names)
 
         return factors
 
     def _get_pyro_prior(self, n_factors: int, n_nonfactors: int, annotation_confidence: float = None, *args, **kwargs):
-        annotations = {name: annot.to_numpy() for name, annot in self._annotations.items()}
         prior_scales = {
             name: np.clip(
-                annotations.get(name, np.broadcast_to(0, (self._n_informed_factors, n_nonfactors[name]))).astype(
+                self._annotations.get(name, np.broadcast_to(0, (self._n_informed_factors, n_nonfactors[name]))).astype(
                     np.float32
                 )
                 + (1 - annotation_confidence),
@@ -119,16 +116,32 @@ class InformedHorseshoe(Prior):
         )
 
     def on_train_end(
-        self, data: MofaFlexDataset, results: MeanStd, results_nonnegative: dict[str, bool], batch_size: int
+        self,
+        data: MofaFlexDataset,
+        factor_names: Sequence[str],
+        nonfactor_names: Mapping[str, Sequence[str]],
+        results: MeanStd,
+        results_nonnegative: dict[str, bool],
+        batch_size: int,
     ):
         self._pcgse = pcgse_test(
             data,
             nonnegative_weights=results_nonnegative,
-            annotations=self._annotations,
-            weights=results.mean,
+            annotations={
+                name: pd.DataFrame(annot, index=self._annotations_names, columns=nonfactor_names[name])
+                for name, annot in self._annotations.items()
+            },
+            weights={
+                name: pd.DataFrame(res, index=factor_names, columns=nonfactor_names[name])
+                for name, res in results.mean.items()
+            },
             min_size=1,
             subsample=1000,
         )
+
+    @property
+    def factors_subset(self):
+        return slice(self._informed_factors_start_idx, self._informed_factors_start_idx + self._n_informed_factors)
 
     @Prior._api
     @property
@@ -136,7 +149,7 @@ class InformedHorseshoe(Prior):
         """Number of informed factors."""
         return self._n_informed_factors
 
-    @Prior._api
+    @Prior._api(has_factors=False)
     def get_significant_annotations(self) -> dict[str, pd.DataFrame]:
         """Get the results of significance testing of annotations against factors.
 
@@ -149,13 +162,8 @@ class InformedHorseshoe(Prior):
         """
         return self._pcgse
 
-    @Prior._api(has_factors=True)
+    @Prior._api(has_factors=True, factors_subset="factors_subset")
     @property
     def annotations(self) -> dict[str, pd.DataFrame]:
         """Annotation matrices for each view."""
         return self._annotations
-
-    def _subset_factor_names(self, factor_names):
-        return factor_names[
-            self._informed_factors_start_idx : self._informed_factors_start_idx + self._n_informed_factors
-        ]
