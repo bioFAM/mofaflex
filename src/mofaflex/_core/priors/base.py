@@ -16,7 +16,10 @@ from ..utils import MeanStd
 class _PriorMeta(type):
     def __call__(cls, *args, **kwargs):
         obj = cls.__new__(cls, *args, **kwargs)
-        obj.__init__(*args[1:], **kwargs)
+        args = list(args)
+        if cls == Prior:
+            args = args[1:]
+        obj.__init__(*args, **kwargs)
         return obj
 
 
