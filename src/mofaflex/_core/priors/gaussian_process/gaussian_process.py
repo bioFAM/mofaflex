@@ -95,7 +95,7 @@ class GaussianProcess(Prior):
         self._covariates = dset.covariates
         for covar in self._covariates.values():
             if pd.api.types.is_integer_dtype(covar.columns):
-                covar.columns = "covariate_" + covar.columns.astype(str)
+                covar.columns = "Covariate " + covar.columns.astype(str)
         return {"gp_covariates": dset}
 
     def _get_pyro_prior(self, n_factors: int, *args, **kwargs):

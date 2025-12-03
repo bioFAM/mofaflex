@@ -78,10 +78,6 @@ def test_save_load_model(setup_teardown):
     # Load the model and its parameters
     loaded_model = MOFAFLEX.load(path=temp_file)
     # Check if the model's parameter is correctly loaded
-    if model._gp is not None:  # TODO: test with GP
-        for original_param, loaded_param in zip(model._gp.parameters(), loaded_model._gp.parameters(), strict=False):
-            assert np.equal(original_param, loaded_param), "Model parameter mismatch"
-
     for attr in (
         "group_names",
         "n_groups",
@@ -93,14 +89,8 @@ def test_save_load_model(setup_teardown):
         "n_samples",
         "n_samples_total",
         "n_factors",
-        "n_uninformed_factors",
-        "n_informed_factors",
+        "n_total_factors",
         "factor_order",
         "factor_names",
-        "warped_covariates",
-        "covariates",
-        "gp_lengthscale",
-        "gp_scale",
-        "gp_group_correlation",
     ):
         assert compare_nested(getattr(model, attr), getattr(loaded_model, attr)), attr

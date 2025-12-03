@@ -353,13 +353,13 @@ def test_get_covariates_from_key(mdata, dataset, subset_var, axis):
     dsetnamesattr = "sample_names" if axis == 0 else "feature_names"
     dict_reorder = slice(None) if axis == 0 else slice(None, None, -1)
 
-    covars, covar_names = dataset.get_covariates(axis=axis, key="covar")
+    covars = dataset.get_covariates(axis=axis, key="covar")
 
     for group_name in dataset.group_names:
         subdata = mdata[mdata.obs["batch"] == group_name]
         for modname in subdata.mod.keys():
             dict_key = (group_name, modname)[dict_reorder]
-            assert covar_names[dict_key[0]] == ["covar"]
+            assert covars[dict_key[0]][dict_key[1]].columns == ["covar"]
 
             names = getattr(dataset, dsetnamesattr)[dict_key[0]]
             if modname != "view_2":
@@ -369,15 +369,15 @@ def test_get_covariates_from_key(mdata, dataset, subset_var, axis):
                 localidx = getattr(view, namesattr).get_indexer(names)
                 localidx = localidx[localidx >= 0]
                 assert np.all(
-                    covars[dict_key[0]][dict_key[1]][globalidx].squeeze()
+                    covars[dict_key[0]][dict_key[1]].iloc[globalidx, 0].squeeze()
                     == getattr(view, attr)["covar"].to_numpy()[localidx]
                 )
-                assert np.all(np.isnan(covars[dict_key[0]][dict_key[1]][~globalidx]))
+                assert np.all(np.isnan(covars[dict_key[0]][dict_key[1]].iloc[~globalidx, 0]))
             else:
                 covar = getattr(subdata, attr).loc[names, "covar"].to_numpy()
                 nanidx = np.isnan(covar)
-                assert np.all(covar[~nanidx] == covars[dict_key[0]][dict_key[1]][~nanidx].squeeze())
-                assert np.all(np.isnan(covars[dict_key[0]][dict_key[1]][nanidx]))
+                assert np.all(covar[~nanidx] == covars[dict_key[0]][dict_key[1]].iloc[~nanidx, 0].squeeze())
+                assert np.all(np.isnan(covars[dict_key[0]][dict_key[1]].iloc[nanidx, 0]))
 
 
 @pytest.mark.parametrize("type", ("df", "array", "sparse"))
@@ -390,18 +390,19 @@ def test_get_covariates_from_keym(mdata, dataset, subset_var, axis, mkey, type):
     dsetnamesattr = "sample_names" if axis == 0 else "feature_names"
     dict_reorder = slice(None) if axis == 0 else slice(None, None, -1)
 
-    covars, covar_names = dataset.get_covariates(axis=axis, mkey=mkey)
+    covars = dataset.get_covariates(axis=axis, mkey=mkey)
 
     for group_name in dataset.group_names:
         for modname in mdata.mod.keys():
             dict_key = (group_name, modname)[dict_reorder]
             names = getattr(dataset, dsetnamesattr)[dict_key[0]]
             subdata = mdata[dataset.sample_names[group_name], dataset.feature_names[modname]]
+            ccovars = covars[dict_key[0]][dict_key[1]]
             if modname != "view_2":
                 view = subdata.mod[modname]
                 covar = getattr(view, attrm)[mkey]
                 if type == "df":
-                    assert np.all(covar_names[dict_key[0]] == getattr(view, attrm)[mkey].columns)
+                    assert np.all(ccovars.columns == getattr(view, attrm)[mkey].columns)
                     covar = covar.to_numpy()
 
                 globalidx = np.isin(names, getattr(view, namesattr))
@@ -413,18 +414,21 @@ def test_get_covariates_from_keym(mdata, dataset, subset_var, axis, mkey, type):
                     gt = gt.iloc[localidx, :].to_numpy()
                 else:
                     gt = gt[localidx, :]
-                assert np.all(covars[dict_key[0]][dict_key[1]][globalidx, :] == gt)
-                assert np.all(np.isnan(covars[dict_key[0]][dict_key[1]][~globalidx, :]))
+                if type == "sparse":
+                    gt = gt.toarray()
+                assert np.all(ccovars.iloc[globalidx, :] == gt)
+                assert np.all(np.isnan(ccovars.iloc[~globalidx, :]))
             else:
                 covar = getattr(subdata, attrm)[mkey]
                 if type == "df":
-                    assert np.all(covar_names[dict_key[0]] == getattr(subdata, attrm)[mkey].columns)
+                    assert np.all(ccovars.columns == covar.columns)
                     covar = covar.to_numpy()
                 elif type == "sparse":
                     covar = covar.toarray()
+                ccovars = ccovars.to_numpy()
                 nanidx = np.isnan(covar)
-                assert np.all(covar[~nanidx] == covars[dict_key[0]][dict_key[1]][~nanidx])
-                assert np.all(np.isnan(covars[dict_key[0]][dict_key[1]][nanidx]))
+                assert np.all(covar[~nanidx] == ccovars[~nanidx])
+                assert np.all(np.isnan(ccovars[nanidx]))
 
 
 def test_get_missing_obs(mdata, dataset):

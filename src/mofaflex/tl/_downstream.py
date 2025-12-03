@@ -56,7 +56,7 @@ def test_annotation_significance(
             data,
             model._model_opts.nonnegative_weights,
             annotations,
-            model.get_weights("pandas"),
+            model.get_weights(),
             corr_adjust=corr_adjust,
             p_adj_method=p_adj_method,
             min_size=min_size,

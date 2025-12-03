@@ -593,9 +593,9 @@ def factor(
     return plt
 
 
-def _check_covariate(cov, cnames, group_name, covars):
+def _check_covariate(cov, group_name, covars):
     if isinstance(cov, str):
-        covidx = np.nonzero(cnames == cov)[0]
+        covidx = np.nonzero(covars.columns == cov)[0]
         if not covidx.size:
             raise ValueError(f"Covariate `{cov}` not found in group `{group_name}`.")
         elif covidx.size > 1:
@@ -632,7 +632,6 @@ def _plot_factors_covariate(
         figsize = (2 * model.n_factors, 2 * len(factors))
 
     covariates = model.covariates
-    covariate_names = model.covariates_names
 
     df = []
     covnames = [covariate1, covariate2]
@@ -652,13 +651,12 @@ def _plot_factors_covariate(
         ylab = "Factor value"
 
     for group_name, covars in covariates.items():
-        cnames = covariate_names.get(group_name, ())
-        covidxs = tuple(_check_covariate(cov, cnames, group_name, covars) for cov in covcheck)
+        covidxs = tuple(_check_covariate(cov, group_name, covars) for cov in covcheck)
 
-        cdf = factors[group_name].reset_index(names="sample").assign(cov1=covars[:, covidxs[0]], group=group_name)
+        cdf = factors[group_name].assign(cov1=covars.iloc[:, covidxs[0]], group=group_name)
         if len(covidxs) > 1:
-            cdf = cdf.assign(cov2=covars[:, covidxs[1]])
-        df.append(cdf)
+            cdf = cdf.assign(cov2=covars.iloc[:, covidxs[1]])
+        df.append(cdf.reset_index(names="sample"))
 
     df = (
         pd.concat(df, axis=0, ignore_index=True)
@@ -727,7 +725,7 @@ def gp_covariate(
     elif covdim[0] > 2:
         raise NotImplementedError("Cannot plot covariates with >2 dimensions.")
 
-    covnames = [np.asarray(tuple(n[i] for n in model.covariates_names.values())) for i in range(covdim[0])]
+    covnames = [np.asarray(tuple(covar.columns[i] for covar in covariates.values())) for i in range(covdim[0])]
     for i in range(covdim[0]):
         if covnames[i].size == 0:
             covnames[i] = f"Covariate {i}"
@@ -746,15 +744,15 @@ def gp_covariate(
     gp_stds = model.get_gps(moment="std")
 
     if figsize is None:
-        figsize = (2 * model.n_factors, 2 * len(gp_means))
+        figsize = (2 * model.n_total_factors, 2 * len(gp_means))
 
     df = []
 
     for group_name, covars in covariates.items():
         cdf_mean = (
             gp_means[group_name]
+            .assign(cov=covars.iloc[:, 0])
             .reset_index(names="sample")
-            .assign(cov=covars[:, 0])
             .melt(id_vars=["sample", "cov"], var_name="factor", value_name="mean")
         )
         cdf_std = (
@@ -818,13 +816,16 @@ def _prepare_weights_df(
     factors: int | str | Sequence[int] | Sequence[str] | None = None,
 ):
     weights = model.get_weights(ordered=False)
-    annotations = model.get_annotations(ordered=False)
+    try:
+        annotations = model.get_annotations(ordered=False)
+    except AttributeError:
+        annotations = {}
     if views is None:
         views = model.view_names
     elif isinstance(views, str):
         views = [views]
     if factors is None:
-        factors = np.arange(model.n_factors)
+        factors = np.arange(model.n_total_factors)
     else:
         if not isinstance(factors, Sequence) or isinstance(factors, str):
             factors = (factors,)
