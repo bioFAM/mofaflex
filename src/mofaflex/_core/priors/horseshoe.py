@@ -67,7 +67,7 @@ class InformedHorseshoe(Prior):
                     self._annotations_names = [f"Informed Factor {i + 1}" for i in range(annot.shape[1])]
                 else:
                     self._annotations_names = annot.columns.to_list()
-                annotations[name] = annot.to_numpy().T
+                annotations[name] = annot.to_numpy()
         if len(annotations) == 0:
             raise ValueError("No annotations found.")
         self._annotations = annotations
@@ -97,17 +97,17 @@ class InformedHorseshoe(Prior):
             prior_scales = {
                 name: np.concatenate(
                     (
-                        np.broadcast_to(one, (self._informed_factors_start_idx, n_nonfactors[name])),
+                        np.broadcast_to(one, (n_nonfactors[name], self._informed_factors_start_idx)),
                         scales,
                         np.broadcast_to(
                             one,
                             (
-                                n_factors - self._informed_factors_start_idx - self._n_informed_factors,
                                 n_nonfactors[name],
+                                n_factors - self._informed_factors_start_idx - self._n_informed_factors,
                             ),
                         ),
                     ),
-                    axis=0,
+                    axis=1,
                 )
                 for name, scales in prior_scales.items()
             }
@@ -128,11 +128,11 @@ class InformedHorseshoe(Prior):
             data,
             nonnegative_weights=results_nonnegative,
             annotations={
-                name: pd.DataFrame(annot, index=self._annotations_names, columns=nonfactor_names[name])
+                name: pd.DataFrame(annot, index=nonfactor_names[name], columns=self._annotations_names)
                 for name, annot in self._annotations.items()
             },
             weights={
-                name: pd.DataFrame(res, index=factor_names, columns=nonfactor_names[name])
+                name: pd.DataFrame(res, index=nonfactor_names[name], columns=factor_names)
                 for name, res in results.mean.items()
             },
             min_size=1,

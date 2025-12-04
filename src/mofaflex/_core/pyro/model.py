@@ -423,8 +423,8 @@ class MofaFlexModel(PyroModule):
         for view_name in self._view_names:
             if self._nonnegative_weights[view_name]:
                 weights.mean[view_name] = self._pos_transform(weights.mean[view_name])
-            weights.mean[view_name] = weights.mean[view_name].cpu().numpy()
-            weights.std[view_name] = weights.std[view_name].cpu().numpy()
+            weights.mean[view_name] = weights.mean[view_name].cpu().numpy().T
+            weights.std[view_name] = weights.std[view_name].cpu().numpy().T
 
         return weights
 

@@ -209,16 +209,6 @@ class MOFAFLEX:
 
         self._fit(data, preprocessor)
 
-    def _order_dfs_by_factors(self, obj: dict[pd.DataFrame], axis: Literal[0, 1]):
-        ret = {}
-        for k, df in obj.items():
-            used_factor_names = df.index if axis == 1 else df.columns
-            used_factor_order = self.factor_order[np.isin(self.factor_names, used_factor_names)]
-            used_factor_order = np.argsort(np.argsort(used_factor_order))
-            df = df.iloc[used_factor_order, :] if axis == 1 else df.iloc[:, used_factor_order]
-            ret[k] = df
-        return ret
-
     def _results_to_df(
         self,
         results: Mapping[str, np.ndarray],
@@ -232,11 +222,9 @@ class MOFAFLEX:
             if ordered:
                 factor_order = self.factor_order[factors_subset]
                 factor_order = np.argsort(np.argsort(factor_order))
-                res = res[:, factor_order] if axis == 0 else res[factor_order, :]
-            ret[name] = (
-                pd.DataFrame(res, index=self.sample_names[name], columns=factor_names)
-                if axis == 0
-                else pd.DataFrame(res, index=factor_names, columns=self.feature_names[name])
+                res = res[:, factor_order]
+            ret[name] = pd.DataFrame(
+                res, index=self.sample_names[name] if axis == 0 else self.feature_names[name], columns=factor_names
             )
         return ret
 
@@ -855,7 +843,7 @@ class MOFAFLEX:
                         factors[group_name], group_name, view_name, align_to="samples", axis=0
                     )[sample_idx, :],
                     weights=align_global_array_to_local(  # noqa F821
-                        weights[view_name], group_name, view_name, align_to="features", axis=1
+                        weights[view_name], group_name, view_name, align_to="features", axis=0
                     ),
                     dispersions=dispersions,
                     sample_means=align_global_array_to_local(  # noqa F821
@@ -1008,17 +996,14 @@ class MOFAFLEX:
         """
         data = self._mofaflexdataset(data)
 
-        factors = self.get_factors()
-        weights = self.get_weights()
-
         return data.apply(
             impute,
             view_kwargs={
-                "weights": weights,
+                "weights": self._weights.mean,
                 "feature_names": self.feature_names,
                 "likelihood": self._model_opts.likelihoods,
             },
-            group_kwargs={"factors": factors, "sample_names": self.sample_names},
+            group_kwargs={"factors": self._factors.mean, "sample_names": self.sample_names},
             missingonly=missing_only,
             preprocessor=data.preprocessor,
         )

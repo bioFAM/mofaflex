@@ -458,7 +458,7 @@ def factor_significance(
             )
             view_pcgse.loc[view_pcgse["padj"] > alpha, "sign"] = pd.NA
 
-            view_pcgse["annotation_size"] = annotations[view_name].sum(axis=1)
+            view_pcgse["annotation_size"] = annotations[view_name].sum(axis=0)
             view_pcgse["factor"] = view_pcgse["factor"] + view_pcgse["sign"].map(
                 {"pos": " (+)", "neg": " (-)", pd.NA: ""}
             )
@@ -523,8 +523,8 @@ def all_weights(
     dfs = []
     for k, df in weights.items():
         if views is None or k in views:
-            df.reset_index(names="factor", inplace=True)
-            df = df.melt("factor", var_name="feature", value_name="weight")
+            df.reset_index(names="feature", inplace=True)
+            df = df.melt("feature", var_name="factor", value_name="weight")
             df["view"] = k
             dfs.append(df)
 
@@ -839,16 +839,16 @@ def _prepare_weights_df(
     for view in views:
         cdf = (
             weights[view]
-            .iloc[factors, :]
-            .reset_index(names="factor")
-            .melt(id_vars="factor", var_name="feature", value_name="weight")
+            .iloc[:, factors]
+            .reset_index(names="feature")
+            .melt(id_vars="feature", var_name="factor", value_name="weight")
         )
         if view in annotations:
             cdf = pd.merge(
                 cdf,
                 annotations[view]
-                .reset_index(names="factor")
-                .melt(id_vars="factor", var_name="feature", value_name="annotation"),
+                .reset_index(names="feature")
+                .melt(id_vars="feature", var_name="factor", value_name="annotation"),
                 how="left",
                 on=["factor", "feature"],
             )

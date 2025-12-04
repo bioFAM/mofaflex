@@ -34,7 +34,10 @@ class Horseshoe(Prior):
             regularized = True
             for name in names:
                 if name in prior_scales:
-                    self.register_buffer(f"_prior_scales_{name}", torch.as_tensor(prior_scales[name]))
+                    prior_scale = prior_scales[name]
+                    if factor_dim < nonfactor_dim and prior_scale.shape[0] != n_factors:
+                        prior_scale = prior_scale.T
+                    self.register_buffer(f"_prior_scales_{name}", torch.as_tensor(prior_scale))
 
         self._regularized = regularized
 

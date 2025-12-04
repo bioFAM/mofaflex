@@ -135,9 +135,8 @@ class Prior(metaclass=_PriorMeta):
             has_factors: Whether the method/property returns a dict of dataframes with factors. If `True`,
                 the user-facing method will have an additional argument `ordered`, which affects whether
                 the factors in the dataframes will be ordered by explained variance or not. For this to work,
-                the factors must be in the columns if `axis==0` and in the rows if `axis == 1`. Defaults to
-                `True` for methods and `False` for properties. A property with `has_factors=True` will be wrapped
-                in a getter method.
+                the factors must be in the columns. Defaults to `True` for methods and `False` for properties.
+                A property with `has_factors=True` will be wrapped in a getter method.
         """
 
         class __api:

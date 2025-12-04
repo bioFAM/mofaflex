@@ -48,13 +48,13 @@ def _test_single_view(
 
     if not feature_sets.any(axis=None):
         return None
-    feature_sets = feature_sets.loc[feature_sets.sum(axis=1) >= min_size, :]
+    feature_sets = feature_sets.loc[:, feature_sets.sum(axis=0) >= min_size]
 
     if not feature_sets.any(axis=None):
         _logger.warning(f"No feature sets with more than {min_size} features for view {view_name}, skipping view.")
         return None
 
-    feature_sets = feature_sets.loc[~(feature_sets.all(axis=1)), feature_sets.any()]
+    feature_sets = feature_sets.loc[feature_sets.any(axis=1), ~(feature_sets.all(axis=0))]
     if not feature_sets.any(axis=None):
         _logger.warning(f"No feature sets with unique annotations for view {view_name}, skipping view.")
         return None
@@ -67,26 +67,26 @@ def _test_single_view(
         factor_loadings[factor_loadings > 0] = 0.0
     factor_loadings = factor_loadings.abs()
 
-    factor_names = factor_loadings.index
+    factor_names = factor_loadings.columns
 
     t_stat_dict = {}
     prob_dict = {}
 
-    for feature_set in feature_sets.index:
-        fs_features = feature_sets.loc[feature_set, :]
+    for feature_set in feature_sets.columns:
+        fs_features = feature_sets[feature_set]
         features_in = fs_features.index[fs_features]
         features_out = fs_features.index[~fs_features]
 
-        loadings_in = factor_loadings.loc[:, features_in]
-        loadings_out = factor_loadings.loc[:, features_out]
+        loadings_in = factor_loadings.loc[features_in, :]
+        loadings_out = factor_loadings.loc[features_out, :]
 
         n_in = features_in.shape[0]
         n_out = features_out.shape[0]
 
         df = n_in + n_out - 2.0
-        mean_diff = loadings_in.mean(axis=1) - loadings_out.mean(axis=1)
+        mean_diff = loadings_in.mean(axis=0) - loadings_out.mean(axis=0)
         # why divide here by df and not denom later?
-        svar = ((n_in - 1) * loadings_in.var(axis=1) + (n_out - 1) * loadings_out.var(axis=1)) / df
+        svar = ((n_in - 1) * loadings_in.var(axis=0) + (n_out - 1) * loadings_out.var(axis=0)) / df
 
         vif = 1.0
         if corr_adjust:
@@ -97,7 +97,7 @@ def _test_single_view(
         denom = np.sqrt(svar * (vif / n_in + 1.0 / n_out))
 
         with np.errstate(divide="ignore", invalid="ignore"):
-            t_stat = np.divide(mean_diff, denom)
+            t_stat = mean_diff / denom
         prob = t_stat.apply(lambda t: stats.t.sf(np.abs(t), df) * 2)  # noqa B023
 
         t_stat_dict[feature_set] = t_stat

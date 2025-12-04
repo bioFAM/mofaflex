@@ -43,7 +43,7 @@ class Normal(Likelihood):
         # this is the same as MOFA2
         r2s = np.empty(factors.shape[1], dtype=np.float32)
         for k in range(factors.shape[1]):
-            r2s[k] = cls._r2_impl_wrapper(y_true, factors[:, k, None], weights[None, k, :], dispersions, sample_means)
+            r2s[k] = cls._r2_impl_wrapper(y_true, factors[:, k, None], weights[:, k, None], dispersions, sample_means)
         return r2s
 
     @classmethod

@@ -51,8 +51,9 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         shape = [1] * abs(min(factor_dim, nonfactor_dim))
         shape[factor_dim] = n_factors
         for name in names:
-            shape[nonfactor_dim] = n_nonfactors[name]
-            self._shapes[name] = tuple(shape)
+            cshape = shape.copy()
+            cshape[nonfactor_dim] = n_nonfactors[name]
+            self._shapes[name] = tuple(cshape)
 
         self._squeezedims = tuple(
             i

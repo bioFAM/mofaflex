@@ -199,7 +199,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         dispersions: NDArray[np.floating],
         sample_means: NDArray[np.floating],
     ):
-        y_pred = cls.transform_prediction(factor @ weights, sample_means)
+        y_pred = cls.transform_prediction(factor @ weights.T, sample_means)
         r2 = cls._r2_impl(y_true, y_pred, dispersions, sample_means)
         return max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
 
@@ -223,7 +223,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         # the R2 of the current factor.
         for k in range(factors.shape[1]):
             cfactors = np.delete(factors, k, 1)
-            cweights = np.delete(weights, k, 0)
+            cweights = np.delete(weights, k, 1)
             cr2 = cls._r2_impl_wrapper(y_true, cfactors, cweights, dispersions, sample_means)
             r2s[k] = max(0.0, r2_full - cr2)
         return r2s

@@ -32,12 +32,9 @@ class SpikeSlab(Prior):
 
         for name in self._names:
             d = dist.Gamma(concentration=precisions.shape[name], rate=precisions.rate[name])
-            mean, std, prob = d.mean.cpu().numpy(), d.stddev.cpu().numpy(), probs[name].cpu().numpy()
-            if self._axis == 0:
-                mean, std, prob = mean.T, std.T, prob.T
-            self._precisions.mean[name] = mean
-            self._precisions.std[name] = std
-            self._probabilities[name] = prob
+            self._precisions.mean[name] = d.mean.cpu().numpy().T
+            self._precisions.std[name] = d.stddev.cpu().numpy().T
+            self._probabilities[name] = probs[name].cpu().numpy().T
 
     @Prior._api
     def get_sparse_a̲x̲i̲s̲_probabilities(self) -> dict[str, pd.DataFrame]:

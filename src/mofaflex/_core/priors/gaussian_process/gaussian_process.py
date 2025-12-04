@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Literal
 
@@ -266,7 +267,5 @@ class GaussianProcess(Prior):
         self._opts = SmoothOptions(**state["opts"])
         self._gps = MeanStd(**state["gps"])
         self._init_gp(n_factors)
-        try:
+        with suppress(KeyError):
             self._gp.load_state_dict(unpickle_torch_state(state["gp_state"], map_location=map_location))
-        except KeyError:
-            pass
