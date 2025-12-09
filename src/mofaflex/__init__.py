@@ -12,6 +12,7 @@ from ._core import (
     presets,
     settings,
 )
+from ._core.api import priors
 from ._version import __version__, __version_tuple__
 
 _logger = logging.getLogger(__name__)

@@ -17,6 +17,12 @@ _logger = logging.getLogger()
 
 
 class InformedHorseshoe(Prior):
+    """Horseshoe prior with domain knowledge.
+
+    Args:
+        annotations_varm_key: Key in `.varm` for the feature set annotations.
+    """
+
     _factors = False
     _weights = True
     _state_attrs = (
@@ -28,14 +34,10 @@ class InformedHorseshoe(Prior):
     )
 
     def __init__(
-        self,
-        axis: Literal[0, 1, "samples", "features"],
-        names: str | Sequence[str],
-        annotations_varm_key: str | None,
-        **kwargs,
+        self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str], annotations_varm_key: str
     ):
         super().__init__(axis, names)
-        if self.axis != 1 and annotations_varm_key is not None:
+        if self.axis != 1:
             raise ValueError("Annotations can only be applied on features.")
 
         self._annotations_varm_key = annotations_varm_key

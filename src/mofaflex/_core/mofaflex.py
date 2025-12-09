@@ -63,15 +63,6 @@ class DataOptions(Options):
     scale_per_group: bool = True
     """Scale Normal likelihood data per group, otherwise across all groups."""
 
-    annotations_varm_key: Mapping[str, str] | str | None = None
-    """Key of .varm attribute of each AnnData object that contains annotation values."""
-
-    covariates_obs_key: Mapping[str, str] | str | None = None
-    """Key of .obs attribute of each :class:`AnnData<anndata.AnnData>` object that contains covariate values."""
-
-    covariates_obsm_key: Mapping[str, str] | str | None = None
-    """Key of .obsm attribute of each :class:`AnnData<anndata.AnnData>` object that contains covariate values."""
-
     guiding_vars_obs_keys: str | Sequence[str] | Mapping[str, Mapping[str, str]] | None = None
     """Keys of .obs attribute of each :class:`AnnData<anndata.AnnData>` object that contains guiding variable values."""
 
@@ -98,10 +89,10 @@ class ModelOptions(Options):
     n_factors: int = 0
     """Number of latent factors."""
 
-    weight_prior: Mapping[str, WeightPriorType] | WeightPriorType = "Normal"
+    weight_prior: Mapping[str, WeightPriorType | Prior] | WeightPriorType | Prior = "Normal"
     """Weight priors for each view (if dict) or for all views (if str)."""
 
-    factor_prior: Mapping[str, FactorPriorType] | FactorPriorType = "Normal"
+    factor_prior: Mapping[str, FactorPriorType | Prior] | FactorPriorType | Prior = "Normal"
     """Factor priors for each group (if dict) or for all groups (if str)."""
 
     likelihoods: Mapping[str, LikelihoodType] | LikelihoodType | None = None
@@ -1150,8 +1141,8 @@ def _init_api():
     getter_indents = [" " * get_indentation(doc) for doc in getter_docs]
 
     for axis, axisname, priors in (
-        (0, "factor", Prior.known_factor_priors()),
-        (1, "weight", Prior.known_weight_priors()),
+        (0, "factor", Prior.known_priors("factors")),
+        (1, "weight", Prior.known_priors("weights")),
     ):
         namescount = Counter()
         for api in chain(*(Prior.class_(x).api() for x in priors)):

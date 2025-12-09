@@ -62,6 +62,14 @@ class SmoothOptions(Options):
 
 
 class GaussianProcess(Prior):
+    """Gaussian process prior for spatially or temporally smooth factors.
+
+    Args:
+        covariates_obs_key: The column of `.obs` that contains covariate values. Cannot be used together with `covariates_obsm_key`.
+        covariates_obsm_key: The key in `.obsm` that contains covariate values. Cannot be used together with `covariates_obs_key`.
+        options: Additional options for the sparse Gaussian process.
+    """
+
     _state_attrs = "_obs_key", "_obsm_key", "_covariates", "_orig_covariates", "_warp_groups_order"
     _factors = True
     _weights = False
@@ -73,7 +81,6 @@ class GaussianProcess(Prior):
         covariates_obs_key: str | Sequence[str] | None = None,
         covariates_obsm_key: str | Sequence[str] | None = None,
         options: SmoothOptions = None,
-        **kwargs,
     ):
         super().__init__(axis, names)
 

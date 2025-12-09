@@ -1,24 +1,14 @@
 # API
 
 ```{eval-rst}
-.. module:: mofaflex
-```
-
-```{eval-rst}
 .. currentmodule:: mofaflex
-
 .. toctree::
-    :hidden:
-
-    core.md
-    tools.md
-    plotting.md
 ```
-
 ## Core
 
 ```{eval-rst}
 .. autosummary::
+    :toctree: generated
 
     DataOptions
     ModelOptions
@@ -27,6 +17,15 @@
     MOFAFLEX
     FeatureSet
     FeatureSets
+```
+
+### Priors
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+    :recursive:
+
+    priors
 ```
 
 ### Presets
@@ -43,6 +42,7 @@ An instance of the [](#_core.settings.Settings) class is available as `mofaflex.
 ```{eval-rst}
 .. currentmodule:: mofaflex
 .. autosummary::
+    :toctree: generated
 
     _core.settings.Settings
 ```
@@ -50,11 +50,19 @@ An instance of the [](#_core.settings.Settings) class is available as `mofaflex.
 ## Tools
 
 ```{eval-rst}
-.. automodsumm:: mofaflex.tl
+.. autosummary::
+    :toctree: generated
+    :recursive:
+
+    tl
 ```
 
 ## Plotting
 
 ```{eval-rst}
-.. automodsumm:: mofaflex.pl
+.. autosummary::
+    :toctree: generated
+    :recursive:
+
+    pl
 ```

@@ -11,6 +11,8 @@ from .base import Prior
 
 
 class SpikeSlab(Prior):
+    """Spike and slab sparsity-inducing prior."""
+
     _state_attrs = ("_probabilities",)
     _state_attrs_meanstd = ("_precisions",)
     _factors = True

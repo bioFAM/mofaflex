@@ -51,10 +51,7 @@ class Prior(metaclass=_PriorMeta):
 
     Acts as a wrapper around a corresponding Pyro prior to handle additional logic and state, e.g. covariates.
     This base class provides default behavior for simple usecases, Subclasses can reimplement any combination of
-    methods to customize aspects. The constructor of subclasses must take a `**kwargs` argument which is ignored.
-    This ensures that users can simply call `Prior(distribution, args)`, where ars may be a union of arguments
-    suitable for different priors, only a subset of which will be used by the concrete Prior. Subclasses must also
-    contain two boolean attributs:
+    methods to customize aspects. Subclasses must also contain two boolean attributs:
 
         - `_factors`: Indicates whether the subclass is suitable for factors.
         - `_weights`: Indicates whether the subclass is suitable for weights.
@@ -77,7 +74,7 @@ class Prior(metaclass=_PriorMeta):
             if not cls._factors and not cls._weights:
                 raise TypeError(f"Class `{cls.__name__}` cannot be used for factors or weights.")
             init_sig = signature(cls.__init__)
-            for arg in ("axis", "names", "kwargs"):
+            for arg in ("axis", "names"):
                 if arg not in init_sig.parameters:
                     raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
 
@@ -96,12 +93,12 @@ class Prior(metaclass=_PriorMeta):
             obj.__prior = args[0]
             return obj
 
-    def __init__(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str], **kwargs):
+    def __init__(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str]):
         if isinstance(axis, int):
             self._axis = axis
         else:
             self._axis = 0 if axis == "samples" else 1
-        self._names = names if isinstance(names, Sequence) else (names,)
+        self._names = (names,) if isinstance(names, str) else names
 
         with suppress(AttributeError):
             for attr in self._state_attrs:
@@ -351,19 +348,17 @@ class Prior(metaclass=_PriorMeta):
         pass
 
     @staticmethod
-    def known_factor_priors() -> Sequence[str]:
-        """Get all known factor priors."""
-        priors = tuple(name for name, subcls in __class__.__registry.items() if subcls._factors)
+    def known_priors(filter: Literal["factors", "weights"] | None = None) -> Sequence[str]:
+        """Get all known priors.
+
+        Args:
+            filter: Whether to get only factor or weight priors. Defaults to all priors.
+        """
+        if filter is not None:
+            priors = tuple(name for name, subcls in __class__.__registry.items() if getattr(subcls, f"_{filter}"))
+        else:
+            priors = tuple(__class__.__registry.keys())
         pyropriors = tuple(
             pyroprior for pyroprior in PyroPrior.known_factor_priors() if pyroprior not in __class__.__registry
-        )
-        return pyropriors + priors
-
-    @staticmethod
-    def known_weight_priors() -> Sequence[str]:
-        """Get all known weight priors."""
-        priors = tuple(name for name, subcls in __class__.__registry.items() if subcls._weights)
-        pyropriors = tuple(
-            pyroprior for pyroprior in PyroPrior.known_weight_priors() if pyroprior not in __class__.__registry
         )
         return pyropriors + priors

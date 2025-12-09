@@ -9,7 +9,7 @@
 notebooks/getting_started.ipynb
 tutorials.md
 modeldescription.md
-api/index
+api.md
 changelog.md
 contributing.md
 references.md

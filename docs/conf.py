@@ -64,6 +64,7 @@ extensions = [
 ]
 
 autosummary_generate = True
+autosummary_imported_members = True
 autodoc_member_order = "groupwise"
 default_role = "literal"
 napoleon_google_docstring = True

@@ -4,7 +4,9 @@
 
 .. add toctree option to make autodoc generate the pages
 
-.. autoclass:: {{ objname }}
+.. autoclass:: {{ fullname }}
+
+{% set methods = methods | select("ne", "__init__") | list %}
 
 {% block attributes %}
 {% if attributes %}
@@ -25,10 +27,8 @@ Methods table
 
 .. autosummary::
 {% for item in methods %}
-    {%- if item != '__init__' %}
     ~{{ name }}.{{ item }}
-    {%- endif -%}
-{%- endfor %}
+{% endfor %}
 {% endif %}
 {% endblock %}
 
@@ -51,10 +51,8 @@ Methods
 ~~~~~~~
 
 {% for item in methods %}
-{%- if item != '__init__' %}
 
 .. automethod:: {{ [objname, item] | join(".") }}
-{%- endif -%}
 {%- endfor %}
 
 {% endif %}
