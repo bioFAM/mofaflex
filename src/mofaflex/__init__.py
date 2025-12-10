@@ -9,7 +9,6 @@ from ._core import (
     ModelOptions,
     SmoothOptions,
     TrainingOptions,
-    presets,
     settings,
 )
 from ._core.api import priors

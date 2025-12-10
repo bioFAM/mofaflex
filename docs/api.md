@@ -28,13 +28,6 @@
     priors
 ```
 
-### Presets
-
-```{eval-rst}
-.. automodule:: mofaflex.presets
-   :no-index:
-```
-
 ### Settings
 
 An instance of the [](#_core.settings.Settings) class is available as `mofaflex.settings` and allows configuring MOFA-FLEX.
