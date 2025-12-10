@@ -10,7 +10,7 @@ import pytest
 from packaging.version import Version
 from scipy.sparse import SparseEfficiencyWarning, csc_array, csc_matrix, csr_array, csr_matrix, issparse
 
-from mofaflex import MOFAFLEX, DataOptions, ModelOptions, SmoothOptions, TrainingOptions, settings
+from mofaflex import MOFAFLEX, DataOptions, ModelOptions, TrainingOptions, priors, settings
 
 
 @pytest.fixture
@@ -48,7 +48,6 @@ def anndata_dict(random_adata, rng):
     [
         ("scale_per_group", False),
         ("scale_per_group", True),
-        ("annotations_varm_key", None),
         ("covariates_obs_key", None),
         ("covariates_obs_key", "covar"),
         ("covariates_obsm_key", None),
@@ -63,11 +62,11 @@ def anndata_dict(random_adata, rng):
         ("weight_prior", "Normal"),
         ("weight_prior", "Laplace"),
         ("weight_prior", "Horseshoe"),
-        ("weight_prior", "InformedHorseshoe"),
+        ("weight_prior", priors.InformedHorseshoe(annotations_varm_key="annot_df")),
         ("weight_prior", "SpikeSlab"),
-        ("factor_prior", "Normal"),
-        ("factor_prior", "Laplace"),
-        ("factor_prior", "Horseshoe"),
+        ("factor_prior", {"group_1": "Normal", "group_2": priors.Laplace()}),
+        ("factor_prior", {("group_1", "group_2"): "Laplace"}),
+        ("factor_prior", {("group_1", "group_2"): priors.Horseshoe()}),
         ("factor_prior", "SpikeSlab"),
         ("nonnegative_weights", False),
         ("nonnegative_weights", True),
@@ -90,7 +89,7 @@ def anndata_dict(random_adata, rng):
 )
 def test_integration(anndata_dict, tmp_path, attrname, attrvalue, n_particles, batch_size, usedask):
     opts = (
-        DataOptions(plot_data_overview=False, annotations_varm_key="annot_df"),
+        DataOptions(plot_data_overview=False),
         ModelOptions(
             n_factors=5,
             guiding_vars_likelihoods={
@@ -108,7 +107,7 @@ def test_integration(anndata_dict, tmp_path, attrname, attrvalue, n_particles, b
     with chdir(tmp_path), settings.override(use_dask=usedask):
         model = MOFAFLEX(anndata_dict, *opts)
 
-    if attrname == "weight_prior" and attrvalue == "InformedHorseshoe":
+    if attrname == "weight_prior" and isinstance(attrvalue, priors.InformedHorseshoe):
         assert (model.n_informed_factors > 0) | (model._n_guiding_vars > 0)
     elif attrname == "guiding_vars_obs_keys":
         assert model._n_guiding_vars == 3
@@ -164,15 +163,18 @@ def test_integration_single_var(anndata_dict, usedask):
 )
 def test_integration_gp(anndata_dict, attrname, attrvalue, n_particles, batch_size, usedask, tmp_path):
     opts = (
-        DataOptions(covariates_obs_key="covar", plot_data_overview=False),
-        ModelOptions(n_factors=5, factor_prior="GaussianProcess"),
+        DataOptions(plot_data_overview=False),
+        ModelOptions(
+            n_factors=5,
+            factor_prior=priors.GaussianProcess(
+                covariates_obs_key="covar", **{attrname: attrvalue}, n_inducing=20, warp_interval=1
+            ),
+        ),
         TrainingOptions(max_epochs=2, seed=42, mofa_compat=True, batch_size=batch_size, n_particles=n_particles),
     )
-    smooth_opts = SmoothOptions(n_inducing=20, warp_interval=1)
-    setattr(smooth_opts, attrname, attrvalue)
 
     with chdir(tmp_path), settings.override(use_dask=usedask):
-        model = MOFAFLEX(anndata_dict, *opts, smooth_opts)  # noqa F841
+        model = MOFAFLEX(anndata_dict, *opts)  # noqa: F841
 
 
 @pytest.mark.parametrize("usedask", [False, True])

@@ -42,8 +42,14 @@ def _init_priors():
             self.__init__.__signature__.bind(self, *args, **kwargs)  # check for argument compatibility
             super(self.__class__, self).__init__(*args, **kwargs)
 
-        def call(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str]):
-            return self._cls(axis, names, *self._args, **self._kwargs)
+        if priorcls is not PriorCore:
+
+            def call(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str]):
+                return self._cls(axis, names, *self._args, **self._kwargs)
+        else:
+
+            def call(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str]):
+                return PriorCore(self.__class__.__name__, axis, names, *self._args, **self._kwargs)
 
         init.__signature__ = sig
         init.__annotations__ = {

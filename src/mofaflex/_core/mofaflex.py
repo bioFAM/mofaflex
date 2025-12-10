@@ -1001,7 +1001,6 @@ class MOFAFLEX:
             "data_opts": self._data_opts.asdict(),
             "model_opts": self._model_opts.asdict(),
             "train_opts": self._train_opts.asdict(),
-            "gp_opts": self._gp_opts.asdict(),
             "preprocessor_state": self._preprocessor_state,
         }
         state["train_opts"]["device"] = str(state["train_opts"]["device"])
