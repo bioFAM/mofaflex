@@ -1,7 +1,6 @@
 import logging
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -12,53 +11,11 @@ from numpy.typing import NDArray
 
 from ...datasets import CovariatesDataset, MofaFlexDataset
 from ...pyro.priors import GaussianProcess as PyroGP
-from ...utils import MeanStd, Options, pickle_torch_state, unpickle_torch_state
+from ...utils import MeanStd, pickle_torch_state, unpickle_torch_state
 from .. import Prior
 from .gp import GP
 
 _logger = logging.getLogger(__name__)
-
-
-@dataclass(kw_only=True)
-class SmoothOptions(Options):
-    """Options for Gaussian processes."""
-
-    n_inducing: int = 100
-    """Number of inducing points."""
-
-    kernel: Literal["RBF", "Matern"] = "RBF"
-    """Kernel function to use."""
-
-    mefisto_kernel: bool = True
-    """Whether to use the MEFISTO group covariance kernel or treat groups independently."""
-
-    independent_lengthscales: bool = False
-    """Whether to use a separate lengthscale per covariate dimension."""
-
-    group_covar_rank: int = 1
-    """Rank of the group correlation matrix. Only relevant if `mefisto_kernel=True`."""
-
-    warp_groups: Sequence[str] = field(default_factory=list)
-    """List of groups to apply dynamic time warping to."""
-
-    warp_interval: int = 20
-    """Apply dynamic time warping every `warp_interval` epochs."""
-
-    warp_open_begin: bool = True
-    """Perform open-ended alignment."""
-
-    warp_open_end: bool = True
-    """Perform open-ended alignment."""
-
-    warp_reference_group: str | None = None
-    """Reference group to align the others to. Defaults to the first group of `warp_groups`."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        if isinstance(self.warp_groups, str):
-            self.warp_groups = [self.warp_groups]
-        else:
-            self.warp_groups = list(self.warp_groups)  # in case the user passed a tuple here, we need a list for saving
 
 
 class GaussianProcess(Prior):
@@ -67,10 +24,35 @@ class GaussianProcess(Prior):
     Args:
         covariates_obs_key: The column of `.obs` that contains covariate values. Cannot be used together with `covariates_obsm_key`.
         covariates_obsm_key: The key in `.obsm` that contains covariate values. Cannot be used together with `covariates_obs_key`.
-        options: Additional options for the sparse Gaussian process.
+        n_inducing: Number of inducing points.
+        kernel: Kernel function to use.
+        mefisto_kernel: Whether to use the MEFISTO group covariance kernel or treat groups independently.
+        independent_lengthscales: Whether to use a separate lengthscale per covariate dimension.
+        group_cvar_rank: Rank of the group correlation matrix. Only relevant if `mefisto_kernel=True`.
+        warp_groups: List of groups to apply dynamic time warping to.
+        warp_interval: Apply dynamic time warping every `warp_interval` epochs.
+        warp_open_begin: Perform open-ended alignment.
+        warp_open_end: Perform open-ended alignment.
+        warp_reference_group: Reference group to align the others to. Defaults to the first group of `warp_groups`.
     """
 
-    _state_attrs = "_obs_key", "_obsm_key", "_covariates", "_orig_covariates", "_warp_groups_order"
+    _state_attrs = (
+        "_obs_key",
+        "_obsm_key",
+        "_covariates",
+        "_orig_covariates",
+        "_n_inducing",
+        "_kernel",
+        "_mefisto_kernel",
+        "_independent_lengthscales",
+        "_group_covar_rank",
+        "_warp_groups",
+        "_warp_interval",
+        "_warp_open_begin",
+        "_warp_open_end",
+        "_warp_reference_group",
+        "_warp_groups_order",
+    )
     _factors = True
     _weights = False
 
@@ -80,7 +62,16 @@ class GaussianProcess(Prior):
         names: str | Sequence[str],
         covariates_obs_key: str | Sequence[str] | None = None,
         covariates_obsm_key: str | Sequence[str] | None = None,
-        options: SmoothOptions = None,
+        n_inducing: int = 100,
+        kernel: Literal["RBF", "Matern"] = "RBF",
+        mefisto_kernel: bool = True,
+        independent_lengthscales: bool = False,
+        group_covar_rank: int = 1,
+        warp_groups: Sequence[str] = (),
+        warp_interval: int = 20,
+        warp_open_begin: bool = True,
+        warp_open_end: bool = True,
+        warp_reference_group: str | None = None,
     ):
         super().__init__(axis, names)
 
@@ -91,7 +82,16 @@ class GaussianProcess(Prior):
 
         self._obs_key = covariates_obs_key
         self._obsm_key = covariates_obsm_key
-        self._opts = options if options is not None else SmoothOptions()
+        self._n_inducing = n_inducing
+        self._kernel = kernel
+        self._mefisto_kernel = mefisto_kernel
+        self._independent_lengthscales = independent_lengthscales
+        self._group_covar_rank = group_covar_rank
+        self._warp_groups = [warp_groups] if isinstance(warp_groups, str) else list(warp_groups)
+        self._warp_interval = warp_interval
+        self._warp_open_begin = warp_open_begin
+        self._warp_open_end = warp_open_end
+        self._warp_reference_group = warp_reference_group
 
         self._gp = None
         self._gps = None
@@ -107,13 +107,13 @@ class GaussianProcess(Prior):
         return {"gp_covariates": dset}
 
     def _get_pyro_prior(self, n_factors: int, *args, **kwargs):
-        if len(self._opts.warp_groups) > 1:
-            if not set(self._opts.warp_groups) <= set(self._names):
+        if len(self._warp_groups) > 1:
+            if not set(self._warp_groups) <= set(self._names):
                 raise ValueError(
                     "The set of groups with dynamic time warping must be a subset of groups with a GP factor prior."
                 )
             self._warp_groups_order = {}
-            for g in self._opts.warp_groups:
+            for g in self._warp_groups:
                 ccov = self._covariates[g].to_numpy().squeeze()
                 if ccov.ndim > 1:
                     raise ValueError(
@@ -122,11 +122,11 @@ class GaussianProcess(Prior):
                 self._warp_groups_order[g] = ccov.argsort()
             self._orig_covariates = {g: c.copy() for g, c in self._covariates.items()}
 
-            if self._opts.warp_reference_group is None:
-                self._opts.warp_reference_group = self._opts.warp_groups[0]
-        elif len(self._opts.warp_groups) == 1:
+            if self._warp_reference_group is None:
+                self._warp_reference_group = self._warp_groups[0]
+        elif len(self._warp_groups) == 1:
             _logger.warning("Need at least 2 groups for warping, but only one was given. Ignoring warping.")
-            self._opts.warp_groups = []
+            self._warp_groups = []
 
         self._init_gp(n_factors)
 
@@ -134,31 +134,31 @@ class GaussianProcess(Prior):
 
     def _init_gp(self, n_factors: int):
         self._gp = GP(
-            n_inducing=self._opts.n_inducing,
+            n_inducing=self._n_inducing,
             covariates=(covar.to_numpy() for covar in self._covariates.values()),
             n_factors=n_factors,
             n_groups=len(self._names),
-            kernel=self._opts.kernel,
-            independent_lengthscales=self._opts.independent_lengthscales,
-            rank=self._opts.group_covar_rank,
-            use_mefisto_kernel=self._opts.mefisto_kernel,
+            kernel=self._kernel,
+            independent_lengthscales=self._independent_lengthscales,
+            rank=self._group_covar_rank,
+            use_mefisto_kernel=self._mefisto_kernel,
         )
 
     def on_train_epoch_end(self, epoch: int):
-        if len(self._opts.warp_groups) and epoch > 0 and not epoch % self._opts.warp_interval:
+        if len(self._warp_groups) and epoch > 0 and not epoch % self._warp_interval:
             factormeans = {
                 group_name: mean.cpu().numpy() for group_name, mean in self._pyro_prior.posterior.mean.items()
             }  # TODO: investigate how warping interacts with non-negativity
-            refgroup = self._opts.warp_reference_group
+            refgroup = self._warp_reference_group
             reffactormeans = factormeans[refgroup].mean(axis=0)
             refidx = self._warp_groups_order[refgroup]
-            for g in self._opts.warp_groups[1:]:
+            for g in self._warp_groups[1:]:
                 idx = self._warp_groups_order[g]
                 alignment = dtw(
                     reffactormeans[refidx],
                     factormeans[g][:, idx].mean(axis=0),
-                    open_begin=self._opts.warp_open_begin,
-                    open_end=self._opts.warp_open_end,
+                    open_begin=self._warp_open_begin,
+                    open_end=self._warp_open_end,
                     step_pattern="asymmetric",
                 )
                 self._covariates[g] = self._orig_covariates[g].copy()
@@ -264,14 +264,12 @@ class GaussianProcess(Prior):
 
     def _save(self) -> dict:
         state = {}
-        state["opts"] = asdict(self._opts)
         state["gps"] = self._gps._asdict()
         if self._gp is not None:
             state["gp_state"] = pickle_torch_state(self._gp.state_dict())
         return state
 
     def _load(self, state: dict, n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
-        self._opts = SmoothOptions(**state["opts"])
         self._gps = MeanStd(**state["gps"])
         self._init_gp(n_factors)
         with suppress(KeyError):

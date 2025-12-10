@@ -32,7 +32,7 @@ from . import preprocessing
 from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
-from .priors import API, APIType, FactorPriorType, Prior, SmoothOptions, WeightPriorType
+from .priors import API, APIType, FactorPriorType, Prior, WeightPriorType
 from .pyro import MofaFlexModel
 from .training import EarlyStopper
 from .utils import MeanStd, Options, impute, sample_all_data_as_one_batch
@@ -560,7 +560,6 @@ class MOFAFLEX:
         self._data_opts = DataOptions()
         self._model_opts = ModelOptions()
         self._train_opts = TrainingOptions()
-        self._gp_opts = SmoothOptions()
 
         for arg in args:
             match arg:
@@ -570,8 +569,6 @@ class MOFAFLEX:
                     self._model_opts |= arg
                 case TrainingOptions():
                     self._train_opts |= arg
-                case SmoothOptions():
-                    self._gp_opts |= arg
 
         if self._train_opts.seed is not None:
             try:
@@ -620,41 +617,33 @@ class MOFAFLEX:
             if not isinstance(val, dict):
                 setattr(self._model_opts, opt_name, dict.fromkeys(keys, val))
 
-        for opt_name, keys in zip(
-            ("covariates_obs_key", "covariates_obsm_key", "annotations_varm_key"),
-            (data.group_names, data.group_names, data.view_names),
-            strict=True,
-        ):
-            val = getattr(self._data_opts, opt_name)
-            if isinstance(val, str):
-                setattr(self._data_opts, opt_name, dict.fromkeys(keys, val))
-
         self._train_opts.device = self._setup_device(self._train_opts.device)
         if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= data.n_samples_total):
             self._train_opts.batch_size = data.n_samples_total
 
         factor_prior_groups = defaultdict(list)
-        for group_name, prior in self._model_opts.factor_prior.items():
-            factor_prior_groups[prior].append(group_name)
-        self._model_opts.factor_prior = []
-        for priorname, gnames in factor_prior_groups.items():
-            prior = Prior(
-                priorname,
-                axis=0,
-                names=gnames,
-                covariates_obs_key=self._data_opts.covariates_obs_key,
-                covariates_obsm_key=self._data_opts.covariates_obsm_key,
-                options=self._gp_opts,
-            )
-            self._model_opts.factor_prior.append(prior)
-
         weight_prior_groups = defaultdict(list)
-        for view_name, prior in self._model_opts.weight_prior.items():
-            weight_prior_groups[prior].append(view_name)
-        self._model_opts.weight_prior = [
-            Prior(prior, axis=1, names=gnames, annotations_varm_key=self._data_opts.annotations_varm_key)
-            for prior, gnames in weight_prior_groups.items()
-        ]
+
+        for groups, priors in zip(
+            (factor_prior_groups, weight_prior_groups),
+            (self._model_opts.factor_prior, self._model_opts.weight_prior),
+            strict=True,
+        ):
+            for group_name, prior in priors.items():
+                groups[prior].append(group_name)
+
+        self._model_opts.factor_prior, self._model_opts.weight_prior = [], []
+        for (axis, groups), priors in zip(
+            enumerate((factor_prior_groups, weight_prior_groups)),
+            (self._model_opts.factor_prior, self._model_opts.weight_prior),
+            strict=True,
+        ):
+            for priorname, names in groups.items():
+                if isinstance(priorname, str):
+                    prior = Prior(priorname, axis=axis, names=names)
+                else:
+                    prior = priorname(axis=axis, names=names)
+                priors.append(prior)
 
     def _fit(self, data, preprocessor):
         pyro.set_rng_seed(self._train_opts.seed)
@@ -1079,7 +1068,6 @@ class MOFAFLEX:
         model._data_opts = DataOptions(**state["data_opts"])
         model._model_opts = ModelOptions(**state["model_opts"])
         model._train_opts = TrainingOptions(**state["train_opts"])
-        model._gp_opts = SmoothOptions(**state["gp_opts"])
         model._preprocessor_state = state["preprocessor_state"]
 
         model._model_opts.factor_prior = [

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from inspect import Parameter, signature
+from types import MappingProxyType
 from typing import Literal
 
 from ..priors import Prior as PriorCore
@@ -10,6 +11,21 @@ class Prior(ABC):
     @abstractmethod
     def __call__(self, axis, names):
         pass
+
+    def __init__(self, *args, **kwargs):
+        self._args = args
+        self._kwargs = MappingProxyType(kwargs)
+
+    def __eq__(self, other):
+        if not isinstance(other, __class__):
+            return NotImplemented
+        elif other.__class__ != self.__class__:
+            return False
+        else:
+            return self._args == other._args and self._kwargs == other._kwargs
+
+    def __hash__(self):
+        return hash((self.__class__, self._args, tuple(sorted(self._kwargs.items()))))
 
 
 __all__ = []
@@ -24,9 +40,7 @@ def _init_priors():
 
         def init(self, *args, **kwargs):
             self.__init__.__signature__.bind(self, *args, **kwargs)  # check for argument compatibility
-
-            self._args = args
-            self._kwargs = kwargs
+            super(self.__class__, self).__init__(*args, **kwargs)
 
         def call(self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str]):
             return self._cls(axis, names, *self._args, **self._kwargs)

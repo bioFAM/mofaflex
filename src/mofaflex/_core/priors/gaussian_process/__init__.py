@@ -1,2 +1,2 @@
-from .gaussian_process import GaussianProcess, SmoothOptions
+from .gaussian_process import GaussianProcess
 from .gp import GP
