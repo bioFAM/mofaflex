@@ -6,7 +6,7 @@ from mofaflex._core.utils import MeanStd
 
 class DummyPrior(Prior):
     _factors = True
-    _weights = True
+    _weights = False
     _state_attrs = ("_prop",)
     _state_attrs_meanstd = ("_meanstdprop",)
 
@@ -98,3 +98,9 @@ def test_saveload(dummyprior):
     assert dummyprior._prop == loaded._prop
     assert dummyprior._meanstdprop == loaded._meanstdprop
     assert dummyprior._customsave == loaded._customsave
+
+
+def test_wrong_axis():
+    with pytest.raises(NotImplementedError) as excinfo:
+        DummyPrior(1, None)
+    assert str(excinfo.value) == "The prior DummyPrior cannot be used for weights."

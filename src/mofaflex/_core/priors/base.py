@@ -98,6 +98,12 @@ class Prior(metaclass=_PriorMeta):
             self._axis = axis
         else:
             self._axis = 0 if axis == "samples" else 1
+
+        priorname = getattr(self, "__prior", self.__class__.__name__)
+        if self._axis == 0 and not getattr(self, "_factors", True):
+            raise NotImplementedError(f"The prior {priorname} cannot be used for factors.")
+        elif self._axis == 1 and not getattr(self, "_weights", True):
+            raise NotImplementedError(f"The prior {priorname} cannot be used for weights.")
         self._names = (names,) if isinstance(names, str) else names
 
         with suppress(AttributeError):
