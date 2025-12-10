@@ -29,6 +29,7 @@ from tqdm.notebook import tqdm_notebook
 
 from .. import pl
 from . import preprocessing
+from .api.priors import Prior as APIPrior
 from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import MOFACompatOption, load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
@@ -89,11 +90,11 @@ class ModelOptions(Options):
     n_factors: int = 0
     """Number of latent factors."""
 
-    weight_prior: Mapping[str, WeightPriorType | Prior] | WeightPriorType | Prior = "Normal"
-    """Weight priors for each view (if dict) or for all views (if str)."""
-
-    factor_prior: Mapping[str, FactorPriorType | Prior] | FactorPriorType | Prior = "Normal"
+    factor_prior: Mapping[str | Sequence[str], FactorPriorType | APIPrior] | FactorPriorType | APIPrior = "Normal"
     """Factor priors for each group (if dict) or for all groups (if str)."""
+
+    weight_prior: Mapping[str | Sequence[str], WeightPriorType | APIPrior] | WeightPriorType | APIPrior = "Normal"
+    """Weight priors for each view (if dict) or for all views (if str)."""
 
     likelihoods: Mapping[str, LikelihoodType] | LikelihoodType | None = None
     """Data likelihoods for each view (if dict) or for all views (if str). Inferred automatically if None."""
@@ -595,22 +596,8 @@ class MOFAFLEX:
             guiding_vars_names = ()
 
         for opt_name, keys in zip(
-            (
-                "weight_prior",
-                "factor_prior",
-                "nonnegative_weights",
-                "nonnegative_factors",
-                "guiding_vars_likelihoods",
-                "guiding_vars_scales",
-            ),
-            (
-                data.view_names,
-                data.group_names,
-                data.view_names,
-                data.group_names,
-                guiding_vars_names,
-                guiding_vars_names,
-            ),
+            ("nonnegative_weights", "nonnegative_factors", "guiding_vars_likelihoods", "guiding_vars_scales"),
+            (data.view_names, data.group_names, guiding_vars_names, guiding_vars_names),
             strict=True,
         ):
             val = getattr(self._model_opts, opt_name)
@@ -621,29 +608,29 @@ class MOFAFLEX:
         if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= data.n_samples_total):
             self._train_opts.batch_size = data.n_samples_total
 
-        factor_prior_groups = defaultdict(list)
-        weight_prior_groups = defaultdict(list)
-
-        for groups, priors in zip(
-            (factor_prior_groups, weight_prior_groups),
-            (self._model_opts.factor_prior, self._model_opts.weight_prior),
-            strict=True,
+        for axis, (priorattr, names) in enumerate(
+            zip(("factor_prior", "weight_prior"), (data.group_names, data.view_names), strict=True)
         ):
-            for group_name, prior in priors.items():
-                groups[prior].append(group_name)
-
-        self._model_opts.factor_prior, self._model_opts.weight_prior = [], []
-        for (axis, groups), priors in zip(
-            enumerate((factor_prior_groups, weight_prior_groups)),
-            (self._model_opts.factor_prior, self._model_opts.weight_prior),
-            strict=True,
-        ):
-            for priorname, names in groups.items():
-                if isinstance(priorname, str):
-                    prior = Prior(priorname, axis=axis, names=names)
-                else:
-                    prior = priorname(axis=axis, names=names)
-                priors.append(prior)
+            priors = getattr(self._model_opts, priorattr)
+            if isinstance(priors, str):
+                priors = [Prior(priors, axis=axis, names=names)]
+            elif isinstance(priors, APIPrior):
+                priors = [priors(axis=axis, names=names)]
+            else:
+                prior_groups = defaultdict(list)
+                for group_name, prior in priors.items():
+                    if isinstance(group_name, str):
+                        prior_groups[prior].append(group_name)
+                    else:
+                        prior_groups[prior].extend(group_name)
+                priors = []
+                for priorname, names in prior_groups.items():
+                    if isinstance(priorname, str):
+                        prior = Prior(priorname, axis=axis, names=names)
+                    else:
+                        prior = priorname(axis=axis, names=names)
+                    priors.append(prior)
+            setattr(self._model_opts, priorattr, priors)
 
     def _fit(self, data, preprocessor):
         pyro.set_rng_seed(self._train_opts.seed)
