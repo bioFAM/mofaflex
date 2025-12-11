@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from collections import Counter
 from io import BytesIO
 from pathlib import Path
@@ -84,6 +85,13 @@ def save_model(
         mofaflexgrp.attrs["version"] = __version__
 
         if mofa_compat:
+            warnings.warn(
+                "The MOFA compatibility mode is deprecated and will be removed in mofaflex v0.2. "
+                "If you are missing a feature from the MOFA2 R package, please open an issue at "
+                "https://github.com/bioFAM/mofaflex/issues",
+                FutureWarning,
+                stacklevel=1,
+            )
             # save MOFA-compatible output
             # This currently uses some private model attributes that are not part of the public API.
             # Not the cleanest design, but otoh I don't think these things should be part of our
