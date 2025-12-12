@@ -1,64 +1,42 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from collections.abc import Mapping, Sequence
+from typing import Literal
 
 import pyro
 import pyro.distributions as dist
 import torch
+from numpy.typing import NDArray
 from pyro.distributions import constraints
-from pyro.nn import PyroModule, PyroModuleList, PyroParam, pyro_method
+from pyro.nn import PyroModuleList, PyroParam, pyro_method
 
+from ..priors import Prior
+from ..pyro.likelihoods import PyroLikelihood
+from ..pyro.utils import PyroModuleDict, PyroParameterDict
 from ..utils import MeanStd
-from .likelihoods import PyroLikelihood
-from .utils import PyroModuleDict, PyroParameterDict
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from typing import Literal
-
-    from numpy.typing import NDArray
-
-    from ..likelihoods import Likelihood
-    from .priors import FactorPriorType, WeightPriorType
+from .base import Term
 
 
-class MofaFlexModel(PyroModule):
+class MofaFlex(Term):
     def __init__(
         self,
         n_samples: Mapping[str, int],
         n_features: Mapping[str, int],
         n_factors: int,
-        likelihoods: Mapping[str, Likelihood],
+        factor_prior: Sequence[Prior],
+        weight_prior: Sequence[Prior],
+        nonnegative_weights: Mapping[str, bool] | bool = False,
+        nonnegative_factors: Mapping[str, bool] | bool = False,
         guiding_vars_likelihoods: Mapping[str, str] | None = None,
         guiding_vars_n_categories: Mapping[str, int] | None = None,
         guiding_vars_factors: Mapping[str, int] | None = None,
         guiding_vars_scales: Mapping[str, float] | None = None,
-        factor_prior: Mapping[str, FactorPriorType] | FactorPriorType = "Normal",
-        weight_prior: Mapping[str, WeightPriorType] | WeightPriorType = "Normal",
-        nonnegative_weights: Mapping[str, bool] | bool = False,
-        nonnegative_factors: Mapping[str, bool] | bool = False,
         feature_means: Mapping[str, Mapping[str, NDArray]] = None,
         sample_means: Mapping[str, Mapping[str, NDArray]] = None,
         factors_init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] = None,
-        annotation_confidence: float = 0.99,
-        init_loc: float = 0.0,
-        init_scale: float = 0.1,
-        init_prob: float = 0.5,
-        init_alpha: float = 1.0,
-        init_beta: float = 1.0,
-        init_shape: float = 10,
-        init_rate: float = 10,
     ):
         super().__init__()
         self._n_samples = n_samples
         self._n_features = n_features
         self._n_factors = n_factors
-
-        if isinstance(factor_prior, str):
-            factor_prior = dict.fromkeys(self._group_names, factor_prior)
-
-        if isinstance(weight_prior, str):
-            weight_prior = dict.fromkeys(self._view_names, weight_prior)
 
         if isinstance(nonnegative_factors, bool):
             nonnegative_factors = dict.fromkeys(self._group_names, nonnegative_factors)
@@ -86,13 +64,6 @@ class MofaFlexModel(PyroModule):
                     n_factors=n_factors,
                     n_nonfactors=n_samples,
                     init_tensor=factors_init_tensor,
-                    init_loc=init_loc,
-                    init_scale=init_scale,
-                    init_prob=init_prob,
-                    init_alpha=init_alpha,
-                    init_beta=init_beta,
-                    init_shape=init_shape,
-                    init_rate=init_rate,
                 )
                 for prior in factor_prior
             ]
@@ -101,51 +72,11 @@ class MofaFlexModel(PyroModule):
         self._weights = PyroModuleList(
             [
                 prior.pyro_prior(
-                    factor_dim=-3,
-                    nonfactor_dim=self._feature_plate_dim,
-                    n_factors=n_factors,
-                    n_nonfactors=n_features,
-                    annotation_confidence=annotation_confidence,
-                    init_loc=init_loc,
-                    init_scale=init_scale,
-                    init_prob=init_prob,
-                    init_alpha=init_alpha,
-                    init_beta=init_beta,
-                    init_shape=init_shape,
-                    init_rate=init_rate,
+                    factor_dim=-3, nonfactor_dim=self._feature_plate_dim, n_factors=n_factors, n_nonfactors=n_features
                 )
                 for prior in weight_prior
             ]
         )
-
-        self._likelihoods = PyroModuleDict(
-            {
-                view_name: likelihood.pyro_likelihood(
-                    view_name=view_name,
-                    sample_dim=self._sample_plate_dim,
-                    feature_dim=self._feature_plate_dim,
-                    sample_means=sample_means,
-                    feature_means=feature_means,
-                    init_loc=init_loc,
-                    init_scale=init_scale,
-                    init_prob=init_prob,
-                    init_alpha=init_alpha,
-                    init_beta=init_beta,
-                    init_shape=init_shape,
-                    init_rate=init_rate,
-                )
-                for view_name, likelihood in likelihoods.items()
-            }
-        )
-
-        self._scale_elbo = True
-        n_views = len(self._view_names)
-        self._view_scales = dict.fromkeys(self._view_names, 1.0)
-        if self._scale_elbo and n_views > 1:
-            for view_name, view_n_features in n_features.items():
-                self._view_scales[view_name] = (n_views / (n_views - 1)) * (
-                    1.0 - view_n_features / sum(n_features.values())
-                )
 
         # guiding variables
         self._guiding_vars_n_categories = guiding_vars_n_categories
@@ -176,11 +107,9 @@ class MofaFlexModel(PyroModule):
             self._guiding_vars_weights_dims[guiding_var_name] = weights_dim = max(
                 self._guiding_vars_n_categories[guiding_var_name], 1
             )
-            self._guiding_locs[guiding_var_name] = PyroParam(
-                torch.full([weights_dim, 2], init_loc), constraint=constraints.real
-            )
+            self._guiding_locs[guiding_var_name] = PyroParam(torch.full([weights_dim, 2]), constraint=constraints.real)
             self._guiding_scales[guiding_var_name] = PyroParam(
-                torch.full([weights_dim, 2], init_scale), constraint=constraints.softplus_positive
+                torch.full([weights_dim, 2]), constraint=constraints.softplus_positive
             )
 
     _sample_plate_dim = -2
@@ -198,28 +127,7 @@ class MofaFlexModel(PyroModule):
     def _guiding_vars_names(self):
         return self._guiding_vars_factors.keys()
 
-    def _get_plates(self, subsample=None):
-        sample_plates = {}
-
-        for group_name in self._group_names:
-            sample_plates[group_name] = pyro.plate(
-                f"plate_samples_{group_name}",
-                self._n_samples[group_name],
-                dim=self._sample_plate_dim,
-                subsample=subsample[group_name],
-            )
-
-        feature_plates = {}
-        for view_name in self._view_names:
-            feature_plates[view_name] = pyro.plate(
-                f"plate_features_{view_name}",
-                self._n_features[view_name],
-                subsample=torch.arange(  # workaround for https://github.com/pyro-ppl/pyro/pull/3405
-                    self._n_features[view_name]
-                ),
-                dim=self._feature_plate_dim,
-            )
-
+    def _get_plates(self):
         if len(self._guiding_vars_names):
             guiding_var_plate = pyro.plate(
                 "plate_guiding_vars", 1, subsample=torch.arange(1), dim=self._feature_plate_dim
@@ -237,14 +145,7 @@ class MofaFlexModel(PyroModule):
 
         factors_plate = pyro.plate("plate_factors", self._n_factors, dim=-3)
 
-        return (
-            sample_plates,
-            feature_plates,
-            guiding_var_plate,
-            guiding_var_coefficients_plate,
-            guiding_var_categories_plates,
-            factors_plate,
-        )
+        return guiding_var_plate, guiding_var_coefficients_plate, guiding_var_categories_plates, factors_plate
 
     def _model_guiding_vars_weights_normal(
         self, guiding_var_name, guiding_var_coefficients_plate, guiding_var_categories_plates, **kwargs
@@ -270,15 +171,20 @@ class MofaFlexModel(PyroModule):
             )
 
     @pyro_method
-    def model(self, data, sample_idx, nonmissing_samples, nonmissing_features, guiding_vars=None, **kwargs):
-        (
-            sample_plates,
-            feature_plates,
-            guiding_var_plate,
-            guiding_var_coefficients_plate,
-            guiding_var_categories_plates,
-            factor_plate,
-        ) = self._get_plates(subsample=sample_idx)
+    def model(
+        self,
+        data,
+        sample_idx,
+        sample_plates,
+        feature_plates,
+        nonmissing_samples,
+        nonmissing_features,
+        guiding_vars=None,
+        **kwargs,
+    ):
+        guiding_var_plate, guiding_var_coefficients_plate, guiding_var_categories_plates, factor_plate = (
+            self._get_plates()
+        )
 
         factors = {}
         for prior in self._factors:
@@ -296,7 +202,9 @@ class MofaFlexModel(PyroModule):
             if self._nonnegative_weights[view_name]:
                 weights[view_name] = self._pos_transform(view_weights)
 
+        estimates = {}
         for group_name, group in data.items():
+            gestimates = {}
             gnonmissing_samples = nonmissing_samples[group_name]
             gnonmissing_features = nonmissing_features[group_name]
             for view_name, view_obs in group.items():
@@ -309,18 +217,8 @@ class MofaFlexModel(PyroModule):
                 z = factors[group_name][..., vnonmissing_samples, :]
                 w = weights[view_name][..., vnonmissing_features]
 
-                loc = torch.einsum("...ijk,...ikl->...kjl", z, w)
-
-                self._likelihoods[view_name].model(
-                    data=view_obs,
-                    estimate=loc,
-                    group_name=group_name,
-                    scale=self._view_scales[view_name],
-                    sample_plate=sample_plates[group_name],
-                    feature_plate=feature_plates[view_name],
-                    nonmissing_samples=vnonmissing_samples,
-                    nonmissing_features=vnonmissing_features,
-                )
+                gestimates[view_name] = torch.einsum("...ijk,...ikl->...kjl", z, w)
+            estimates[group_name] = gestimates
 
         for guiding_var_name, guiding_var_factor_idx in self._guiding_vars_factors.items():
             w_guiding = self._model_guiding_vars_weights_normal(
@@ -350,29 +248,29 @@ class MofaFlexModel(PyroModule):
                     nonmissing_samples=slice(None),
                     nonmissing_features=slice(None),
                 )
+        return estimates
 
     @pyro_method
-    def guide(self, data, sample_idx, nonmissing_samples, nonmissing_features, guiding_vars=None, **kwargs):
-        (
-            sample_plates,
-            feature_plates,
-            guiding_var_plate,
-            guiding_var_coefficients_plate,
-            guiding_var_categories_plates,
-            factor_plate,
-        ) = self._get_plates(subsample=sample_idx)
+    def guide(
+        self,
+        data,
+        sample_idx,
+        sample_plates,
+        feature_plates,
+        nonmissing_samples,
+        nonmissing_features,
+        guiding_vars=None,
+        **kwargs,
+    ):
+        (guiding_var_plate, guiding_var_coefficients_plate, guiding_var_categories_plates, factor_plate) = (
+            self._get_plates()
+        )
 
         for prior in self._factors:
             prior.guide(factor_plate, sample_plates, **kwargs)
 
         for prior in self._weights:
             prior.guide(factor_plate, feature_plates)
-
-        for group_name, group in data.items():
-            for view_name, view_obs in group.items():
-                if view_obs.numel() == 0:
-                    continue
-                self._likelihoods[view_name].guide(group_name, sample_plates[group_name], feature_plates[view_name])
 
         if len(self._guiding_vars_factors) > 0:
             for guiding_var_name, guiding_var in guiding_vars.items():
@@ -384,17 +282,12 @@ class MofaFlexModel(PyroModule):
                         group_name, sample_plates[group_name], guiding_var_plate
                     )
 
-    def get_lr_func(self, base_lr: float, **kwargs):
-        modifiers = {}
+    @property
+    def learning_rate_multipliers(self):
         for i, prior in enumerate(self._weights):
-            modifiers.update({f"_weights.{i}.{pname}": mod for pname, mod in prior.learning_rate_multipliers.items()})
+            yield from ((f"_weights.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
         for i, prior in enumerate(self._factors):
-            modifiers.update({f"_factors.{i}.{pname}": mod for pname, mod in prior.learning_rate_multipliers.items()})
-
-        def lr_func(param_name):
-            return dict(lr=base_lr * modifiers.get(param_name, 1), **kwargs)
-
-        return lr_func
+            yield from ((f"_factors.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
 
     @torch.inference_mode()
     def get_factors(self):

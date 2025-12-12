@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from inspect import isabstract, signature
 from itertools import chain
 
@@ -138,14 +138,15 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         raise NotImplementedError
 
     @property
-    def learning_rate_multipliers(self) -> dict[str, float]:
+    def learning_rate_multipliers(self) -> Iterator[tuple[str, float]]:
         """Multiplicative factors for the base learning rate for individual parameters.
 
         Returns:
-            A dictionary with parameter names as keys and multipliers as values. If a multiplier for a parameter is 1
-            (i.e. no special learning rate is required), the parameter may be missing from the returned dictionary.
+            An iterator yielding two-element tuples with parameter names as the first element and multipliers as the second.
+            If a multiplier for a parameter is 1 (i.e. no special learning rate is required), the parameter may be missing
+            from the iterator.
         """
-        return {}
+        return zip()
 
     @property
     @abstractmethod

@@ -21,11 +21,15 @@ class InformedHorseshoe(Prior):
 
     Args:
         annotations_varm_key: Key in `.varm` for the feature set annotations.
+        annotation_confidence: Confidence in the provided feature annotation. Must be between 0 and 1.
+            Smaller values make the model more likely to add features to the annotated pathways during
+            training, while larger values encourage the model to more closely adhere to the provided annotations.
     """
 
     _factors = False
     _weights = True
     _state_attrs = (
+        "_annotation_confidence",
         "_annotations_varm_key",
         "_annotations",
         "_informed_factors_start_idx",
@@ -34,13 +38,18 @@ class InformedHorseshoe(Prior):
     )
 
     def __init__(
-        self, axis: Literal[0, 1, "samples", "features"], names: str | Sequence[str], annotations_varm_key: str
+        self,
+        axis: Literal[0, 1, "samples", "features"],
+        names: str | Sequence[str],
+        annotations_varm_key: str,
+        annotation_confidence: float = 0.99,
     ):
         super().__init__(axis, names)
         if self.axis != 1:
             raise ValueError("Annotations can only be applied on features.")
 
         self._annotations_varm_key = annotations_varm_key
+        self._annotation_confidence = annotation_confidence
 
     def get_datasets(self, data: MofaFlexDataset) -> None:
         annotations = data.get_covariates(
@@ -81,13 +90,13 @@ class InformedHorseshoe(Prior):
 
         return factors
 
-    def _get_pyro_prior(self, n_factors: int, n_nonfactors: int, annotation_confidence: float = None, *args, **kwargs):
+    def _get_pyro_prior(self, n_factors: int, n_nonfactors: int, *args, **kwargs):
         prior_scales = {
             name: np.clip(
                 self._annotations.get(name, np.broadcast_to(0, (self._n_informed_factors, n_nonfactors[name]))).astype(
                     np.float32
                 )
-                + (1 - annotation_confidence),
+                + (1 - self._annotation_confidence),
                 1e-8,
                 1.0,
             )

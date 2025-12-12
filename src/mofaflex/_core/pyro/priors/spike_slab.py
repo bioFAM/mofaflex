@@ -92,7 +92,7 @@ class SpikeSlab(Prior):
 
     @property
     def learning_rate_multipliers(self) -> dict[str, float]:
-        return {name: 10.0 for name, _ in self._probs.named_pyro_params(prefix="_probs")}
+        yield from ((name, 10.0) for name, _ in self._probs.named_pyro_params(prefix="_probs"))
 
     @property
     def posterior(self) -> MeanStd:

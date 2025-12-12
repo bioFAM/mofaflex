@@ -33,8 +33,9 @@ from .api.priors import Prior as APIPrior
 from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
+from .model import MofaFlexModel
 from .priors import API, APIType, FactorPriorType, Prior, WeightPriorType
-from .pyro import MofaFlexModel
+from .terms import MofaFlex as MofaFlexTerm
 from .training import EarlyStopper
 from .utils import MeanStd, Options, impute, sample_all_data_as_one_batch
 
@@ -110,11 +111,6 @@ class ModelOptions(Options):
 
     nonnegative_factors: Mapping[str, bool] | bool = False
     """Non-negativity constraints for factors for each group (if dict) or for all groups (if bool)."""
-
-    annotation_confidence: float = 0.99
-    """Confidence in the provided feature annotation. Must be between 0 and 1. Smaller values make the model more likely to
-        add features to the annotated pathways during training, while larger values encourage the model to more closely adhere
-        to the provided annotations."""
 
     init_factors: float | Literal["random", "orthogonal", "pca"] = "random"
     """Initialization method for factors."""
@@ -435,23 +431,29 @@ class MOFAFLEX:
     def _setup_svi(
         self, init_tensor, covariates, guiding_vars_factors, guiding_vars_n_categories, feature_means, sample_means
     ):
+        terms = {
+            "mofaflex": MofaFlexTerm(
+                n_samples=self.n_samples,
+                n_features=self.n_features,
+                n_factors=self._model_opts.n_factors,
+                guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
+                guiding_vars_n_categories=guiding_vars_n_categories,
+                guiding_vars_factors=guiding_vars_factors,
+                guiding_vars_scales=self._model_opts.guiding_vars_scales,
+                factor_prior=self._model_opts.factor_prior,
+                weight_prior=self._model_opts.weight_prior,
+                nonnegative_factors=self._model_opts.nonnegative_factors,
+                nonnegative_weights=self._model_opts.nonnegative_weights,
+                factors_init_tensor=init_tensor,
+            )
+        }
         model = MofaFlexModel(
             n_samples=self.n_samples,
             n_features=self.n_features,
-            n_factors=self._model_opts.n_factors,
+            terms=terms,
             likelihoods=self._model_opts.likelihoods,
-            guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
-            guiding_vars_n_categories=guiding_vars_n_categories,
-            guiding_vars_factors=guiding_vars_factors,
-            guiding_vars_scales=self._model_opts.guiding_vars_scales,
-            factor_prior=self._model_opts.factor_prior,
-            weight_prior=self._model_opts.weight_prior,
-            nonnegative_factors=self._model_opts.nonnegative_factors,
-            nonnegative_weights=self._model_opts.nonnegative_weights,
             feature_means=feature_means,
             sample_means=sample_means,
-            factors_init_tensor=init_tensor,
-            annotation_confidence=self._model_opts.annotation_confidence,
         ).to(self._train_opts.device)
 
         n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
@@ -712,12 +714,14 @@ class MOFAFLEX:
             mode="min", min_delta=0.1, patience=self._train_opts.early_stopper_patience, percentage=True
         )
         with self._train_opts.device:
+            model.on_train_start()
             for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                 prior.on_train_start()
 
         with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
             for i in t:
                 with self._train_opts.device, torch.inference_mode():
+                    model.on_train_epoch_start(i)
                     for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                         prior.on_train_epoch_start(i)
 
@@ -732,6 +736,7 @@ class MOFAFLEX:
                             epoch_loss += svi.step(**batch.pop("data"), **batch)
 
                 with self._train_opts.device, torch.inference_mode():
+                    model.on_train_epoch_end(i)
                     for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                         prior.on_train_epoch_end(i)
 
@@ -748,6 +753,7 @@ class MOFAFLEX:
             self._post_fit(data, preprocessor, covariates, model, train_loss_elbo)
 
             with self._train_opts.device, torch.inference_mode():
+                model.on_train_end(data, batch_size=self._train_opts.batch_size)
                 for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
                     if prior.axis == 0:
                         kwargs = {
