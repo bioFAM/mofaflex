@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 from anndata import AnnData
 from numpy.typing import NDArray
+from pyro.nn import PyroModule
 from scipy.sparse import (
     coo_array,
     coo_matrix,
@@ -28,6 +29,9 @@ PossiblySparseArray: TypeAlias = NDArray | spmatrix | sparray
 
 MeanStd = namedtuple("MeanStd", ["mean", "std"])
 ShapeRate = namedtuple("ShapeRate", ["shape", "rate"])
+
+PyroParameterDict = PyroModule[torch.nn.ParameterDict]
+PyroModuleDict = PyroModule[torch.nn.ModuleDict]
 
 
 @dataclass(kw_only=True)

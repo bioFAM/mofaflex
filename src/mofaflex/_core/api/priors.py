@@ -32,8 +32,7 @@ __all__ = []
 
 
 def _init_priors():
-    for priorname in PriorCore.known_priors():
-        priorcls = PriorCore.class_(priorname)
+    for priorname, priorcls in PriorCore.known_priors().items():
         sig = signature(priorcls.__init__)
         params = [param for param in sig.parameters.values() if param.name not in ("axis", "names")]
         sig = sig.replace(parameters=params)

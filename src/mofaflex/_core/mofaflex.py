@@ -1,7 +1,7 @@
 import inspect
 import logging
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import update_wrapper
@@ -15,13 +15,10 @@ import pandas as pd
 import pyro
 import torch
 from anndata import AnnData
-from array_api_compat import array_namespace
 from mudata import MuData
 from pyro.infer import SVI, TraceMeanField_ELBO
 from pyro.optim import ClippedAdam
-from scipy import stats
 from scipy.sparse import issparse
-from sklearn.decomposition import NMF, PCA
 from torch.utils.data import DataLoader, default_convert
 from torch.utils.data._utils.collate import collate  # this is documented, so presumably part of the public API
 from tqdm.auto import tqdm
@@ -30,7 +27,7 @@ from tqdm.notebook import tqdm_notebook
 from .. import pl
 from . import preprocessing
 from .api.priors import Prior as APIPrior
-from .datasets import GuidingVarsDataset, MofaFlexBatchSampler, MofaFlexDataset, StackDataset
+from .datasets import MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
 from .model import MofaFlexModel
@@ -405,46 +402,20 @@ class MOFAFLEX:
                 by_group=False,
             )
 
-    def _setup_annotations(self, data):
-        self._n_factors = self._model_opts.n_factors
-        factor_names = [f"Factor {k + 1}" for k in range(self._model_opts.n_factors)]
-        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-            factor_names = prior.adjust_factors(factor_names)
-
-        self._model_opts.n_factors = len(factor_names)
-
-        self._factor_names = np.asarray(factor_names)
-        self._factor_order = np.arange(self._model_opts.n_factors)
-
-    def _setup_guiding_vars(self):
-        guiding_vars_names = (
-            list(self._data_opts.guiding_vars_obs_keys.keys()) if self._data_opts.guiding_vars_obs_keys else []
-        )
-        self._n_guiding_vars = len(guiding_vars_names)
-
-        # update global number of factors
-        self._model_opts.n_factors = self._model_opts.n_factors + self._n_guiding_vars
-
-        # update global factor names (dense factors + guiding vars + informed factors)
-        self._factor_names = np.concatenate((self._factor_names, guiding_vars_names))
-
-    def _setup_svi(
-        self, init_tensor, covariates, guiding_vars_factors, guiding_vars_n_categories, feature_means, sample_means
-    ):
+    def _setup_svi(self, feature_means, sample_means):
         terms = {
             "mofaflex": MofaFlexTerm(
                 n_samples=self.n_samples,
                 n_features=self.n_features,
                 n_factors=self._model_opts.n_factors,
                 guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
-                guiding_vars_n_categories=guiding_vars_n_categories,
-                guiding_vars_factors=guiding_vars_factors,
                 guiding_vars_scales=self._model_opts.guiding_vars_scales,
                 factor_prior=self._model_opts.factor_prior,
                 weight_prior=self._model_opts.weight_prior,
                 nonnegative_factors=self._model_opts.nonnegative_factors,
                 nonnegative_weights=self._model_opts.nonnegative_weights,
-                factors_init_tensor=init_tensor,
+                init_factors=self._model_opts.init_factors,
+                init_scale=self._model_opts.init_scale,
             )
         }
         model = MofaFlexModel(
@@ -473,87 +444,13 @@ class MOFAFLEX:
 
         return svi, model
 
-    def _post_fit(self, data, preprocessor, covariates, model, train_loss_elbo):
+    def _post_fit(self, data, preprocessor, model, train_loss_elbo):
         self._weights = model.get_weights()
         self._factors = model.get_factors()
         self._dispersions = model.get_dispersion()
         self._train_loss_elbo = np.asarray(train_loss_elbo)
 
         self._preprocessor_state = preprocessor.state_dict()
-
-    @staticmethod
-    def _init_factor_group(adata, group_name, view_name, impute_missings, initializer):
-        arr = adata.X
-        if issparse(arr):
-            havenan = np.isnan(arr.data).any()
-        else:
-            xp = array_namespace(arr)
-            havenan = xp.isnan(arr).any()
-        if havenan:
-            if impute_missings:
-                from sklearn.impute import SimpleImputer
-
-                imp = SimpleImputer(missing_values=np.nan, strategy="mean")
-                arr = imp.fit_transform(arr)
-            else:
-                raise ValueError("Data has missing values. Please impute missings or set `impute_missings=True`.")
-        return initializer.fit_transform(arr)
-
-    def _initialize_factors(self, data, impute_missings=True):
-        init_tensor = defaultdict(dict)
-        _logger.info(f"Initializing factors using `{self._model_opts.init_factors}` method...")
-
-        if not isinstance(self._model_opts.init_factors, str):
-            for group_name, n in self.n_samples.items():
-                init_tensor[group_name]["loc"] = np.full(
-                    shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_factors, dtype=np.float32
-                ).T[..., None]
-                init_tensor[group_name]["scale"] = np.full(
-                    shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_scale, dtype=np.float32
-                ).T[..., None]
-            return init_tensor
-        match self._model_opts.init_factors:
-            case "random":
-                for group_name, n in self.n_samples.items():
-                    init_tensor[group_name]["loc"] = np.random.uniform(size=(n, self._model_opts.n_factors))
-            case "orthogonal":
-                for group_name, n in self.n_samples.items():
-                    # Compute PCA of random vectors
-                    pca = PCA(n_components=self._model_opts.n_factors, whiten=True)
-                    pca.fit(stats.norm.rvs(loc=0, scale=1, size=(n, self._model_opts.n_factors)).T)
-                    init_tensor[group_name]["loc"] = pca.components_.T
-            case "pca" | "nmf" as init:
-                if init == "pca":
-                    initializer = PCA(n_components=self._model_opts.n_factors, whiten=True)
-                elif init == "nmf":
-                    initializer = NMF(n_components=self._model_opts.n_factors, max_iter=1000)
-
-                inits = data.apply(
-                    self._init_factor_group, by_view=False, impute_missings=impute_missings, initializer=initializer
-                )
-                for group_name, init in inits.items():
-                    init_tensor[group_name]["loc"] = init
-            case _:
-                raise ValueError(
-                    f"Initialization method `{self._model_opts.init_factors}` not found. Please choose from `random`, `orthogonal`, `PCA`, or `NMF`."
-                )
-
-        for group_name, n in self.n_samples.items():
-            # scale factor values from -1 to 1 (per factor)
-            q = init_tensor[group_name]["loc"]
-
-            if q.shape[0] > 1:  # min and max are not defined for dimensions of size 1
-                q = 2.0 * (q - np.min(q, axis=0)) / (np.max(q, axis=0) - np.min(q, axis=0)) - 1
-            elif n > 0:
-                q = 2.0 * (q - np.min(q)) / (np.max(q) - np.min(q)) - 1
-
-            # Add artifical dimension at dimension -2 for broadcasting
-            init_tensor[group_name]["loc"] = q.T[..., None].astype(np.float32, copy=False)
-            init_tensor[group_name]["scale"] = np.full(
-                shape=(n, self._model_opts.n_factors), fill_value=self._model_opts.init_scale, dtype=np.float32
-            ).T[..., None]
-
-        return init_tensor
 
     def _preprocess_options(self, *args: Options):
         self._data_opts = DataOptions()
@@ -580,105 +477,24 @@ class MOFAFLEX:
             self._train_opts.seed = int(time.strftime("%y%m%d%H%M"))
 
     def _adjust_options(self, data: Mapping[str, Mapping[str, AnnData]]):
-        # convert input arguments to dictionaries if necessary
-        if self._data_opts.guiding_vars_obs_keys is not None:
-            if isinstance(self._data_opts.guiding_vars_obs_keys, str):
-                self._data_opts.guiding_vars_obs_keys = [self._data_opts.guiding_vars_obs_keys]
-            if isinstance(self._data_opts.guiding_vars_obs_keys, Sequence):
-                self._data_opts.guiding_vars_obs_keys = {
-                    obs_key: dict.fromkeys(data.group_names, obs_key)
-                    for obs_key in self._data_opts.guiding_vars_obs_keys
-                }
-            guiding_vars_names = self._data_opts.guiding_vars_obs_keys.keys()
-        else:
-            guiding_vars_names = ()
-
         for opt_name, keys in zip(
-            ("nonnegative_weights", "nonnegative_factors", "guiding_vars_likelihoods", "guiding_vars_scales"),
-            (data.view_names, data.group_names, guiding_vars_names, guiding_vars_names),
-            strict=True,
+            ("nonnegative_weights", "nonnegative_factors"), (data.view_names, data.group_names), strict=True
         ):
             val = getattr(self._model_opts, opt_name)
             if not isinstance(val, dict):
                 setattr(self._model_opts, opt_name, dict.fromkeys(keys, val))
-
         self._train_opts.device = self._setup_device(self._train_opts.device)
         if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= data.n_samples_total):
             self._train_opts.batch_size = data.n_samples_total
 
-        for axis, (priorattr, names) in enumerate(
-            zip(("factor_prior", "weight_prior"), (data.group_names, data.view_names), strict=True)
-        ):
-            priors = getattr(self._model_opts, priorattr)
-            if isinstance(priors, str):
-                priors = [Prior(priors, axis=axis, names=names)]
-            elif isinstance(priors, APIPrior):
-                priors = [priors(axis=axis, names=names)]
-            else:
-                prior_groups = defaultdict(list)
-                for group_name, prior in priors.items():
-                    if isinstance(group_name, str):
-                        prior_groups[prior].append(group_name)
-                    else:
-                        prior_groups[prior].extend(group_name)
-                priors = []
-                for priorname, names in prior_groups.items():
-                    if isinstance(priorname, str):
-                        prior = Prior(priorname, axis=axis, names=names)
-                    else:
-                        prior = priorname(axis=axis, names=names)
-                    priors.append(prior)
-            setattr(self._model_opts, priorattr, priors)
-
     def _fit(self, data, preprocessor):
         pyro.set_rng_seed(self._train_opts.seed)
 
+        svi, model = self._setup_svi(preprocessor.feature_means, preprocessor.sample_means)
+
         datasets = {"data": data}
-        for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-            if priordsets := prior.get_datasets(data):
-                datasets.update(priordsets)
-
-        # this needs to run after prior.get_datasets()
-        self._setup_annotations(data)
-        self._setup_guiding_vars()
-
-        guiding_vars_factors = {
-            self.factor_names[self._model_opts.n_factors - self.n_guided_factors + i]: self._model_opts.n_factors
-            - self.n_guided_factors
-            + i
-            for i in range(self.n_guided_factors)
-        }
-
-        # get unique categories for each guiding variable
-        guiding_vars_n_categories = {}
-        if self.n_guided_factors > 0:
-            datasets["guiding_vars"] = guiding_vars = GuidingVarsDataset(data, self._data_opts.guiding_vars_obs_keys)
-
-            for guiding_var_name, guiding_var_likelihood in self._model_opts.guiding_vars_likelihoods.items():
-                if guiding_var_likelihood == "Categorical":
-                    guiding_vars_categories = set()
-                    # find number of unique categories across groups
-                    for group_name in self._group_names:
-                        guiding_vars_categories.update(
-                            guiding_vars.datasets[guiding_var_name].covariates[group_name].iloc[:, 0].to_list()
-                        )
-                    guiding_vars_n_categories[guiding_var_name] = len(guiding_vars_categories)
-
-                else:
-                    # if not categorical, set to default
-                    guiding_vars_n_categories[guiding_var_name] = 0
-
-        init_tensor = self._initialize_factors(data)
-
-        covariates = datasets.get("gp_covariates")
-        svi, model = self._setup_svi(
-            init_tensor,
-            covariates.covariates if covariates else None,
-            guiding_vars_factors,
-            guiding_vars_n_categories,
-            preprocessor.feature_means,
-            preprocessor.sample_means,
-        )
+        if (termdsets := model.get_datasets(data)) is not None:
+            datasets.update(termdsets)
 
         # clean start
         pyro.enable_validation(True)
@@ -714,16 +530,12 @@ class MOFAFLEX:
             mode="min", min_delta=0.1, patience=self._train_opts.early_stopper_patience, percentage=True
         )
         with self._train_opts.device:
-            model.on_train_start()
-            for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                prior.on_train_start()
+            model.on_train_start(data)
 
         with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
             for i in t:
                 with self._train_opts.device, torch.inference_mode():
                     model.on_train_epoch_start(i)
-                    for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                        prior.on_train_epoch_start(i)
 
                 epoch_loss = 0
                 if singlebatch:
@@ -737,8 +549,6 @@ class MOFAFLEX:
 
                 with self._train_opts.device, torch.inference_mode():
                     model.on_train_epoch_end(i)
-                    for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                        prior.on_train_epoch_end(i)
 
                 train_loss_elbo.append(epoch_loss)
                 t.set_postfix({"Loss": epoch_loss}, refresh=False)
@@ -750,26 +560,10 @@ class MOFAFLEX:
             if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
                 t.container.children[1].bar_style = "success"
 
-            self._post_fit(data, preprocessor, covariates, model, train_loss_elbo)
+            self._post_fit(data, preprocessor, model, train_loss_elbo)
 
             with self._train_opts.device, torch.inference_mode():
                 model.on_train_end(data, batch_size=self._train_opts.batch_size)
-                for prior in chain(self._model_opts.factor_prior, self._model_opts.weight_prior):
-                    if prior.axis == 0:
-                        kwargs = {
-                            "results": self._factors,
-                            "results_nonnegative": self._model_opts.nonnegative_factors,
-                            "nonfactor_names": self.sample_names,
-                        }
-                    else:
-                        kwargs = {
-                            "results": self._weights,
-                            "results_nonnegative": self._model_opts.nonnegative_weights,
-                            "nonfactor_names": self.feature_names,
-                        }
-                    prior.on_train_end(
-                        data, factor_names=self.factor_names, batch_size=self._train_opts.batch_size, **kwargs
-                    )
 
         self._df_r2_full, self._df_r2_factors, self._factor_order = self._sort_factors(
             data,
@@ -1115,12 +909,11 @@ def _init_api():
         (1, "weight", Prior.known_priors("weights")),
     ):
         namescount = Counter()
-        for api in chain(*(Prior.class_(x).api() for x in priors)):
+        for api in chain(*(x.api() for x in priors.values())):
             namescount[api.name] += 1
         duplicates = {k for k, v in namescount.items() if v > 1}
 
-        for prior in priors:
-            priorcls = Prior.class_(prior)
+        for prior, priorcls in priors.items():
             for api in priorcls.api():
                 name = api.name if api.name not in duplicates else f"{api.name}_{prior}"
                 name = name.replace("a̲x̲i̲s̲", axisname)

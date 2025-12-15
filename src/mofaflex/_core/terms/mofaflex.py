@@ -1,18 +1,30 @@
+import logging
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from itertools import chain
 from typing import Literal
 
+import numpy as np
 import pyro
 import pyro.distributions as dist
 import torch
+from array_api_compat import array_namespace
 from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroModuleList, PyroParam, pyro_method
+from scipy import stats
+from scipy.sparse import issparse
+from sklearn.decomposition import NMF, PCA
 
-from ..priors import Prior
+from ..api.priors import Prior as APIPrior
+from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset
+from ..priors import FactorPriorType, Prior, WeightPriorType
 from ..pyro.likelihoods import PyroLikelihood
 from ..pyro.utils import PyroModuleDict, PyroParameterDict
 from ..utils import MeanStd
 from .base import Term
+
+_logger = logging.getLogger(__name__)
 
 
 class MofaFlex(Term):
@@ -21,22 +33,53 @@ class MofaFlex(Term):
         n_samples: Mapping[str, int],
         n_features: Mapping[str, int],
         n_factors: int,
-        factor_prior: Sequence[Prior],
-        weight_prior: Sequence[Prior],
+        factor_prior: Mapping[str | Sequence[str], FactorPriorType | APIPrior] | FactorPriorType | APIPrior = "Normal",
+        weight_prior: Mapping[str | Sequence[str], WeightPriorType | APIPrior] | WeightPriorType | APIPrior = "Normal",
         nonnegative_weights: Mapping[str, bool] | bool = False,
         nonnegative_factors: Mapping[str, bool] | bool = False,
-        guiding_vars_likelihoods: Mapping[str, str] | None = None,
-        guiding_vars_n_categories: Mapping[str, int] | None = None,
-        guiding_vars_factors: Mapping[str, int] | None = None,
-        guiding_vars_scales: Mapping[str, float] | None = None,
+        guiding_vars_obs_keys: str | Sequence[str] | Mapping[str, Mapping[str, str]] | None = None,
+        guiding_vars_likelihoods: Mapping[str, str] | Literal["Normal", "Categorical", "Bernoulli"] | None = "Normal",
+        guiding_vars_scales: Mapping[str, float] | float = 1.0,
         feature_means: Mapping[str, Mapping[str, NDArray]] = None,
         sample_means: Mapping[str, Mapping[str, NDArray]] = None,
-        factors_init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] = None,
+        init_factors: float | Literal["random", "orthogonal", "pca"] = "random",
+        init_scale: float = 0.1,
     ):
         super().__init__()
         self._n_samples = n_samples
         self._n_features = n_features
         self._n_factors = n_factors
+        self._factor_names = [f"Factor {k + 1}" for k in range(n_factors)]
+        self._init_factors = init_factors
+        self._init_scale = init_scale
+
+        for axis, (priorattr, priors, names) in enumerate(
+            zip(
+                ("_factors", "_weights"),
+                (factor_prior, weight_prior),
+                (self._group_names, self._view_names),
+                strict=True,
+            )
+        ):
+            if isinstance(priors, str):
+                priors = [Prior(priors, axis=axis, names=names)]
+            elif isinstance(priors, APIPrior):
+                priors = [priors(axis=axis, names=names)]
+            else:
+                prior_groups = defaultdict(list)
+                for group_name, prior in priors.items():
+                    if isinstance(group_name, str):
+                        prior_groups[prior].append(group_name)
+                    else:
+                        prior_groups[prior].extend(group_name)
+                priors = []
+                for priorname, names in prior_groups.items():
+                    if isinstance(priorname, str):
+                        prior = Prior(priorname, axis=axis, names=names)
+                    else:
+                        prior = priorname(axis=axis, names=names)
+                    priors.append(prior)
+            setattr(self, priorattr, PyroModuleList(priors))
 
         if isinstance(nonnegative_factors, bool):
             nonnegative_factors = dict.fromkeys(self._group_names, nonnegative_factors)
@@ -44,48 +87,39 @@ class MofaFlex(Term):
         if isinstance(nonnegative_weights, bool):
             nonnegative_weights = dict.fromkeys(self._view_names, nonnegative_weights)
 
-        # need to call contiguous() here, otherwise we get a warning from PyTorch:
-        # grad and param do not obey the gradient layout contract
-        if factors_init_tensor is not None:
-            factors_init_tensor = {
-                name: {sname: torch.as_tensor(sval).contiguous() for sname, sval in val.items()}
-                for name, val in factors_init_tensor.items()
-            }
-
         self._nonnegative_weights = nonnegative_weights
         self._nonnegative_factors = nonnegative_factors
         self._pos_transform = torch.nn.ReLU()
 
-        self._factors = PyroModuleList(
-            [
-                prior.pyro_prior(
-                    factor_dim=-3,
-                    nonfactor_dim=self._sample_plate_dim,
-                    n_factors=n_factors,
-                    n_nonfactors=n_samples,
-                    init_tensor=factors_init_tensor,
-                )
-                for prior in factor_prior
-            ]
-        )
-
-        self._weights = PyroModuleList(
-            [
-                prior.pyro_prior(
-                    factor_dim=-3, nonfactor_dim=self._feature_plate_dim, n_factors=n_factors, n_nonfactors=n_features
-                )
-                for prior in weight_prior
-            ]
-        )
-
         # guiding variables
-        self._guiding_vars_n_categories = guiding_vars_n_categories
-        self._guiding_vars_factors = guiding_vars_factors
+        if guiding_vars_obs_keys is not None:
+            if isinstance(guiding_vars_obs_keys, str):
+                guiding_vars_obs_keys = [guiding_vars_obs_keys]
+            if isinstance(guiding_vars_obs_keys, Sequence):
+                guiding_vars_obs_keys = {
+                    obs_key: dict.fromkeys(self._group_names, obs_key) for obs_key in guiding_vars_obs_keys
+                }
+            self._guiding_vars_obs_keys = guiding_vars_obs_keys
+            self._guiding_vars_names = guiding_vars_obs_keys.keys()
+        else:
+            self._guiding_vars_names = []
+
+        if not isinstance(guiding_vars_scales, dict):
+            guiding_vars_scales = dict.fromkeys(self._guiding_vars_names, guiding_vars_scales)
+
+        for opt_name, keys in zip(
+            ("nonnegative_weights", "nonnegative_factors", "guiding_vars_likelihoods", "guiding_vars_scales"),
+            (self._view_names, self._group_names, self._guiding_vars_names, self._guiding_vars_names),
+            strict=True,
+        ):
+            val = locals()[opt_name]
+            if not isinstance(val, dict):
+                setattr(self, f"_{opt_name}", dict.fromkeys(keys, val))
 
         total_n_features = 0.1 * sum(self._n_features.values())
         self._guiding_vars_scales = {name: scale * total_n_features for name, scale in guiding_vars_scales.items()}
 
-        self._guiding_vars_likelihoods = PyroModuleDict(
+        self._pyro_guiding_vars_likelihoods = PyroModuleDict(
             {
                 guiding_var_name: PyroLikelihood(
                     guiding_vars_likelihoods[guiding_var_name],
@@ -114,6 +148,161 @@ class MofaFlex(Term):
 
     _sample_plate_dim = -2
     _feature_plate_dim = -1
+    _factor_plate_dim = -3
+
+    def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
+        ret = {}
+        for prior in chain(self._factors, self._weights):
+            if priordsets := prior.get_datasets(data):
+                ret.update(priordsets)
+
+        if self._n_guiding_vars > 0:
+            guiding_vars = {}
+            for guiding_var_name, obs_key in self._guiding_vars_obs_keys.items():
+                guiding_vars[guiding_var_name] = CovariatesDataset(data, obs_key=obs_key)
+            ret["guiding_vars"] = guiding_vars = StackDataset(**guiding_vars)
+
+            for guiding_var_name, guiding_var_likelihood in self._guiding_vars_likelihoods.items():
+                if guiding_var_likelihood == "Categorical":
+                    guiding_vars_categories = set()
+                    # find number of unique categories across groups
+                    for group_name in data.group_names:
+                        guiding_vars_categories.update(
+                            guiding_vars.datasets[guiding_var_name].covariates[group_name].iloc[:, 0].to_list()
+                        )
+                    self._guiding_vars_n_categories[guiding_var_name] = len(guiding_vars_categories)
+
+                else:
+                    # if not categorical, set to default
+                    self._guiding_vars_n_categories[guiding_var_name] = 0
+
+        return ret
+
+    @staticmethod
+    def _init_factor_group(adata, group_name, view_name, impute_missings, initializer):
+        arr = adata.X
+        if issparse(arr):
+            havenan = np.isnan(arr.data).any()
+        else:
+            xp = array_namespace(arr)
+            havenan = xp.isnan(arr).any()
+        if havenan:
+            if impute_missings:
+                from sklearn.impute import SimpleImputer
+
+                imp = SimpleImputer(missing_values=np.nan, strategy="mean")
+                arr = imp.fit_transform(arr)
+            else:
+                raise ValueError("Data has missing values. Please impute missings or set `impute_missings=True`.")
+        return initializer.fit_transform(arr)
+
+    def _initialize_factors(self, data, impute_missings=True):
+        init_tensor = defaultdict(dict)
+        _logger.info(f"Initializing factors using `{self._init_factors}` method...")
+
+        if not isinstance(self._init_factors, str):
+            for group_name, n in data.n_samples.items():
+                init_tensor[group_name]["loc"] = np.full(
+                    shape=(n, self.n_total_factors), fill_value=self._init_factors, dtype=np.float32
+                ).T[..., None]
+                init_tensor[group_name]["scale"] = np.full(
+                    shape=(n, self.n_total_factors), fill_value=self._init_scale, dtype=np.float32
+                ).T[..., None]
+            return init_tensor
+        match self._init_factors:
+            case "random":
+                for group_name, n in data.n_samples.items():
+                    init_tensor[group_name]["loc"] = np.random.uniform(size=(n, self.n_total_factors))
+            case "orthogonal":
+                for group_name, n in data.n_samples.items():
+                    # Compute PCA of random vectors
+                    pca = PCA(n_components=self.n_total_factors, whiten=True)
+                    pca.fit(stats.norm.rvs(loc=0, scale=1, size=(n, self.n_total_factors)).T)
+                    init_tensor[group_name]["loc"] = pca.components_.T
+            case "pca" | "nmf" as init:
+                if init == "pca":
+                    initializer = PCA(n_components=self.n_total_factors, whiten=True)
+                elif init == "nmf":
+                    initializer = NMF(n_components=self.n_total_factors, max_iter=1000)
+
+                inits = data.apply(
+                    self._init_factor_group, by_view=False, impute_missings=impute_missings, initializer=initializer
+                )
+                for group_name, init in inits.items():
+                    init_tensor[group_name]["loc"] = init
+            case _:
+                raise ValueError(
+                    f"Initialization method `{self._init_factors}` not found. Please choose from `random`, `orthogonal`, `PCA`, or `NMF`."
+                )
+
+        for group_name, n in self._n_samples.items():
+            # scale factor values from -1 to 1 (per factor)
+            q = init_tensor[group_name]["loc"]
+
+            if q.shape[0] > 1:  # min and max are not defined for dimensions of size 1
+                q = 2.0 * (q - np.min(q, axis=0)) / (np.max(q, axis=0) - np.min(q, axis=0)) - 1
+            elif n > 0:
+                q = 2.0 * (q - np.min(q)) / (np.max(q) - np.min(q)) - 1
+
+            # Add artifical dimension at dimension -2 for broadcasting
+            init_tensor[group_name]["loc"] = q.T[..., None].astype(np.float32, copy=False)
+            init_tensor[group_name]["scale"] = np.full(
+                shape=(n, self.n_total_factors), fill_value=self._init_scale, dtype=np.float32
+            ).T[..., None]
+
+        return init_tensor
+
+    def on_train_start(self, data: MofaFlexDataset):
+        for prior in chain(self._factors, self._weights):
+            self._factor_names = prior.adjust_factors(self._factor_names)
+
+        self._factor_names = np.concatenate((self._factor_names, self._guiding_vars_names))
+        self._factor_order = np.arange(self._n_factors)
+
+        if self._init_factors is not None:
+            # need to call contiguous() here, otherwise we get a warning from PyTorch:
+            # grad and param do not obey the gradient layout contract
+            factors_init_tensor = {
+                name: {sname: torch.as_tensor(sval).contiguous() for sname, sval in val.items()}
+                for name, val in self._initialize_factors(data).items()
+            }
+        else:
+            factors_init_tensor = None
+
+        for prior in self._factors:
+            prior.on_train_start(
+                self._factor_plate_dim,
+                self._sample_plate_dim,
+                self.n_total_factors,
+                self._n_samples,
+                factors_init_tensor,
+            )
+        for prior in self._weights:
+            prior.on_train_start(
+                self._factor_plate_dim, self._feature_plate_dim, self.n_total_factors, self._n_features
+            )
+
+    def on_train_epoch_start(self, epoch: int):
+        for prior in chain(self._factors, self._weights):
+            prior.on_train_epoch_start(epoch)
+
+    def on_train_epoch_end(self, epoch: int):
+        for prior in chain(self._factors, self._weights):
+            prior.on_train_epoch_end(epoch)
+
+    def on_train_end(self, data: MofaFlexDataset, batch_size: int):
+        self._factors = self._get_factors()
+        self._weights = self._get_weights()
+        self._dispersions = self._get_dispersion()
+
+        for prior in self._factors:
+            prior.on_train_end(
+                data, self._factor_names, data.sample_names, self._factors, self._nonnegative_factors, batch_size
+            )
+        for prior in self._weights:
+            prior.on_train_end(
+                data, self._factor_names, data.feature_names, self._weights, self._nonnegative_weights, batch_size
+            )
 
     @property
     def _group_names(self):
@@ -124,8 +313,20 @@ class MofaFlex(Term):
         return self._n_features.keys()
 
     @property
-    def _guiding_vars_names(self):
-        return self._guiding_vars_factors.keys()
+    def _n_guiding_vars(self):
+        return len(self._guiding_vars_names)
+
+    @property
+    def _guiding_vars_factors(self):
+        return range(self.n_total_factors - self._n_guiding_vars, self.n_total_factors)
+
+    @property
+    def n_factors(self) -> int:
+        return self._n_factors
+
+    @property
+    def n_total_factors(self) -> int:
+        return len(self._factor_names)
 
     def _get_plates(self):
         if len(self._guiding_vars_names):
@@ -143,7 +344,7 @@ class MofaFlex(Term):
         else:
             guiding_var_plate = guiding_var_coefficients_plate = guiding_var_categories_plates = None
 
-        factors_plate = pyro.plate("plate_factors", self._n_factors, dim=-3)
+        factors_plate = pyro.plate("plate_factors", self.n_total_factors, dim=-3)
 
         return guiding_var_plate, guiding_var_coefficients_plate, guiding_var_categories_plates, factors_plate
 
@@ -220,7 +421,9 @@ class MofaFlex(Term):
                 gestimates[view_name] = torch.einsum("...ijk,...ikl->...kjl", z, w)
             estimates[group_name] = gestimates
 
-        for guiding_var_name, guiding_var_factor_idx in self._guiding_vars_factors.items():
+        for guiding_var_name, guiding_var_factor_idx in zip(
+            self._guiding_vars_names, self._guiding_vars_factors, strict=True
+        ):
             w_guiding = self._model_guiding_vars_weights_normal(
                 guiding_var_name, guiding_var_coefficients_plate, guiding_var_categories_plates
             )
@@ -238,7 +441,7 @@ class MofaFlex(Term):
                         self._feature_plate_dim - 1
                     )  # Categorical likelihood needs separate dimension for categories
 
-                self._guiding_vars_likelihoods[guiding_var_name].model(
+                self._pyro_guiding_vars_likelihoods[guiding_var_name].model(
                     data=guiding_var,
                     estimate=loc,
                     group_name=group_name,
@@ -278,7 +481,7 @@ class MofaFlex(Term):
                     guiding_var_name, guiding_var_coefficients_plate, guiding_var_categories_plates
                 )
                 for group_name in guiding_var.keys():
-                    self._guiding_vars_likelihoods[guiding_var_name].guide(
+                    self._pyro_guiding_vars_likelihoods[guiding_var_name].guide(
                         group_name, sample_plates[group_name], guiding_var_plate
                     )
 

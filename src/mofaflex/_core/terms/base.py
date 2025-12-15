@@ -29,7 +29,7 @@ class Term(ABC, PyroModule, metaclass=_PyroMeta):
         """
         pass
 
-    def on_train_start(self):
+    def on_train_start(self, data: MofaFlexDataset):
         """Hook that is called immediately prior to training."""
         pass
 

@@ -5,7 +5,7 @@ import torch
 from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 
-from .datasets import MofaFlexDataset
+from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood
 from .pyro.utils import PyroModuleDict
 from .terms import Term
@@ -89,9 +89,15 @@ class MofaFlexModel(PyroModule):
 
         predictions = [
             term.model(
-                data, sample_idx, sample_plates, feature_plates, nonmissing_samples, nonmissing_features, **kwargs
+                data,
+                sample_idx,
+                sample_plates,
+                feature_plates,
+                nonmissing_samples,
+                nonmissing_features,
+                **kwargs.get(termname, {}),
             )
-            for term in self._terms.values()
+            for termname, term in self._terms.items()
         ]
 
         for group_name, group in data.items():
@@ -125,12 +131,33 @@ class MofaFlexModel(PyroModule):
                         nonmissing_features=vnonmissing_features,
                     )
 
+    def get_datasets(self, data: MofaFlexDataset) -> dict[str, StackDataset]:
+        """Hook that is called prior to training.
+
+        If a prior requires any additional covariates during training, it should return a dict of datasets. The keys of
+        the dict will be used as argument names for the `model` and `guide` methods of the Pyro prior.
+
+        Args:
+            data: The dataset.
+        """
+        return {
+            termname: StackDataset(**dsets)
+            for termname, term in self._terms.items()
+            if (dsets := term.get_datasets(data)) is not None and len(dsets)
+        }
+
     @pyro_method
     def guide(self, data, sample_idx, nonmissing_samples, nonmissing_features, **kwargs):
         sample_plates, feature_plates = self._get_plates(subsample=sample_idx)
-        for term in self._terms.values():
+        for termname, term in self._terms.items():
             term.guide(
-                data, sample_idx, sample_plates, feature_plates, nonmissing_samples, nonmissing_features, **kwargs
+                data,
+                sample_idx,
+                sample_plates,
+                feature_plates,
+                nonmissing_samples,
+                nonmissing_features,
+                **kwargs.get(termname, {}),
             )
 
         for group_name, group in data.items():
@@ -149,10 +176,10 @@ class MofaFlexModel(PyroModule):
 
         return lr_func
 
-    def on_train_start(self):
+    def on_train_start(self, data: MofaFlexDataset):
         """Hook that is called immediately prior to training."""
         for term in self._terms.values():
-            term.on_train_start()
+            term.on_train_start(data)
 
     def on_train_epoch_start(self, epoch: int):
         """Hook that is called at the beginning of each epoch.
@@ -177,6 +204,7 @@ class MofaFlexModel(PyroModule):
 
         Args:
             data: The dataset used during training.
+            sample_names:
             batch_size: The batch size used during training.
         """
         for term in self._terms.values():
