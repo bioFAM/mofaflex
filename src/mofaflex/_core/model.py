@@ -1,4 +1,6 @@
+import operator
 from collections.abc import Mapping
+from functools import reduce
 
 import pyro
 import torch
@@ -9,6 +11,7 @@ from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood
 from .pyro.utils import PyroModuleDict
 from .terms import Term
+from .utils import MeanStd
 
 
 class MofaFlexModel(PyroModule):
@@ -89,13 +92,7 @@ class MofaFlexModel(PyroModule):
 
         predictions = [
             term.model(
-                data,
-                sample_idx,
-                sample_plates,
-                feature_plates,
-                nonmissing_samples,
-                nonmissing_features,
-                **kwargs.get(termname, {}),
+                sample_plates, feature_plates, nonmissing_samples, nonmissing_features, **kwargs.get(termname, {})
             )
             for termname, term in self._terms.items()
         ]
@@ -151,13 +148,7 @@ class MofaFlexModel(PyroModule):
         sample_plates, feature_plates = self._get_plates(subsample=sample_idx)
         for termname, term in self._terms.items():
             term.guide(
-                data,
-                sample_idx,
-                sample_plates,
-                feature_plates,
-                nonmissing_samples,
-                nonmissing_features,
-                **kwargs.get(termname, {}),
+                sample_plates, feature_plates, nonmissing_samples, nonmissing_features, **kwargs.get(termname, {})
             )
 
         for group_name, group in data.items():
@@ -209,3 +200,20 @@ class MofaFlexModel(PyroModule):
         """
         for term in self._terms.values():
             term.on_train_end(data, batch_size)
+
+    @torch.inference_mode()
+    def get_dispersion(self):
+        """Get all dispersion vectors, dispersion_x."""
+        dispersion = MeanStd({}, {})
+        for view_name, likelihood in self._likelihoods.items():
+            try:
+                disp = likelihood.dispersion
+            except AttributeError:
+                continue
+            dispersion.mean[view_name] = disp.mean
+            dispersion.std[view_name] = disp.std
+
+        return dispersion
+
+    def predict(self, group_name: str, view_name: str, subset_idx: NDArray[int] | None = None):
+        return reduce(operator.add, (term.predict(group_name, view_name, subset_idx) for term in self._terms))

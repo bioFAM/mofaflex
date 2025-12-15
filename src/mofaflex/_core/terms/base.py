@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 
+import pyro
+import torch
+from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
@@ -10,12 +13,45 @@ from ..pyro.utils import _PyroMeta
 class Term(ABC, PyroModule, metaclass=_PyroMeta):
     @pyro_method
     @abstractmethod
-    def model(self, data, sample_idx, nonmissing_samples, nonmissing_features, **kwargs):
+    def model(
+        self,
+        sample_plates: Mapping[str, pyro.plate],
+        feature_plates: Mapping[str, pyro.plate],
+        nonmissing_samples: Mapping[str, Mapping[str, torch.Tensor | slice]],
+        nonmissing_features: Mapping[str, Mapping[str, torch.Tensor | None]],
+        **kwargs,
+    ):
+        """Pyro model for the term.
+
+        Args:
+            sample_plates: Pyro plates for the samples.
+            feature_plates: Pyro plates for the features.
+            nonmissing_samples: Index tensors indicating which global sample indices of the current minibatch are present
+                in the groups and views.
+            nonmissing_features: Index tensors indicating which global feature indices of the current minibatch are present
+                in the groups and views.
+            kwargs: Additional covariates sampled from datasets returned by `get_datasets`.
+        """
         pass
 
     @pyro_method
     @abstractmethod
-    def guide(self, data, sample_idx, nonmissing_samples, nonmissing_features, **kwargs):
+    def guide(self, nonmissing_samples, nonmissing_features, **kwargs):
+        """Pyro guide for the term.
+
+        Args:
+            sample_plates: Pyro plates for the samples.
+            feature_plates: Pyro plates for the features.
+            nonmissing_samples: Index tensors indicating which global sample indices of the current minibatch are present
+                in the groups and views.
+            nonmissing_features: Index tensors indicating which global feature indices of the current minibatch are present
+                in the groups and views.
+            kwargs: Additional covariates sampled from datasets returned by `get_datasets`.
+        """
+        pass
+
+    @abstractmethod
+    def predict(self) -> dict[str, dict[str, NDArray]]:
         pass
 
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset] | None:

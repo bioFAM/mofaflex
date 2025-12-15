@@ -282,11 +282,6 @@ class MOFAFLEX:
         return data
 
     @property
-    def n_guided_factors(self) -> int:
-        """Number of guided factors."""
-        return self._n_guiding_vars
-
-    @property
     def group_names(self) -> npt.NDArray[str]:
         """Group names."""
         return self._group_names
@@ -337,16 +332,6 @@ class MOFAFLEX:
         return sum(self.n_samples.values())
 
     @property
-    def n_total_factors(self):
-        """Total number of factors."""
-        return self._model_opts.n_factors
-
-    @property
-    def n_factors(self) -> int:
-        """Number of uninformed factors."""
-        return self._n_factors
-
-    @property
     def factor_order(self) -> npt.NDArray[int]:
         """Ordering of factors by explained variance (highest to lowest)."""
         return self._factor_order
@@ -361,11 +346,6 @@ class MOFAFLEX:
         if order.min() != 0 or order.max() != self.n_factors - 1 or np.unique(order).size != order.size:
             raise ValueError(f"The ordering must contain all integers in [0, {self.n_factors}).")
         self._factor_order = order
-
-    @property
-    def factor_names(self) -> npt.NDArray[str | np.str_]:
-        """Factor names."""
-        return self._factor_names
 
     @property
     def training_loss(self) -> npt.NDArray[np.float32]:
@@ -445,8 +425,6 @@ class MOFAFLEX:
         return svi, model
 
     def _post_fit(self, data, preprocessor, model, train_loss_elbo):
-        self._weights = model.get_weights()
-        self._factors = model.get_factors()
         self._dispersions = model.get_dispersion()
         self._train_loss_elbo = np.asarray(train_loss_elbo)
 

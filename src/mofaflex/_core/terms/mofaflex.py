@@ -55,7 +55,7 @@ class MofaFlex(Term):
 
         for axis, (priorattr, priors, names) in enumerate(
             zip(
-                ("_factors", "_weights"),
+                ("_factor_priors", "_weight_priors"),
                 (factor_prior, weight_prior),
                 (self._group_names, self._view_names),
                 strict=True,
@@ -152,11 +152,11 @@ class MofaFlex(Term):
 
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
         ret = {}
-        for prior in chain(self._factors, self._weights):
+        for prior in chain(self._factor_priors, self._weight_priors):
             if priordsets := prior.get_datasets(data):
                 ret.update(priordsets)
 
-        if self._n_guiding_vars > 0:
+        if self.n_guided_factors > 0:
             guiding_vars = {}
             for guiding_var_name, obs_key in self._guiding_vars_obs_keys.items():
                 guiding_vars[guiding_var_name] = CovariatesDataset(data, obs_key=obs_key)
@@ -253,7 +253,7 @@ class MofaFlex(Term):
         return init_tensor
 
     def on_train_start(self, data: MofaFlexDataset):
-        for prior in chain(self._factors, self._weights):
+        for prior in chain(self._factor_priors, self._weight_priors):
             self._factor_names = prior.adjust_factors(self._factor_names)
 
         self._factor_names = np.concatenate((self._factor_names, self._guiding_vars_names))
@@ -269,7 +269,7 @@ class MofaFlex(Term):
         else:
             factors_init_tensor = None
 
-        for prior in self._factors:
+        for prior in self._factor_priors:
             prior.on_train_start(
                 self._factor_plate_dim,
                 self._sample_plate_dim,
@@ -277,29 +277,45 @@ class MofaFlex(Term):
                 self._n_samples,
                 factors_init_tensor,
             )
-        for prior in self._weights:
+        for prior in self._weight_priors:
             prior.on_train_start(
                 self._factor_plate_dim, self._feature_plate_dim, self.n_total_factors, self._n_features
             )
 
     def on_train_epoch_start(self, epoch: int):
-        for prior in chain(self._factors, self._weights):
+        for prior in chain(self._factor_priors, self._weight_priors):
             prior.on_train_epoch_start(epoch)
 
     def on_train_epoch_end(self, epoch: int):
-        for prior in chain(self._factors, self._weights):
+        for prior in chain(self._factor_priors, self._weight_priors):
             prior.on_train_epoch_end(epoch)
 
     def on_train_end(self, data: MofaFlexDataset, batch_size: int):
-        self._factors = self._get_factors()
-        self._weights = self._get_weights()
-        self._dispersions = self._get_dispersion()
+        with torch.inference_mode():
+            for priors, nonnegative, names, attrname in zip(
+                (self._factor_priors, self._weight_priors),
+                (self._nonnegative_factors, self._nonnegative_weights),
+                (self._group_names, self._view_names),
+                ("_factors", "_weights"),
+                strict=True,
+            ):
+                res = MeanStd({}, {})
+                for prior in priors:
+                    for lsidx, vals in enumerate(prior.posterior):
+                        res[lsidx].update(vals)
 
-        for prior in self._factors:
+                for name in names:
+                    if nonnegative[name]:
+                        res.mean[name] = self._pos_transform(res.mean[name])
+                    res.mean[name] = res.mean[name].cpu().numpy().T
+                    res.std[name] = res.std[name].cpu().numpy().T
+                setattr(self, attrname, res)
+
+        for prior in self._factor_priors:
             prior.on_train_end(
                 data, self._factor_names, data.sample_names, self._factors, self._nonnegative_factors, batch_size
             )
-        for prior in self._weights:
+        for prior in self._weight_priors:
             prior.on_train_end(
                 data, self._factor_names, data.feature_names, self._weights, self._nonnegative_weights, batch_size
             )
@@ -313,12 +329,12 @@ class MofaFlex(Term):
         return self._n_features.keys()
 
     @property
-    def _n_guiding_vars(self):
+    def n_guided_factors(self):
         return len(self._guiding_vars_names)
 
     @property
     def _guiding_vars_factors(self):
-        return range(self.n_total_factors - self._n_guiding_vars, self.n_total_factors)
+        return range(self.n_total_factors - self.n_guided_factors, self.n_total_factors)
 
     @property
     def n_factors(self) -> int:
@@ -327,6 +343,11 @@ class MofaFlex(Term):
     @property
     def n_total_factors(self) -> int:
         return len(self._factor_names)
+
+    @property
+    def factor_names(self) -> NDArray[str | np.str_]:
+        """Factor names."""
+        return self._factor_names
 
     def _get_plates(self):
         if len(self._guiding_vars_names):
@@ -373,22 +394,14 @@ class MofaFlex(Term):
 
     @pyro_method
     def model(
-        self,
-        data,
-        sample_idx,
-        sample_plates,
-        feature_plates,
-        nonmissing_samples,
-        nonmissing_features,
-        guiding_vars=None,
-        **kwargs,
+        self, sample_plates, feature_plates, nonmissing_samples, nonmissing_features, guiding_vars=None, **kwargs
     ):
         guiding_var_plate, guiding_var_coefficients_plate, guiding_var_categories_plates, factor_plate = (
             self._get_plates()
         )
 
         factors = {}
-        for prior in self._factors:
+        for prior in self._factor_priors:
             factors.update(prior.model(factor_plate, sample_plates, **kwargs))
 
         for group_name, group_factors in factors.items():
@@ -396,7 +409,7 @@ class MofaFlex(Term):
                 factors[group_name] = self._pos_transform(group_factors)
 
         weights = {}
-        for prior in self._weights:
+        for prior in self._weight_priors:
             weights.update(prior.model(factor_plate, feature_plates))
 
         for view_name, view_weights in weights.items():
@@ -404,14 +417,11 @@ class MofaFlex(Term):
                 weights[view_name] = self._pos_transform(view_weights)
 
         estimates = {}
-        for group_name, group in data.items():
+        for group_name in self._group_names:
             gestimates = {}
             gnonmissing_samples = nonmissing_samples[group_name]
             gnonmissing_features = nonmissing_features[group_name]
-            for view_name, view_obs in group.items():
-                if view_obs.numel() == 0:  # can occur in the last batch of an epoch if the batch is small
-                    continue
-
+            for view_name in self._view_names:
                 vnonmissing_samples = gnonmissing_samples[view_name]
                 vnonmissing_features = gnonmissing_features[view_name]
 
@@ -455,24 +465,16 @@ class MofaFlex(Term):
 
     @pyro_method
     def guide(
-        self,
-        data,
-        sample_idx,
-        sample_plates,
-        feature_plates,
-        nonmissing_samples,
-        nonmissing_features,
-        guiding_vars=None,
-        **kwargs,
+        self, sample_plates, feature_plates, nonmissing_samples, nonmissing_features, guiding_vars=None, **kwargs
     ):
         (guiding_var_plate, guiding_var_coefficients_plate, guiding_var_categories_plates, factor_plate) = (
             self._get_plates()
         )
 
-        for prior in self._factors:
+        for prior in self._factor_priors:
             prior.guide(factor_plate, sample_plates, **kwargs)
 
-        for prior in self._weights:
+        for prior in self._weight_priors:
             prior.guide(factor_plate, feature_plates)
 
         if len(self._guiding_vars_factors) > 0:
@@ -487,53 +489,13 @@ class MofaFlex(Term):
 
     @property
     def learning_rate_multipliers(self):
-        for i, prior in enumerate(self._weights):
-            yield from ((f"_weights.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
-        for i, prior in enumerate(self._factors):
-            yield from ((f"_factors.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
+        for i, prior in enumerate(self._factor_priors):
+            yield from ((f"_factor_priors.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
+        for i, prior in enumerate(self._weight_priors):
+            yield from ((f"_weight_priors.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
 
-    @torch.inference_mode()
-    def get_factors(self):
-        """Get all factor matrices, z_x."""
-        factors = MeanStd({}, {})
-        for prior in self._factors:
-            for lsidx, vals in enumerate(prior.posterior):
-                factors[lsidx].update(vals)
-
-        for group_name in self._group_names:
-            if self._nonnegative_factors[group_name]:
-                factors.mean[group_name] = self._pos_transform(factors.mean[group_name])
-            factors.mean[group_name] = factors.mean[group_name].cpu().numpy().T
-            factors.std[group_name] = factors.std[group_name].cpu().numpy().T
-
-        return factors
-
-    @torch.inference_mode()
-    def get_weights(self):
-        """Get all weight matrices, w_x."""
-        weights = MeanStd({}, {})
-        for prior in self._weights:
-            for lsidx, vals in enumerate(prior.posterior):
-                weights[lsidx].update(vals)
-
-        for view_name in self._view_names:
-            if self._nonnegative_weights[view_name]:
-                weights.mean[view_name] = self._pos_transform(weights.mean[view_name])
-            weights.mean[view_name] = weights.mean[view_name].cpu().numpy().T
-            weights.std[view_name] = weights.std[view_name].cpu().numpy().T
-
-        return weights
-
-    @torch.inference_mode()
-    def get_dispersion(self):
-        """Get all dispersion vectors, dispersion_x."""
-        dispersion = MeanStd({}, {})
-        for view_name, likelihood in self._likelihoods.items():
-            try:
-                disp = likelihood.dispersion
-            except AttributeError:
-                continue
-            dispersion.mean[view_name] = disp.mean
-            dispersion.std[view_name] = disp.std
-
-        return dispersion
+    def predict(self, group_name: str, view_name: str, subsample_idx: NDArray[int] | None = None):
+        factors = self._factors[group_name]
+        if subsample_idx is not None:
+            factors = factors[subsample_idx]
+        return factors @ self._weights[view_name].T
