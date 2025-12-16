@@ -1,5 +1,3 @@
-from collections.abc import Mapping
-
 import numpy as np
 from anndata import AnnData
 from array_api_compat import array_namespace
@@ -25,6 +23,8 @@ class Normal(Likelihood):
         else:
             self._scale = data.apply(self._calc_scale_ungrouped, by_group=False, filter_views=view_name)
 
+        self._dispersions = None
+
     def _calc_scale_ungrouped(self, adata: AnnData, group: NDArray[object], view_name: str, groups: list[str]):
         if adata.n_obs <= 1:
             return 1.0
@@ -46,59 +46,43 @@ class Normal(Likelihood):
         xp = array_namespace(arr)
         return xp.sqrt(arr)
 
-    def pyro_likelihood(
+    def _get_pyro_likelihood(
         self,
+        data: MofaFlexDataset,
         sample_dim: int,
         feature_dim: int,
-        nsamples: Mapping[str, int],
-        nfeatures: int,
         *,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
-        **kwargs,
     ) -> PyroLikelihood:
         return PyroNormal(
             self._view_name,
             sample_dim,
             feature_dim,
-            nsamples,
-            nfeatures,
+            data.n_samples,
+            data.n_features[self._view_name],
             self._shift,
             self._scale,
             init_scale=init_scale,
         )
 
+    def on_train_end(self, *args, **kwargs):
+        self._dispersion = self._pyro_likelihood.dispersion
+
     @classmethod
     def _validate(cls, data: NDArray, xp) -> bool:
         return True
 
-    @classmethod
-    def _r2(
-        cls,
-        r2_full: float,
-        y_true: NDArray,
-        factors: NDArray[np.floating],
-        weights: NDArray[np.floating],
-        dispersions: NDArray[np.floating],
-        sample_means: NDArray[np.floating],
-    ) -> NDArray[np.float32]:
-        # this is the same as MOFA2
-        r2s = np.empty(factors.shape[1], dtype=np.float32)
-        for k in range(factors.shape[1]):
-            r2s[k] = cls._r2_impl_wrapper(y_true, factors[:, k, None], weights[:, k, None], dispersions, sample_means)
-        return r2s
-
-    @classmethod
     def _r2_impl(
-        cls,
-        y_true: NDArray,
-        y_pred: NDArray[np.floating],
-        dispersions: NDArray[np.floating],
-        sample_means: NDArray[np.floating],
+        self, y_true: NDArray, y_pred: NDArray[np.floating], group_name: str, alignment_idx: NDArray[int]
     ) -> R2:
         ss_res = np.nansum(np.square(y_true - y_pred))
-        ss_tot = np.nansum(np.square(y_true))  # data is centered
+        ss_tot = np.nansum(np.square(y_true - self._shift[group_name]))
         return R2(ss_res, ss_tot)
 
     def transform_prediction(self, prediction: NDArray[np.floating], group_name: str):
-        return prediction + self._shift[group_name]
+        try:
+            scale = self._scale[group_name]
+        except TypeError:
+            scale = self._scale
+        return prediction * scale + self._shift[group_name]

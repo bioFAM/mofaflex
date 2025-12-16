@@ -76,24 +76,47 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         """Get all known likelihoods."""
         return tuple(__class__.__registry.keys())
 
+    def get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int):
+        self._pyro_likelihood = self._get_pyro_likelihood(data, sample_dim, feature_dim)
+        return self._pyro_likelihood
+
     @abstractmethod
-    def pyro_likelihood(
-        self,
-        sample_dim: int,
-        feature_dim: int,
-        sample_means: dict[str, dict[str, NDArray[np.floating]]],
-        feature_means: dict[str, dict[str, NDArray[np.floating]]],
-        **kwargs,
-    ) -> PyroLikelihood:
+    def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
         """Set up a Pyro likelihood object.
 
         Args:
-            view_name: The view name.
+            data: The dataset.
             sample_dim: The sample dimension.
             feature_dim: the feature dimension.
-            sample_means: Averages of samples across features for each group and view.
-            feature_means: Averages of features across samples for each group and view.
-            **kwargs: Additional arguments, e.g. initialization of the variational parameters.
+        """
+        pass
+
+    def on_train_start(self):
+        """Hook that is called immediately prior to training."""
+        pass
+
+    def on_train_epoch_start(self, epoch: int):
+        """Hook that is called at the beginning of each epoch.
+
+        Args:
+            epoch: The current epoch.
+        """
+        pass
+
+    def on_train_epoch_end(self, epoch: int):
+        """Hook that is called at the end of each epoch.
+
+        Args:
+            epoch: The current epoch.
+        """
+        pass
+
+    def on_train_end(self, data: MofaFlexDataset, batch_size: int):
+        """Hook that is called at the end of training.
+
+        Args:
+            data: The dataset used during training.
+            batch_size: The batch size used during training.
         """
         pass
 
@@ -157,22 +180,17 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         sVa = np.sqrt(1 + dVa**2)
         return 1 / (16 * nu2**2) * (np.log((dVb + sVb) / (dVa + sVa)) + dVb * sVb - dVa * sVa) ** 2
 
-    @classmethod
     @abstractmethod
     def _r2_impl(
-        cls,
-        y_true: NDArray,
-        y_pred: NDArray[np.floating],
-        dispersions: NDArray[np.floating],
-        sample_means: NDArray[np.floating],
+        self, y_true: NDArray, y_pred: NDArray[np.floating], alignment_idx: NDArray[int], group_name: str
     ) -> R2:
         """Implementation of R2 calculation.
 
         Args:
             y_true: The observed data.
             y_pred: The predicted data.
-            dispersions: The estimated dispersions.
-            sample_means: Averages of samples across features.
+            alignment_idx: Index to use for subsetting arrays aligned to global features in order to align them to local features.
+            group_name: The group name.
         """
         pass
 
@@ -186,68 +204,21 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         """
         pass
 
-    @classmethod
-    def _r2_impl_wrapper(
-        cls,
-        y_true: NDArray,
-        factor: NDArray[np.floating],
-        weights: NDArray[np.floating],
-        dispersions: NDArray[np.floating],
-        sample_means: NDArray[np.floating],
-    ):
-        y_pred = cls.transform_prediction(factor @ weights.T, sample_means)
-        r2 = cls._r2_impl(y_true, y_pred, dispersions, sample_means)
-        return max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
-
-    @classmethod
-    def _r2(
-        cls,
-        r2_full: float,
-        y_true: NDArray,
-        factors: NDArray[np.floating],
-        weights: NDArray[np.floating],
-        dispersions: NDArray[np.floating],
-        sample_means: NDArray[np.floating],
-    ) -> NDArray[np.float32]:
-        r2s = np.empty(factors.shape[1], dtype=np.float32)
-        # For models with a link function that is not the identity, such as Bernoulli, calculating R2 of single
-        # factors leads to erroneous results, in the case of Bernoulli it can lead to every factor having negative
-        # R2 values. This is because an unimportant factor will not contribute much to the full model, but the zero
-        # prediction of this single factor will be mapped by the link function to a non-zero value, which can result
-        # in a worse prediction than the intercept-only null model. As a workaround, we therefore calculate R2 of
-        # a model with all factors except for one and subtract it from the R2 value of the full model to arrive at
-        # the R2 of the current factor.
-        for k in range(factors.shape[1]):
-            cfactors = np.delete(factors, k, 1)
-            cweights = np.delete(weights, k, 1)
-            cr2 = cls._r2_impl_wrapper(y_true, cfactors, cweights, dispersions, sample_means)
-            r2s[k] = max(0.0, r2_full - cr2)
-        return r2s
-
-    @classmethod
     def r2(
-        cls,
-        view_name: str,
-        y_true: NDArray,
-        factors: NDArray[np.floating],
-        weights: NDArray[np.floating],
-        dispersions: NDArray[np.floating],
-        sample_means: NDArray[np.floating],
-    ) -> tuple[float, NDArray[np.float32]]:
+        self, y_true: NDArray, y_pred: NDArray[np.floating], group_name: str, alignment_idx: NDArray[int]
+    ) -> tuple[float, NDArray[np.floating]]:
         """Calculate R2 (fraction of explained variance) for a factor model.
 
         Args:
-            view_name: The name of the view.
             y_true: The observed data.
-            factors: The factors.
-            weights: The weights.
-            dispersions: Estimated dispersions.
-            sample_means: Averages of samples across features.
+            y_pred: The predicted data.
+            alignment_idx: Index to use for subsetting arrays aligned to global features in order to align them to local features.
+            group_name: The group name.
         """
-        r2_full = cls._r2_impl_wrapper(y_true, factors, weights, dispersions, sample_means)
-        if r2_full < settings.get("eps"):
+        r2 = self._r2_impl(y_true, self.transform_prediction(y_pred, group_name), group_name, alignment_idx)
+        r2 = max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
+        if r2 < settings.get("eps"):
             _logger.warning(
-                f"R2 for view {view_name} is 0. Increase the number of factors and/or the number of training epochs."
+                f"R2 for view {self._view_name} is 0. Increase the number of factors and/or the number of training epochs."
             )
-            return r2_full, np.zeros(factors.shape[1], dtype=np.float32)
-        return r2_full, cls._r2(r2_full, y_true, factors, weights, dispersions, sample_means)
+        return r2

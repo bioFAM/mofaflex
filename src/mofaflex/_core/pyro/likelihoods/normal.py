@@ -61,7 +61,5 @@ class PyroNormal(PyroLikelihoodWithShiftMixin, PyroLikelihoodWithDispersion):
         dispersion = self._model_dispersion(
             estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
         )
-        return dist.Normal(
-            estimate + self._get_shift(group_name),
-            torch.reciprocal(dispersion * self._get_scale(group_name) + settings.get("eps")),
-        )
+        scale = self._get_scale(group_name)
+        return dist.Normal(estimate * scale + self._get_shift(group_name), dispersion + settings.get("eps"))

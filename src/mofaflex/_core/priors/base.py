@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from enum import Enum, auto
 from inspect import isabstract, signature
@@ -369,7 +369,7 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         raise NotImplementedError
 
     @property
-    def learning_rate_multipliers(self) -> Iterator[tuple[str, float]]:
+    def learning_rate_multipliers(self) -> Iterable[tuple[str, float]]:
         """Multiplicative factors for the base learning rate for individual parameters.
 
         Returns:

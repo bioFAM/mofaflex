@@ -417,10 +417,6 @@ class MOFAFLEX:
 
         return svi, model
 
-    def _post_fit(self, data, model, train_loss_elbo):
-        self._dispersions = model.get_dispersion()
-        self._train_loss_elbo = np.asarray(train_loss_elbo)
-
     def _preprocess_options(self, *args: Options):
         self._data_opts = DataOptions()
         self._model_opts = ModelOptions()
@@ -529,16 +525,10 @@ class MOFAFLEX:
             if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
                 t.container.children[1].bar_style = "success"
 
-            self._post_fit(data, model, train_loss_elbo)
-
             with self._train_opts.device, torch.inference_mode():
                 model.on_train_end(data, batch_size=self._train_opts.batch_size)
 
-        self._df_r2_full, self._df_r2_factors, self._factor_order = self._sort_factors(
-            data,
-            factors=self._get_postprocessed_factors(moment="mean", sparse_type="mix", ordered=False),
-            weights=self._get_postprocessed_weights(moment="mean", sparse_type="mix", ordered=False),
-        )
+            self._train_loss_elbo = np.asarray(train_loss_elbo)
 
         if self._train_opts.save_path is not False:
             if self._train_opts.save_path is None:
@@ -549,73 +539,8 @@ class MOFAFLEX:
             Path(self._train_opts.save_path).parent.mkdir(parents=True, exist_ok=True)
             self._save(self._train_opts.save_path)
 
+        self._model = model
         self._init_api()
-
-    def _sort_factors(self, data, factors, weights, subsample=1000):
-        # Loop over all groups
-        dfs_factors, dfs_full = {}, {}
-
-        def r2_wrapper(view, group_name, view_name):
-            if subsample is not None and subsample > 0 and subsample < view.n_obs:
-                sample_idx = np.random.choice(view.n_obs, subsample, replace=False)
-            else:
-                sample_idx = slice(None)
-            cdata = data.preprocessor(view.X[sample_idx, :], slice(None), slice(None), group_name, view_name)[0]
-            if issparse(cdata):
-                cdata = cdata.toarray()
-
-            dispersions = self._dispersions.mean.get(view_name)
-            if dispersions is not None:
-                dispersions = align_global_array_to_local(dispersions, group_name, view_name, align_to="features")  # noqa F821
-            try:
-                return self._model_opts.likelihoods[view_name].r2(
-                    view_name,
-                    y_true=cdata,
-                    factors=align_global_array_to_local(  # noqa F821
-                        factors[group_name], group_name, view_name, align_to="samples", axis=0
-                    )[sample_idx, :],
-                    weights=align_global_array_to_local(  # noqa F821
-                        weights[view_name], group_name, view_name, align_to="features", axis=0
-                    ),
-                    dispersions=dispersions,
-                    sample_means=align_global_array_to_local(  # noqa F821
-                        data.preprocessor.sample_means[group_name][view_name],
-                        group_name,
-                        view_name,
-                        align_to="samples",
-                        axis=0,
-                    )[sample_idx],
-                )
-            except NotImplementedError:
-                _logger.warning(
-                    f"R2 calculation for {self._model_opts.likelihoods[view_name]} likelihood has not yet been implemented. Skipping view {view_name} for group {group_name}."
-                )
-
-        r2s = data.apply(r2_wrapper)
-        for group_name, group_r2 in r2s.items():
-            group_r2_factors, group_r2_full = {}, {}
-            for view_name, view_r2 in group_r2.items():
-                group_r2_full[view_name], group_r2_factors[view_name] = view_r2
-            if len(group_r2_factors) == 0:
-                _logger.warning(f"No R2 values found for group {group_name}. Skipping...")
-                continue
-            dfs_factors[group_name] = pd.DataFrame(group_r2_factors)
-            dfs_full[group_name] = pd.Series(group_r2_full)
-
-        # sum the R2 values across all groups
-        df_concat = pd.concat(dfs_factors.values())
-        df_sum = df_concat.groupby(df_concat.index).sum()
-        dfs_full = pd.DataFrame(dfs_full)
-
-        try:
-            # sort factors according to mean R2 across all views
-            sorted_r2_means = df_sum.mean(axis=1).sort_values(ascending=False)
-            factor_order = sorted_r2_means.index.to_numpy()
-        except NameError:
-            _logger.warning("Sorting factors failed. Using default order.")
-            factor_order = np.array(list(range(self.model_opts.n_factors)))
-
-        return dfs_full, dfs_factors, factor_order
 
     def _get_postprocessed_factors(self, moment: Literal["mean", "std"] = "mean", **kwargs) -> dict[str, np.ndarray]:
         factors = {}
@@ -746,8 +671,6 @@ class MOFAFLEX:
             "weights": self._weights._asdict(),
             "factors": self._factors._asdict(),
             "n_guiding_vars": self._n_guiding_vars,
-            "df_r2_full": self._df_r2_full,
-            "df_r2_factors": self._df_r2_factors,
             "n_factors": self._n_factors,
             "factor_names": self._factor_names,
             "factor_order": self._factor_order,
@@ -797,8 +720,6 @@ class MOFAFLEX:
         model._weights = MeanStd(**state["weights"])
         model._factors = MeanStd(**state["factors"])
         model._n_guiding_vars = state.get("n_guiding_vars")
-        model._df_r2_full = state["df_r2_full"]
-        model._df_r2_factors = state["df_r2_factors"]
         model._n_factors = state["n_factors"]
         model._factor_names = state["factor_names"]
         model._factor_order = state["factor_order"]

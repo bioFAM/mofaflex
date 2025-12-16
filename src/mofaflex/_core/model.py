@@ -1,17 +1,23 @@
+import logging
 import operator
+from collections import defaultdict
 from collections.abc import Mapping
 from functools import reduce
 
+import numpy as np
+import pandas as pd
 import pyro
 import torch
 from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
+from scipy.sparse import issparse
 
 from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood
 from .pyro.utils import PyroModuleDict
 from .terms import Term
-from .utils import MeanStd
+
+_logger = logging.getLogger(__name__)
 
 
 class MofaFlexModel(PyroModule):
@@ -30,18 +36,7 @@ class MofaFlexModel(PyroModule):
         self._n_features = n_features
 
         self._terms = PyroModuleDict(terms)
-        self._likelihoods = PyroModuleDict(
-            {
-                view_name: likelihood.pyro_likelihood(
-                    view_name=view_name,
-                    sample_dim=self._sample_plate_dim,
-                    feature_dim=self._feature_plate_dim,
-                    nsamples=self._n_samples,
-                    nfeatures=self._n_features[view_name],
-                )
-                for view_name, likelihood in likelihoods.items()
-            }
-        )
+        self._likelihoods = likelihoods
 
         self._scale_elbo = True
         n_views = len(self._view_names)
@@ -115,7 +110,7 @@ class MofaFlexModel(PyroModule):
                     vnonmissing_samples = gnonmissing_samples[view_name]
                     vnonmissing_features = gnonmissing_features[view_name]
 
-                    self._likelihoods[view_name].model(
+                    self._pyro_likelihoods[view_name].model(
                         data=view,
                         estimate=prediction,
                         group_name=group_name,
@@ -153,7 +148,9 @@ class MofaFlexModel(PyroModule):
             for view_name, view_obs in group.items():
                 if view_obs.numel() == 0:
                     continue
-                self._likelihoods[view_name].guide(group_name, sample_plates[group_name], feature_plates[view_name])
+                self._pyro_likelihoods[view_name].guide(
+                    group_name, sample_plates[group_name], feature_plates[view_name]
+                )
 
     def get_lr_func(self, base_lr: float, **kwargs):
         modifiers = {}
@@ -170,6 +167,18 @@ class MofaFlexModel(PyroModule):
         for term in self._terms.values():
             term.on_train_start(data)
 
+        self._pyro_likelihoods = PyroModuleDict(
+            {
+                view_name: likelihood.get_pyro_likelihood(
+                    data, sample_dim=self._sample_plate_dim, feature_dim=self._feature_plate_dim
+                )
+                for view_name, likelihood in self._likelihoods.items()
+            }
+        )
+
+        for likelihood in self._likelihoods.values():
+            likelihood.on_train_start()
+
     def on_train_epoch_start(self, epoch: int):
         """Hook that is called at the beginning of each epoch.
 
@@ -178,6 +187,8 @@ class MofaFlexModel(PyroModule):
         """
         for term in self._terms.values():
             term.on_train_epoch_start(epoch)
+        for likelihood in self._likelihoods.values():
+            likelihood.on_train_epoch_start(epoch)
 
     def on_train_epoch_end(self, epoch: int):
         """Hook that is called at the end of each epoch.
@@ -187,6 +198,8 @@ class MofaFlexModel(PyroModule):
         """
         for term in self._terms.values():
             term.on_train_epoch_end(epoch)
+        for likelihood in self._likelihoods.values():
+            likelihood.on_train_epoch_end(epoch)
 
     def on_train_end(self, data: MofaFlexDataset, batch_size: int):
         """Hook that is called at the end of training.
@@ -198,20 +211,85 @@ class MofaFlexModel(PyroModule):
         """
         for term in self._terms.values():
             term.on_train_end(data, batch_size)
+        for likelihood in self._likelihoods.values():
+            likelihood.on_train_end(data, batch_size)
 
-    @torch.inference_mode()
-    def get_dispersion(self):
-        """Get all dispersion vectors, dispersion_x."""
-        dispersion = MeanStd({}, {})
-        for view_name, likelihood in self._likelihoods.items():
+        subsample = 1000  # TODO: or use the batch size
+
+        def r2_wrapper(view, group_name, view_name):
+            if subsample is not None and subsample > 0 and subsample < view.n_obs:
+                sample_idx = np.random.choice(view.n_obs, subsample, replace=False)
+            else:
+                sample_idx = slice(None)
+            cdata = data.preprocessor(view.X[sample_idx, :], slice(None), slice(None), group_name, view_name)[0]
+            if issparse(cdata):
+                cdata = cdata.toarray()
+
+            alignment_idx = align_global_array_to_local(  # noqa: F821
+                np.arange(self._n_features[view_name]), group_name, view_name, align_to="features"
+            )
             try:
-                disp = likelihood.dispersion
-            except AttributeError:
-                continue
-            dispersion.mean[view_name] = disp.mean
-            dispersion.std[view_name] = disp.std
+                r2_full = self._likelihoods[view_name].r2(
+                    y_true=cdata,
+                    y_pred=self.predict(group_name, view_name, sample_idx),
+                    group_name=group_name,
+                    alignment_idx=alignment_idx,
+                )
+                r2s_per_term = {}
+                r2s_per_term_component = {}
+                for term_name, term in self._terms.items():
+                    r2s_per_term[term_name] = self._likelihoods[view_name].r2(
+                        y_true=cdata,
+                        y_pred=term.predict(group_name, view_name, sample_idx),
+                        group_name=group_name,
+                        alignment_idx=alignment_idx,
+                    )
 
-        return dispersion
+                    component_iter = term.prediction_components(group_name, view_name, sample_idx)
+                    if component_iter is not None:
+                        r2s_per_term_component[term_name] = {
+                            component_name: self._likelihoods[view_name].r2(
+                                y_true=cdata, y_pred=component, group_name=group_name, alignment_idx=alignment_idx
+                            )
+                            for component_name, component in component_iter
+                        }
+                return r2_full, r2s_per_term, r2s_per_term_component
+            except NotImplementedError:
+                _logger.warning(
+                    f"R2 calculation for {self._model_opts.likelihoods[view_name]} likelihood has not yet been implemented. Skipping view {view_name} for group {group_name}."
+                )
 
-    def predict(self, group_name: str, view_name: str, subset_idx: NDArray[int] | None = None):
-        return reduce(operator.add, (term.predict(group_name, view_name, subset_idx) for term in self._terms))
+        r2s = data.apply(r2_wrapper)
+
+        df_full, df_terms, dfs_term_components = {}, {}, defaultdict(dict)
+        for group_name, group_r2s in r2s.items():
+            gfull_df = {}
+            term_df = {}
+            components_dfs = defaultdict(dict)
+            for view_name, (r2_full, r2s_per_term, r2s_per_term_component) in group_r2s.items():
+                gfull_df[view_name] = r2_full
+                term_df[view_name] = pd.Series(r2s_per_term, name="R2")
+                for term_name, term_components in r2s_per_term_component.items():
+                    components_dfs[term_name][view_name] = pd.DataFrame(
+                        {"component": term_components.keys(), "R2": term_components.values()}
+                    )
+            df_full[group_name] = pd.Series(gfull_df, name="R2")
+            df_terms[group_name] = pd.concat(term_df, axis=0)
+            for term_name, term_dfs in components_dfs.items():
+                dfs_term_components[term_name][group_name] = (
+                    pd.concat(term_dfs, axis=0).droplevel(1).reset_index(names="view")
+                )
+        self._r2_full = pd.concat(df_full, axis=0, names=("group", "view")).reset_index()
+        self._r2_terms = pd.concat(df_terms, axis=0, names=("group", "view", "term")).reset_index()
+        self._r2_term_components = {
+            term_name: pd.concat(term_df, axis=0).droplevel(1).reset_index(names="group")
+            for term_name, term_df in dfs_term_components.items()
+        }
+
+        for term_name, components in self._r2_term_components.items():
+            self._terms[term_name].component_order = np.argsort(
+                -components.groupby(["component"], sort=False)["R2"].mean().to_numpy()
+            )
+
+    def predict(self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)):
+        return reduce(operator.add, (term.predict(group_name, view_name, subset_idx) for term in self._terms.values()))

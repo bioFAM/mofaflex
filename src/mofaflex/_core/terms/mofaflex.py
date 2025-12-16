@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from itertools import chain
 from typing import Literal
 
@@ -488,14 +488,31 @@ class MofaFlex(Term):
                     )
 
     @property
-    def learning_rate_multipliers(self):
+    def learning_rate_multipliers(self) -> Iterable[tuple[str, float]]:
         for i, prior in enumerate(self._factor_priors):
             yield from ((f"_factor_priors.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
         for i, prior in enumerate(self._weight_priors):
             yield from ((f"_weight_priors.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
 
-    def predict(self, group_name: str, view_name: str, subsample_idx: NDArray[int] | None = None):
-        factors = self._factors[group_name]
-        if subsample_idx is not None:
-            factors = factors[subsample_idx]
-        return factors @ self._weights[view_name].T
+    def predict(self, group_name: str, view_name: str, subsample_idx: NDArray[int] | slice = slice(None)):
+        return self._factors.mean[group_name][subsample_idx] @ self._weights.mean[view_name].T
+
+    def prediction_components(
+        self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)
+    ) -> Iterable[tuple[str, NDArray[np.floating]]]:
+        yield from (
+            (
+                factor_name,
+                self._factors.mean[group_name][subset_idx, factor_idx, None]
+                @ self._weights.mean[view_name][None, :, factor_idx],
+            )
+            for factor_idx, factor_name in enumerate(self.factor_names)
+        )
+
+    @property
+    def component_order(self):
+        return self._factor_order
+
+    @component_order.setter
+    def component_order(self, order: NDArray[int]):
+        self._factor_order = order

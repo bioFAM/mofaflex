@@ -1,5 +1,3 @@
-from collections.abc import Mapping
-
 import numpy as np
 from numpy.typing import NDArray
 from scipy.special import expit, logit
@@ -17,10 +15,15 @@ class Bernoulli(Likelihood):
         super().__init__(view_name, data, nonnegative)
         self._shift = data.apply_to_view(view_name, lambda adata, group_name: logit(utils.nanmean(adata.X, axis=0)))
 
-    def pyro_likelihood(
-        self, view_name: str, sample_dim: int, feature_dim: int, nsamples: Mapping[str, int], nfeatures: int, **kwargs
-    ) -> PyroLikelihood:
-        return PyroBernoulli(view_name, sample_dim, feature_dim, nsamples, nfeatures, shift=self._shift)
+    def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
+        return PyroBernoulli(
+            self._view_name,
+            sample_dim,
+            feature_dim,
+            data.n_samples,
+            data.n_features[self._view_name],
+            shift=self._shift,
+        )
 
     @classmethod
     def _validate(cls, data: NDArray, xp) -> bool:

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Mapping
 
+import numpy as np
 import pyro
 import torch
 from numpy.typing import NDArray
@@ -51,7 +52,22 @@ class Term(ABC, PyroModule, metaclass=_PyroMeta):
         pass
 
     @abstractmethod
-    def predict(self) -> dict[str, dict[str, NDArray]]:
+    def predict(
+        self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)
+    ) -> NDArray[np.floating]:
+        pass
+
+    def prediction_components(
+        self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)
+    ) -> Iterable[tuple[str, NDArray[np.floating]]]:
+        pass
+
+    @property
+    def component_order(self):
+        pass
+
+    @component_order.setter
+    def component_order(self, order: NDArray[int]):
         pass
 
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset] | None:
@@ -95,12 +111,12 @@ class Term(ABC, PyroModule, metaclass=_PyroMeta):
         pass
 
     @property
-    def learning_rate_multipliers(self) -> Iterator[tuple[str, float]]:
+    def learning_rate_multipliers(self) -> Iterable[tuple[str, float]]:
         """Multiplicative factors for the base learning rate for individual parameters.
 
         Returns:
-            An iterator yielding two-element tuples with parameter names as the first element and multipliers as the second.
+            An iterable containing two-element tuples with parameter names as the first element and multipliers as the second.
             If a multiplier for a parameter is 1 (i.e. no special learning rate is required), the parameter may be missing
-            from the iterator.
+            from the iterable.
         """
         return zip()

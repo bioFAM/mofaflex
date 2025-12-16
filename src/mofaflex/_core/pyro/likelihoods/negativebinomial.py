@@ -56,9 +56,10 @@ class PyroNegativeBinomial(PyroLikelihoodWithShiftMixin, PyroLikelihoodWithDispe
         dispersion = self._model_dispersion(
             estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
         )
-        rate = F.relu(estimate) * self._get_sample_means(group_name)[
-            sample_plate.indices[nonmissing_samples]
-        ] + self._get_shift(group_name)
+        rate = (
+            F.relu(estimate + self._get_shift(group_name))
+            * self._get_sample_means(group_name)[sample_plate.indices[nonmissing_samples]]
+        )
         return dist.GammaPoisson(
             torch.reciprocal(dispersion), torch.reciprocal(rate * dispersion + settings.get("eps"))
         )
