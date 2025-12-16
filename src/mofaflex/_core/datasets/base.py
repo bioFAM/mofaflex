@@ -1,7 +1,7 @@
 import inspect
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from types import FunctionType, MethodType
 from typing import Any, Concatenate, Literal, TypeAlias, TypeVar, Union
 
@@ -360,6 +360,8 @@ class MofaFlexDataset(Dataset, ABC):
         group_kwargs: dict[str, dict[str, Any]] | None = None,
         view_kwargs: dict[str, dict[str, Any]] | None = None,
         group_view_kwargs: dict[str, dict[str, dict[str, Any]]] | None = None,
+        filter_groups: Sequence[str] | str | None = None,
+        filter_views: Sequence[str] | str | None = None,
         **kwargs,
     ) -> dict[str, dict[str, T]] | dict[str, T]:
         """Apply a function to each group and/or view.
@@ -394,6 +396,8 @@ class MofaFlexDataset(Dataset, ABC):
                 argument name as key, the first inner dict has groups as keys and the second inner dict has views as keys. If a group is missing
                 from the outer dict or a view is missing from the inner dict, `None` will be used as the value of that argument for all views
                 in the group or for the view, respectively. Ignored if `by_group=False`.
+            filter_groups: List of groups to apply to. Ignored if `by_group=False` and `by_view=True`. Defaults to all groups.
+            filter_views: List of views to apply to. Ignored if `by_group=True`` and `by_view=False`. Defaults to all views
             **kwargs: Additional arguments to pass to `func`.
 
         Returns:
@@ -417,38 +421,47 @@ class MofaFlexDataset(Dataset, ABC):
         elif not by_group:
             raise ValueError("You cannot specify group_view_kwargs with `by_group=False`.")
 
+        if isinstance(filter_groups, str):
+            filter_groups = (filter_groups,)
+        if isinstance(filter_views, str):
+            filter_views = (filter_views,)
         func = self._inject_alignment_functions(func)
         if by_group and by_view:
+            group_names = set(self.group_names) & set(filter_groups) if filter_groups is not None else self.group_names
+            view_names = set(self.view_names) & set(filter_views) if filter_views is not None else self.view_names
             ckwargs = defaultdict(lambda: defaultdict(dict))
 
             for argname, gkwargs in group_kwargs.items():
-                for group_name in self.group_names:
-                    for view_name in self.view_names:
+                for group_name in group_names:
+                    for view_name in view_names:
                         ckwargs[group_name][view_name][argname] = gkwargs.get(group_name, None)
 
             for argname, vkwargs in view_kwargs.items():
-                for group_name in self.group_names:
-                    for view_name in self.view_names:
+                for group_name in group_names:
+                    for view_name in view_names:
                         ckwargs[group_name][view_name][argname] = vkwargs.get(view_name, None)
 
             for argname, gvkwargs in group_view_kwargs.items():
-                for group_name in self.group_names:
+                for group_name in group_names:
                     gkwargs = gvkwargs.get(group_name, {})
-                    for view_name in self.view_names:
+                    for view_name in view_names:
                         ckwargs[group_name][view_name][argname] = gkwargs.get(view_name, None)
 
-            return self._apply_by_group_view(func, ckwargs, **kwargs)
+            return self._apply_by_group_view(func, group_names, view_names, ckwargs, **kwargs)
         else:
             argsdict = group_kwargs if by_group else view_kwargs
-            attr = "group_names" if by_group else "view_names"
+            if by_group:
+                names = set(self.group_names) & set(filter_groups) if filter_groups is not None else self.group_names
+            else:
+                names = set(self.view_names) & set(filter_views) if filter_views is not None else self.view_names
             ckwargs = defaultdict(dict)
             for argname, vkwargs in argsdict.items():
-                for name in getattr(self, attr):
+                for name in names:
                     ckwargs[name][argname] = vkwargs.get(name, None)
             return (
-                self._apply_by_group(func, ckwargs, **kwargs)
+                self._apply_by_group(func, names, ckwargs, **kwargs)
                 if by_group
-                else self._apply_by_view(func, ckwargs, **kwargs)
+                else self._apply_by_view(func, names, ckwargs, **kwargs)
             )
 
     def apply_to_view(
@@ -538,16 +551,25 @@ class MofaFlexDataset(Dataset, ABC):
         pass
 
     @abstractmethod
-    def _apply_by_group(self, func: ApplyCallable[T], gvkwargs: dict[str, dict[str, Any]], **kwargs) -> dict[str, T]:
+    def _apply_by_group(
+        self, func: ApplyCallable[T], group_names: Sequence[str], gvkwargs: dict[str, dict[str, Any]], **kwargs
+    ) -> dict[str, T]:
         pass
 
     @abstractmethod
-    def _apply_by_view(self, func: ApplyCallable[T], gkwargs: dict[str, dict[str, Any]], **kwargs) -> dict[str, T]:
+    def _apply_by_view(
+        self, func: ApplyCallable[T], view_names: Sequence[str], gkwargs: dict[str, dict[str, Any]], **kwargs
+    ) -> dict[str, T]:
         pass
 
     @abstractmethod
     def _apply_by_group_view(
-        self, func: ApplyCallable[T], vkwargs: dict[str, dict[str, dict[str, Any]]], **kwargs
+        self,
+        func: ApplyCallable[T],
+        group_names: Sequence[str],
+        view_names: Sequence[str],
+        vkwargs: dict[str, dict[str, dict[str, Any]]],
+        **kwargs,
     ) -> dict[str, dict[str, T]]:
         pass
 

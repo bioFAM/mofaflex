@@ -476,20 +476,27 @@ class MuDataDataset(MofaFlexDataset):
         return ret
 
     def _apply_by_group_view(
-        self, func: ApplyCallable[T], gvkwargs: Mapping[str, Mapping[str, Mapping[str, Any]]], **kwargs
+        self,
+        func: ApplyCallable[T],
+        group_names: Sequence[str],
+        view_names: Sequence[str],
+        gvkwargs: Mapping[str, Mapping[str, Mapping[str, Any]]],
+        **kwargs,
     ) -> dict[str, dict[str, T]]:
         data = self._data_for_apply()
         ret = {}
-        for group_name, group_idx in self._groups.items():
+        for group_name in group_names:
+            group_idx = self._groups[group_name]
             cret = {}
-            for modname, mod in data[group_idx, :].mod.items():
-                ccret = func(mod, group_name, modname, **kwargs, **gvkwargs[group_name][modname])
+            subdata = data[group_idx, :]
+            for modname in view_names:
+                ccret = func(subdata.mod[modname], group_name, modname, **kwargs, **gvkwargs[group_name][modname])
                 cret[modname] = apply_to_nested(ccret, from_dask)
             ret[group_name] = cret
         return ret
 
     def _apply_by_view(
-        self, func: ApplyCallable[T], vkwargs: Mapping[str, Mapping[str, Any]], **kwargs
+        self, func: ApplyCallable[T], view_names: Sequence[str], vkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
         data = self._data
         if (
@@ -505,7 +512,8 @@ class MuDataDataset(MofaFlexDataset):
             else:
                 warn_dask(_logger)
         ret = {}
-        for modname, mod in data.mod.items():
+        for modname in view_names:
+            mod = data.mod[modname]
             groups = np.empty((mod.n_obs,), dtype="O")
             for group, group_idx in self._groups.items():
                 modidx = self._data.obsmap[modname][group_idx]
@@ -517,11 +525,12 @@ class MuDataDataset(MofaFlexDataset):
         return ret
 
     def _apply_by_group(
-        self, func: ApplyCallable[T], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
+        self, func: ApplyCallable[T], group_names: Sequence[str], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
         data = self._data_for_apply()
         ret = {}
-        for group_name, group_idx in self._groups.items():
+        for group_name in group_names:
+            group_idx = self._groups[group_name]
             subdata = data[group_idx, :]
             gdata = {}
             convert = False

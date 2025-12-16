@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 import numpy as np
 import pyro
 import torch
@@ -7,25 +9,33 @@ from pyro.nn import pyro_method
 from torch.nn import functional as F
 
 from ...settings import settings
-from .base import PyroLikelihoodWithDispersion
+from .base import PyroLikelihoodWithDispersion, PyroLikelihoodWithShiftMixin
 
 
-class PyroNegativeBinomial(PyroLikelihoodWithDispersion):
+class PyroNegativeBinomial(PyroLikelihoodWithShiftMixin, PyroLikelihoodWithDispersion):
     def __init__(
         self,
         view_name: str,
         sample_dim: int,
         feature_dim: int,
-        sample_means: dict[str, dict[str, NDArray[np.floating]]],
-        feature_means: dict[str, dict[str, NDArray[np.floating]]],
+        nsamples: Mapping[str, int],
+        nfeatures: int,
+        shift: Mapping[str, NDArray[np.floating]],
+        sample_means: Mapping[str, NDArray[np.floating]],
         *,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
     ):
         super().__init__(
-            view_name, sample_dim, feature_dim, sample_means, feature_means, init_loc=init_loc, init_scale=init_scale
+            view_name,
+            sample_dim,
+            feature_dim,
+            nsamples,
+            nfeatures,
+            init_loc=init_loc,
+            init_scale=init_scale,
+            shift=shift,
         )
-
         for group_name, gsample_means in sample_means.items():
             shape = self._nsamples[group_name], *((1,) * (abs(self._sample_dim) - 1))
             self.register_buffer(f"_sample_means_{group_name}", torch.as_tensor(gsample_means[view_name]).view(*shape))
@@ -46,7 +56,9 @@ class PyroNegativeBinomial(PyroLikelihoodWithDispersion):
         dispersion = self._model_dispersion(
             estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
         )
-        rate = F.relu(estimate) * self._get_sample_means(group_name)[sample_plate.indices[nonmissing_samples]]
+        rate = F.relu(estimate) * self._get_sample_means(group_name)[
+            sample_plate.indices[nonmissing_samples]
+        ] + self._get_shift(group_name)
         return dist.GammaPoisson(
             torch.reciprocal(dispersion), torch.reciprocal(rate * dispersion + settings.get("eps"))
         )

@@ -25,16 +25,16 @@ from tqdm.auto import tqdm
 from tqdm.notebook import tqdm_notebook
 
 from .. import pl
-from . import preprocessing
 from .api.priors import Prior as APIPrior
 from .datasets import MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import load_model, save_model
 from .likelihoods import Likelihood, LikelihoodType
 from .model import MofaFlexModel
 from .priors import API, APIType, FactorPriorType, Prior, WeightPriorType
+from .settings import settings
 from .terms import MofaFlex as MofaFlexTerm
 from .training import EarlyStopper
-from .utils import MeanStd, Options, impute, sample_all_data_as_one_batch
+from .utils import MeanStd, Options, impute, nanvar, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
@@ -171,15 +171,16 @@ class MOFAFLEX:
     def __init__(self, data: MuData | Mapping[str, Mapping[str, AnnData]], *args: Options):
         self._preprocess_options(*args)
         data = self._make_dataset(data)
+        self._filter_constant_features(data)
+
         self._adjust_options(data)
 
         if self._data_opts.plot_data_overview:
             pl.overview(data).show()
 
         self._setup_likelihoods(data)
-        preprocessor = self._make_preprocessor(data)
 
-        # this needs to be after preprocessor, since preprocessor may filter out features with zero variance
+        # this needs to be after _filter_constant_features
         self._metadata = data.get_obs()
         self._view_names = data.view_names
         self._group_names = data.group_names
@@ -188,7 +189,7 @@ class MOFAFLEX:
 
         self._prior_api_properties: dict[str, _PriorApiProperty] = {}
 
-        self._fit(data, preprocessor)
+        self._fit(data)
 
     def _results_to_df(
         self,
@@ -263,23 +264,19 @@ class MOFAFLEX:
             subset_var=self._data_opts.subset_var,
         )
 
-    def _make_preprocessor(self, data: MofaFlexDataset) -> preprocessing.MofaFlexPreprocessor:
-        preprocessor = preprocessing.MofaFlexPreprocessor(
-            dataset=data,
-            likelihoods=self._model_opts.likelihoods,
-            nonnegative_weights=self._model_opts.nonnegative_weights,
-            nonnegative_factors=self._model_opts.nonnegative_factors,
-            scale_per_group=self._data_opts.scale_per_group,
-            remove_constant_features=self._data_opts.remove_constant_features,
-            state=getattr(self, "_preprocessor_state", None),
-        )
-        data.preprocessor = preprocessor
-        return preprocessor
+    def _filter_constant_features(self, data: MofaFlexDataset):
+        if self._data_opts.remove_constant_features:
+            nonconstantfeatures = {}
+            view_vars = data.apply(lambda adata, group_name, view_name: nanvar(adata.X, axis=0), by_group=False)
+            threshold = settings.get("eps")
+            for view_name, viewvar in view_vars.items():
+                nonconst = viewvar > threshold
+                _logger.debug(f"Removing {nonconst.size - nonconst.sum()} features from view {view_name}.")
+                if issparse(nonconst):
+                    nonconst = nonconst.toarray()
+                nonconstantfeatures[view_name] = data.feature_names[view_name][nonconst]
 
-    def _mofaflexdataset(self, data: MuData | Mapping[str, Mapping[str, AnnData]]) -> MofaFlexDataset:
-        data = self._make_dataset(data)
-        self._make_preprocessor(data)
-        return data
+            data.reindex_features(nonconstantfeatures)
 
     @property
     def group_names(self) -> npt.NDArray[str]:
@@ -366,14 +363,15 @@ class MOFAFLEX:
             self._model_opts.likelihoods = data.apply(Likelihood.infer, by_group=False)
             msg = []
             for view_name, likelihood in self._model_opts.likelihoods.items():
-                msg.append(f"{view_name}: {likelihood}")
+                msg.append(f"{view_name}: {likelihood.__name__}")
+                self._model_opts.likelihoods[view_name] = likelihood(view_name, data, False)
             _logger.info("No likelihoods provided. Using inferred likelihoods: " + "; ".join(msg))
         else:
             if isinstance(self._model_opts.likelihoods, str):
                 self._model_opts.likelihoods = dict.fromkeys(data.view_names, self._model_opts.likelihoods)
 
             self._model_opts.likelihoods = {
-                view: Likelihood.get(likelihood) for view, likelihood in self._model_opts.likelihoods.items()
+                view: Likelihood(likelihood, data, False) for view, likelihood in self._model_opts.likelihoods.items()
             }
 
             data.apply(
@@ -382,7 +380,7 @@ class MOFAFLEX:
                 by_group=False,
             )
 
-    def _setup_svi(self, feature_means, sample_means):
+    def _setup_svi(self):
         terms = {
             "mofaflex": MofaFlexTerm(
                 n_samples=self.n_samples,
@@ -399,12 +397,7 @@ class MOFAFLEX:
             )
         }
         model = MofaFlexModel(
-            n_samples=self.n_samples,
-            n_features=self.n_features,
-            terms=terms,
-            likelihoods=self._model_opts.likelihoods,
-            feature_means=feature_means,
-            sample_means=sample_means,
+            n_samples=self.n_samples, n_features=self.n_features, terms=terms, likelihoods=self._model_opts.likelihoods
         ).to(self._train_opts.device)
 
         n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
@@ -424,11 +417,9 @@ class MOFAFLEX:
 
         return svi, model
 
-    def _post_fit(self, data, preprocessor, model, train_loss_elbo):
+    def _post_fit(self, data, model, train_loss_elbo):
         self._dispersions = model.get_dispersion()
         self._train_loss_elbo = np.asarray(train_loss_elbo)
-
-        self._preprocessor_state = preprocessor.state_dict()
 
     def _preprocess_options(self, *args: Options):
         self._data_opts = DataOptions()
@@ -465,10 +456,10 @@ class MOFAFLEX:
         if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= data.n_samples_total):
             self._train_opts.batch_size = data.n_samples_total
 
-    def _fit(self, data, preprocessor):
+    def _fit(self, data):
         pyro.set_rng_seed(self._train_opts.seed)
 
-        svi, model = self._setup_svi(preprocessor.feature_means, preprocessor.sample_means)
+        svi, model = self._setup_svi()
 
         datasets = {"data": data}
         if (termdsets := model.get_datasets(data)) is not None:
@@ -538,7 +529,7 @@ class MOFAFLEX:
             if isinstance(t, tqdm_notebook):  # https://github.com/tqdm/tqdm/issues/1659
                 t.container.children[1].bar_style = "success"
 
-            self._post_fit(data, preprocessor, model, train_loss_elbo)
+            self._post_fit(data, model, train_loss_elbo)
 
             with self._train_opts.device, torch.inference_mode():
                 model.on_train_end(data, batch_size=self._train_opts.batch_size)
@@ -735,7 +726,8 @@ class MOFAFLEX:
             In both cases, the returned data will be preprocessed. In the case of Gaussian distributed data, that involves
             centering and scaling.
         """
-        data = self._mofaflexdataset(data)
+        data = self._make_dataset(data)
+        data.reindex_features(self.feature_names)
 
         return data.apply(
             impute,
@@ -769,7 +761,6 @@ class MOFAFLEX:
             "data_opts": self._data_opts.asdict(),
             "model_opts": self._model_opts.asdict(),
             "train_opts": self._train_opts.asdict(),
-            "preprocessor_state": self._preprocessor_state,
         }
         state["train_opts"]["device"] = str(state["train_opts"]["device"])
         state["model_opts"]["likelihoods"] = {
@@ -822,7 +813,6 @@ class MOFAFLEX:
         model._data_opts = DataOptions(**state["data_opts"])
         model._model_opts = ModelOptions(**state["model_opts"])
         model._train_opts = TrainingOptions(**state["train_opts"])
-        model._preprocessor_state = state["preprocessor_state"]
 
         model._model_opts.factor_prior = [
             Prior.load(state, model.n_total_factors, model.n_samples, map_location=map_location)

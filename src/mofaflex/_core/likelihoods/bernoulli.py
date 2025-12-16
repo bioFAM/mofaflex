@@ -1,26 +1,26 @@
+from collections.abc import Mapping
+
 import numpy as np
 from numpy.typing import NDArray
-from scipy.special import expit
+from scipy.special import expit, logit
 
+from .. import utils
+from ..datasets import MofaFlexDataset
 from ..pyro.likelihoods import PyroBernoulli, PyroLikelihood
 from .base import R2, Likelihood
 
 
 class Bernoulli(Likelihood):
     _priority = 10
-    scale_data = False
 
-    @classmethod
+    def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
+        super().__init__(view_name, data, nonnegative)
+        self._shift = data.apply_to_view(view_name, lambda adata, group_name: logit(utils.nanmean(adata.X, axis=0)))
+
     def pyro_likelihood(
-        cls,
-        view_name: str,
-        sample_dim: int,
-        feature_dim: int,
-        sample_means: dict[str, dict[str, NDArray[np.floating]]],
-        feature_means: dict[str, dict[str, NDArray[np.floating]]],
-        **kwargs,
+        self, view_name: str, sample_dim: int, feature_dim: int, nsamples: Mapping[str, int], nfeatures: int, **kwargs
     ) -> PyroLikelihood:
-        return PyroBernoulli(view_name, sample_dim, feature_dim, sample_means, feature_means)
+        return PyroBernoulli(view_name, sample_dim, feature_dim, nsamples, nfeatures, shift=self._shift)
 
     @classmethod
     def _validate(cls, data: NDArray, xp) -> bool:
@@ -42,6 +42,5 @@ class Bernoulli(Likelihood):
         ss_tot = np.nansum(cls._dV_square(y_true, np.nanmean(y_true), -1, 1))
         return R2(ss_res, ss_tot)
 
-    @classmethod
-    def transform_prediction(cls, prediction: NDArray[np.floating], sample_means: NDArray[np.floating]):
-        return expit(prediction)
+    def transform_prediction(self, prediction: NDArray[np.floating], group_name: str):
+        return expit(prediction + self._shift[group_name])

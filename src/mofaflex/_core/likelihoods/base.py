@@ -1,6 +1,6 @@
-import inspect
 import logging
 from abc import ABC, abstractmethod
+from inspect import isabstract, signature
 from typing import NamedTuple
 
 import numpy as np
@@ -9,6 +9,7 @@ from array_api_compat import array_namespace
 from numpy.typing import NDArray
 from scipy.sparse import issparse
 
+from ..datasets import MofaFlexDataset
 from ..pyro.likelihoods import PyroLikelihood
 from ..settings import settings
 
@@ -21,17 +22,12 @@ class R2(NamedTuple):
 
 
 class _LikelihoodMeta(type(ABC)):
-    def __eq__(cls, o):
-        if isinstance(o, str):
-            return cls.__name__ == o
-        else:
-            return super().__eq__(o)
-
-    def __hash__(self):
-        return super().__hash__()
-
-    def __str__(cls):
-        return cls.__name__
+    def __call__(cls, *args, **kwargs):
+        obj = cls.__new__(cls, *args, **kwargs)
+        if obj.__class__ is not cls:
+            args = args[1:]
+        obj.__init__(*args, **kwargs)
+        return obj
 
 
 class Likelihood(ABC, metaclass=_LikelihoodMeta):
@@ -43,45 +39,46 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         - `_priority`: used during likelihood inference to return the most suitable likelihood
           if multiple likelihoods  are suitable for the given data. Must be non-negative, higher values
           indicate higher priority.
-        - `scale_data`: indicates whether the likelihood requires data to be centered and scaled to unit variance.
     """
 
-    __subclasses = {}
+    __registry = {}
 
     def __init_subclass__(cls, **kwargs):
-        for attr in ("_priority", "scale_data"):
-            if not hasattr(cls, attr):
-                raise NotImplementedError(f"Class `{cls.__name__}` does not have attribute `{attr}`.")
-        for name, val in inspect.getmembers_static(cls):
-            if inspect.isfunction(val):
-                raise TypeError(
-                    f"Class `{cls.__name__}` must be stateless, but method `{name}` is not static and not a class method."
-                )
         super().__init_subclass__(**kwargs)
-        __class__.__subclasses[str(cls)] = cls
+        if not isabstract(cls) and cls.__name__[0] != "_":
+            for attr in ("_priority",):
+                if not hasattr(cls, attr):
+                    raise NotImplementedError(f"Class `{cls.__name__}` does not have attribute `{attr}`.")
+            init_sig = signature(cls.__init__)
+            for arg in ("view_name", "data", "nonnegative"):
+                if arg not in init_sig.parameters:
+                    raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
+
+            __class__.__registry[str(cls)] = cls
+
+    def __new__(cls, *args, **kwargs):
+        if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):
+            return super().__new__(cls)
+        try:
+            likelihood = args[0]
+            subcls = cls.__registry[likelihood]
+            return subcls.__new__(subcls, *args[1:], **kwargs)
+        except KeyError as e:
+            raise NotImplementedError(f"Unknown likelihood {likelihood}.") from e
+
+    def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool = False):
+        super().__init__()
+        self._view_name = view_name
+        self._nonnegative = nonnegative
 
     @staticmethod
     def known_likelihoods() -> tuple[str]:
         """Get all known likelihoods."""
-        return tuple(__class__.__subclasses.keys())
+        return tuple(__class__.__registry.keys())
 
-    @staticmethod
-    def get(name: str) -> _LikelihoodMeta:
-        """Get the likelihood based on its name.
-
-        Args:
-            name: The name of the likelihood.
-        """
-        try:
-            return __class__.__subclasses[name]
-        except KeyError as e:
-            raise NotImplementedError(f"Unknown likelihood `{name}`") from e
-
-    @classmethod
     @abstractmethod
     def pyro_likelihood(
-        cls,
-        view_name: str,
+        self,
         sample_dim: int,
         feature_dim: int,
         sample_means: dict[str, dict[str, NDArray[np.floating]]],
@@ -143,7 +140,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         xp = array_namespace(data)
         data = data[~xp.isnan(data)]
 
-        inferred = {subcls: subcls._priority for subcls in cls.__subclasses.values() if subcls._validate(data, xp)}
+        inferred = {subcls: subcls._priority for subcls in __class__.__registry.values() if subcls._validate(data, xp)}
         lklhdcls = max(((subcls, prio) for subcls, prio in inferred.items()), key=lambda x: x[1])[0]
         return lklhdcls
 
@@ -179,14 +176,13 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         """
         pass
 
-    @classmethod
     @abstractmethod
-    def transform_prediction(cls, prediction: NDArray[np.floating], sample_means: NDArray[np.floating]):
+    def transform_prediction(self, prediction: NDArray[np.floating], group_name: str):
         """Transform the raw model prediction into something compatible with the data, a.k.a. inverse link function.
 
         Args:
             prediction: The model prediction.
-            sample_means: Averages of samples across features
+            group_name: The group name.
         """
         pass
 

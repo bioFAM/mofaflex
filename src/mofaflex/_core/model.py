@@ -24,8 +24,6 @@ class MofaFlexModel(PyroModule):
         n_features: Mapping[str, int],
         terms: Mapping[str, Term],
         likelihoods: Mapping[str, Likelihood],
-        sample_means: Mapping[str, Mapping[str, NDArray]] = None,
-        feature_means: Mapping[str, Mapping[str, NDArray]] = None,
     ):
         super().__init__()
         self._n_samples = n_samples
@@ -38,8 +36,8 @@ class MofaFlexModel(PyroModule):
                     view_name=view_name,
                     sample_dim=self._sample_plate_dim,
                     feature_dim=self._feature_plate_dim,
-                    sample_means=sample_means,
-                    feature_means=feature_means,
+                    nsamples=self._n_samples,
+                    nfeatures=self._n_features[view_name],
                 )
                 for view_name, likelihood in likelihoods.items()
             }

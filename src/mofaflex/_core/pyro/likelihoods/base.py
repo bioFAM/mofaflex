@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from inspect import isabstract, signature
+from itertools import islice
 
 import numpy as np
 import pyro
@@ -23,29 +24,19 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
         view_name: The view (or guiding variable) name.
         sample_dim: The sample dimension.
         feature_dim: The feature dimension.
-        sample_means: Averages of samples across features for each group and view.
-        feature_means: Averages of features across samples for each group and view.
     """
 
     __registry = {}
 
     def __init__(
-        self,
-        view_name: str,
-        sample_dim: int,
-        feature_dim: int,
-        sample_means: dict[str, dict[str, NDArray[np.floating]]],
-        feature_means: dict[str, dict[str, NDArray[np.floating]]],
+        self, view_name: str, sample_dim: int, feature_dim: int, nsamples: Mapping[str, int], nfeatures: int, **kwargs
     ):
-        super().__init__()
-        self._nsamples = {
-            group_name: next(iter(smeans.values())).shape[0] for group_name, smeans in sample_means.items()
-        }
-
-        self._nfeatures = next(iter(feature_means.values()))[view_name].shape[0]
+        super().__init__(**kwargs)
         self._view_name = view_name
         self._sample_dim = sample_dim
         self._feature_dim = feature_dim
+        self._nsamples = nsamples
+        self._nfeatures = nfeatures
 
         self._mode = None
 
@@ -53,9 +44,15 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
         super().__init_subclass__(**kwargs)
         if not isabstract(cls) and cls.__name__[0] != "_":
             init_sig = signature(cls.__init__)
-            for arg in ("view_name", "sample_dim", "feature_dim", "sample_means", "feature_means"):
-                if arg not in init_sig.parameters:
-                    raise TypeError(f"Constructor of class {cls} is missing the {arg} argument.")
+            for i, (arg, param) in enumerate(
+                zip(
+                    ("view_name", "sample_dim", "feature_dim", "nsamples", "nfeatures"),
+                    islice(init_sig.parameters.values(), 1, None),
+                    strict=False,
+                )
+            ):
+                if arg != param.name:
+                    raise TypeError(f"Constructor of class {cls} is missing the {arg} argument at position {i + 1}.")
 
             __class__.__registry[cls.__name__ if not cls.__name__.startswith("Pyro") else cls.__name__[4:]] = cls
 
@@ -101,15 +98,15 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
 
         nonmissing_sample_plate = pyro.plate(
             f"samples_{group_name}_{self._view_name}",
-            self._nsamples[group_name],
-            dim=self._sample_dim,
+            sample_plate.size,
+            dim=sample_plate.dim,
             subsample=sample_plate.indices[nonmissing_samples],
         )
 
         nonmissing_feature_plate = pyro.plate(
             f"features_{group_name}_{self._view_name}",
-            self._nfeatures,
-            dim=self._feature_dim,
+            feature_plate.size,
+            dim=feature_plate.dim,
             subsample=(
                 feature_plate.indices[nonmissing_features] if isinstance(nonmissing_features, torch.Tensor) else None
             ),
@@ -202,6 +199,16 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
         return PyroSample(dist)
 
 
+class PyroLikelihoodWithShiftMixin:
+    def __init__(self, *args, shift: Mapping[str, NDArray[np.floating]], **kwargs):
+        super().__init__(*args, **kwargs)
+        for group_name, gshift in shift.items():
+            self.register_buffer(f"_shift_{group_name}", torch.as_tensor(gshift))
+
+    def _get_shift(self, group_name: str):
+        return getattr(self, f"_shift_{group_name}")
+
+
 class PyroLikelihoodWithDispersion(PyroLikelihood):
     """Base class for Pyro likelihoods with a dispersion parameter."""
 
@@ -210,14 +217,14 @@ class PyroLikelihoodWithDispersion(PyroLikelihood):
         view_name: str,
         sample_dim: int,
         feature_dim: int,
-        sample_means: dict[str, dict[str, NDArray[np.floating]]],
-        feature_means: dict[str, dict[str, NDArray[np.floating]]],
+        nsamples: dict[str, int],
+        nfeatures: int,
         *,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         **kwargs,
     ):
-        super().__init__(view_name, sample_dim, feature_dim, sample_means, feature_means)
+        super().__init__(view_name, sample_dim, feature_dim, nsamples, nfeatures, **kwargs)
 
         shape = self._nfeatures, *((1,) * (abs(self._feature_dim) - 1))
         self._loc = PyroParam(torch.full(size=shape, fill_value=init_loc))

@@ -1,29 +1,49 @@
+from collections.abc import Mapping
+
 import numpy as np
 from numpy.typing import NDArray
 
+from .. import utils
+from ..datasets import MofaFlexDataset
 from ..pyro.likelihoods import PyroLikelihood, PyroNegativeBinomial
 from .base import R2, Likelihood
 
 
 class NegativeBinomial(Likelihood):
     _priority = 5
-    scale_data = False
 
-    @classmethod
+    def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
+        super().__init__(view_name, data, nonnegative)
+        self._shift = data.apply_to_view(view_name, lambda adata, group_name: utils.nanmin(adata.X, axis=0))
+        self._sample_means = data.apply_to_view(
+            view_name,
+            lambda adata, group_name: align_local_array_to_global(  # noqa: F821
+                utils.nanmean(adata.X, axis=1), group_name, view_name, align_to="samples"
+            ),
+        )
+
     def pyro_likelihood(
-        cls,
+        self,
         view_name: str,
         sample_dim: int,
         feature_dim: int,
-        sample_means: dict[str, dict[str, NDArray[np.floating]]],
-        feature_means: dict[str, dict[str, NDArray[np.floating]]],
+        nsamples: Mapping[str, int],
+        nfeatures: int,
         *,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
         **kwargs,
     ) -> PyroLikelihood:
         return PyroNegativeBinomial(
-            view_name, sample_dim, feature_dim, sample_means, feature_means, init_loc=init_loc, init_scale=init_scale
+            view_name,
+            sample_dim,
+            feature_dim,
+            nsamples,
+            nfeatures,
+            self._shift,
+            self._sample_means,
+            init_loc=init_loc,
+            init_scale=init_scale,
         )
 
     @classmethod
@@ -50,8 +70,7 @@ class NegativeBinomial(Likelihood):
 
         return R2(ss_res, ss_tot)
 
-    @classmethod
-    def transform_prediction(cls, prediction: NDArray[np.floating], sample_means: NDArray[np.floating]):
+    def transform_prediction(self, prediction: NDArray[np.floating], group_name: str):
         prediction = np.maximum(0, prediction)  # ReLU
-        prediction *= sample_means[..., None]
+        prediction *= self._sample_means[..., None] + self._shift[group_name]
         return prediction

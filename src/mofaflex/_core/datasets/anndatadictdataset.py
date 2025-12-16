@@ -506,15 +506,20 @@ class AnnDataDictDataset(MofaFlexDataset):
         return ret
 
     def _apply_by_group_view(
-        self, func: ApplyCallable[T], gvkwargs: Mapping[str, Mapping[str, Mapping[str, Any]]], **kwargs
+        self,
+        func: ApplyCallable[T],
+        group_names: Sequence[str],
+        view_names: Sequence[str] | None,
+        gvkwargs: Mapping[str, Mapping[str, Mapping[str, Any]]],
+        **kwargs,
     ) -> dict[str, dict[str, T]]:
         havedask = have_dask()
         if not havedask and settings.use_dask:
             warn_dask(_logger)
         ret = {}
-        for group_name in self.group_names:
+        for group_name in group_names:
             cret = {}
-            for view_name in self.view_names:
+            for view_name in view_names:
                 view = self._view_for_apply(group_name, view_name)
                 if view is not None:
                     ccret = func(view, group_name, view_name, **kwargs, **gvkwargs[group_name][view_name])
@@ -523,13 +528,13 @@ class AnnDataDictDataset(MofaFlexDataset):
         return ret
 
     def _apply_by_view(
-        self, func: ApplyCallable[T], vkwargs: Mapping[str, Mapping[str, Any]], **kwargs
+        self, func: ApplyCallable[T], view_names: Sequence[str], vkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
         havedask = have_dask()
         ret = {}
         if not havedask and settings.use_dask:
             warn_dask(_logger)
-        for view_name in self.view_names:
+        for view_name in view_names:
             data = {}
             convert = False
             for group_name, group in self._data.items():
@@ -567,13 +572,14 @@ class AnnDataDictDataset(MofaFlexDataset):
         return ret
 
     def _apply_by_group(
-        self, func: ApplyCallable[T], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
+        self, func: ApplyCallable[T], group_names: Sequence[str], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
         havedask = have_dask()
         ret = {}
         if not havedask and settings.use_dask:
             warn_dask(_logger)
-        for group_name, group in self._data.items():
+        for group_name in group_names:
+            group = self._data[group_name]
             data = {}
             convert = False
             gvarmap = self._varmap[group_name]

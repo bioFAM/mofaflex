@@ -1,22 +1,13 @@
-import numpy as np
 import pyro
 import torch
-from numpy.typing import NDArray
 from pyro import distributions as dist
 
 from .base import PyroLikelihood
 
 
 class PyroCategorical(PyroLikelihood):
-    def __init__(
-        self,
-        view_name: str,
-        sample_dim: int,
-        feature_dim: int,
-        sample_means: dict[str, dict[str, NDArray[np.floating]]],
-        feature_means: dict[str, dict[str, NDArray[np.floating]]],
-    ):
-        super().__init__(view_name, sample_dim, feature_dim, sample_means, feature_means)
+    def __init__(self, view_name: str, sample_dim: int, feature_dim: int):
+        super().__init__(view_name, sample_dim, feature_dim)
 
     def _model(
         self,
