@@ -17,7 +17,7 @@ class _SimpleLocationScale(Prior):
 
         self._prior_dist = prior_dist
 
-    def on_train_start(
+    def _on_train_start(
         self,
         factor_dim: int,
         nonfactor_dim: int,

@@ -54,7 +54,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
                 if arg not in init_sig.parameters:
                     raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
 
-            __class__.__registry[str(cls)] = cls
+            __class__.__registry[str(cls.__name__)] = cls
 
     def __new__(cls, *args, **kwargs):
         if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):

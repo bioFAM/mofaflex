@@ -371,7 +371,8 @@ class MOFAFLEX:
                 self._model_opts.likelihoods = dict.fromkeys(data.view_names, self._model_opts.likelihoods)
 
             self._model_opts.likelihoods = {
-                view: Likelihood(likelihood, data, False) for view, likelihood in self._model_opts.likelihoods.items()
+                view: Likelihood(likelihood, view, data, False)
+                for view, likelihood in self._model_opts.likelihoods.items()
             }
 
             data.apply(
