@@ -157,6 +157,11 @@ class MofaFlexDataset(Dataset, ABC):
         return sum(self.n_samples.values())
 
     @property
+    def n_features_total(self) -> int:
+        """Total number of features."""
+        return sum(self.n_features.values())
+
+    @property
     @abstractmethod
     def view_names(self) -> NDArray[str]:
         """View names."""

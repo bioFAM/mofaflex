@@ -381,43 +381,6 @@ class MOFAFLEX:
                 by_group=False,
             )
 
-    def _setup_svi(self):
-        terms = {
-            "mofaflex": MofaFlexTerm(
-                n_samples=self.n_samples,
-                n_features=self.n_features,
-                n_factors=self._model_opts.n_factors,
-                guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
-                guiding_vars_scales=self._model_opts.guiding_vars_scales,
-                factor_prior=self._model_opts.factor_prior,
-                weight_prior=self._model_opts.weight_prior,
-                nonnegative_factors=self._model_opts.nonnegative_factors,
-                nonnegative_weights=self._model_opts.nonnegative_weights,
-                init_factors=self._model_opts.init_factors,
-                init_scale=self._model_opts.init_scale,
-            )
-        }
-        model = MofaFlexModel(
-            n_samples=self.n_samples, n_features=self.n_features, terms=terms, likelihoods=self._model_opts.likelihoods
-        ).to(self._train_opts.device)
-
-        n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
-        gamma = 0.1
-        lrd = gamma ** (1 / n_iterations)
-
-        optimizer = ClippedAdam(model.get_lr_func(self._train_opts.lr, lrd=lrd))
-
-        svi = SVI(
-            model=pyro.poutine.scale(model.model, scale=1.0 / self.n_samples_total),
-            guide=pyro.poutine.scale(model.guide, scale=1.0 / self.n_samples_total),
-            optim=optimizer,
-            loss=TraceMeanField_ELBO(
-                retain_graph=True, num_particles=self._train_opts.n_particles, vectorize_particles=True
-            ),
-        )
-
-        return svi, model
-
     def _preprocess_options(self, *args: Options):
         self._data_opts = DataOptions()
         self._model_opts = ModelOptions()
@@ -456,7 +419,26 @@ class MOFAFLEX:
     def _fit(self, data):
         pyro.set_rng_seed(self._train_opts.seed)
 
-        svi, model = self._setup_svi()
+        terms = {
+            "mofaflex": MofaFlexTerm(
+                n_factors=self._model_opts.n_factors,
+                guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
+                guiding_vars_scales=self._model_opts.guiding_vars_scales,
+                factor_prior=self._model_opts.factor_prior,
+                weight_prior=self._model_opts.weight_prior,
+                nonnegative_factors=self._model_opts.nonnegative_factors,
+                nonnegative_weights=self._model_opts.nonnegative_weights,
+                init_factors=self._model_opts.init_factors,
+                init_scale=self._model_opts.init_scale,
+            )
+        }
+        model = MofaFlexModel(
+            n_samples=self.n_samples, n_features=self.n_features, terms=terms, likelihoods=self._model_opts.likelihoods
+        ).to(self._train_opts.device)
+
+        n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
+        gamma = 0.1
+        lrd = gamma ** (1 / n_iterations)
 
         datasets = {"data": data}
         if (termdsets := model.get_datasets(data)) is not None:
@@ -465,6 +447,16 @@ class MOFAFLEX:
         # clean start
         pyro.enable_validation(True)
         pyro.clear_param_store()
+
+        optimizer = ClippedAdam(model.get_lr_func(self._train_opts.lr, lrd=lrd))
+        svi = SVI(
+            model=pyro.poutine.scale(model.model, scale=1.0 / self.n_samples_total),
+            guide=pyro.poutine.scale(model.guide, scale=1.0 / self.n_samples_total),
+            optim=optimizer,
+            loss=TraceMeanField_ELBO(
+                retain_graph=True, num_particles=self._train_opts.n_particles, vectorize_particles=True
+            ),
+        )
 
         # Train
         singlebatch = self._train_opts.batch_size >= max(self.n_samples.values())

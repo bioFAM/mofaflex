@@ -30,8 +30,6 @@ _logger = logging.getLogger(__name__)
 class MofaFlex(Term):
     def __init__(
         self,
-        n_samples: Mapping[str, int],
-        n_features: Mapping[str, int],
         n_factors: int,
         factor_prior: Mapping[str | Sequence[str], FactorPriorType | APIPrior] | FactorPriorType | APIPrior = "Normal",
         weight_prior: Mapping[str | Sequence[str], WeightPriorType | APIPrior] | WeightPriorType | APIPrior = "Normal",
@@ -40,27 +38,68 @@ class MofaFlex(Term):
         guiding_vars_obs_keys: str | Sequence[str] | Mapping[str, Mapping[str, str]] | None = None,
         guiding_vars_likelihoods: Mapping[str, str] | Literal["Normal", "Categorical", "Bernoulli"] | None = "Normal",
         guiding_vars_scales: Mapping[str, float] | float = 1.0,
-        feature_means: Mapping[str, Mapping[str, NDArray]] = None,
-        sample_means: Mapping[str, Mapping[str, NDArray]] = None,
         init_factors: float | Literal["random", "orthogonal", "pca"] = "random",
         init_scale: float = 0.1,
     ):
         super().__init__()
-        self._n_samples = n_samples
-        self._n_features = n_features
         self._n_factors = n_factors
-        self._factor_names = [f"Factor {k + 1}" for k in range(n_factors)]
+        self._factor_priors = factor_prior
+        self._weight_priors = weight_prior
+        self._nonnegative_factors = nonnegative_factors
+        self._nonnegative_weights = nonnegative_weights
+        self._guiding_vars_obs_keys = guiding_vars_obs_keys
+        self._guiding_vars_likelihoods = guiding_vars_likelihoods
+        self._guiding_vars_scales = guiding_vars_scales
+
         self._init_factors = init_factors
         self._init_scale = init_scale
 
-        for axis, (priorattr, priors, names) in enumerate(
-            zip(
-                ("_factor_priors", "_weight_priors"),
-                (factor_prior, weight_prior),
-                (self._group_names, self._view_names),
-                strict=True,
-            )
+        self._pos_transform = torch.nn.ReLU()
+        self._factor_names = [f"Factor {k + 1}" for k in range(n_factors)]
+
+    @property
+    def n_guided_factors(self):
+        return len(self._guiding_vars_names)
+
+    @property
+    def _guiding_vars_factors(self):
+        return range(self.n_total_factors - self.n_guided_factors, self.n_total_factors)
+
+    @property
+    def n_factors(self) -> int:
+        return self._n_factors
+
+    @property
+    def n_total_factors(self) -> int:
+        return len(self._factor_names)
+
+    @property
+    def factor_names(self) -> NDArray[str | np.str_]:
+        """Factor names."""
+        return self._factor_names
+
+    @property
+    def component_order(self):
+        return self._factor_order
+
+    @component_order.setter
+    def component_order(self, order: NDArray[int]):
+        order = order.squeeze()
+        if order.ndim != 1:
+            raise ValueError(f"`order` must be 1-dimensional, got {order.ndim}-dimensional array.")
+        if order.size != self.n_total_factors:
+            raise ValueError(f"Wrong size of `order` argument. Need {self.n_total_factors}, got {order.size}.")
+        self._factor_order = order
+
+    @property
+    def factor_order(self):
+        return self._factor_order
+
+    def _init(self, data: MofaFlexDataset):
+        for axis, (priorattr, names) in enumerate(
+            zip(("_factor_priors", "_weight_priors"), (data.group_names, data.view_names), strict=True)
         ):
+            priors = getattr(self, priorattr)
             if isinstance(priors, str):
                 priors = [Prior(priors, axis=axis, names=names)]
             elif isinstance(priors, APIPrior):
@@ -81,76 +120,67 @@ class MofaFlex(Term):
                     priors.append(prior)
             setattr(self, priorattr, PyroModuleList(priors))
 
-        if isinstance(nonnegative_factors, bool):
-            nonnegative_factors = dict.fromkeys(self._group_names, nonnegative_factors)
+        if isinstance(self._nonnegative_factors, bool):
+            self._nonnegative_factors = dict.fromkeys(data.group_names, self._nonnegative_factors)
 
-        if isinstance(nonnegative_weights, bool):
-            nonnegative_weights = dict.fromkeys(self._view_names, nonnegative_weights)
-
-        self._nonnegative_weights = nonnegative_weights
-        self._nonnegative_factors = nonnegative_factors
-        self._pos_transform = torch.nn.ReLU()
+        if isinstance(self._nonnegative_weights, bool):
+            self._nonnegative_weights = dict.fromkeys(data.view_names, self._nonnegative_weights)
 
         # guiding variables
-        if guiding_vars_obs_keys is not None:
-            if isinstance(guiding_vars_obs_keys, str):
-                guiding_vars_obs_keys = [guiding_vars_obs_keys]
-            if isinstance(guiding_vars_obs_keys, Sequence):
-                guiding_vars_obs_keys = {
-                    obs_key: dict.fromkeys(self._group_names, obs_key) for obs_key in guiding_vars_obs_keys
+        if self._guiding_vars_obs_keys is not None:
+            if isinstance(self._guiding_vars_obs_keys, str):
+                self._guiding_vars_obs_keys = [self._guiding_vars_obs_keys]
+            if isinstance(self._guiding_vars_obs_keys, Sequence):
+                self._guiding_vars_obs_keys = {
+                    obs_key: dict.fromkeys(data.group_names, obs_key) for obs_key in self._guiding_vars_obs_keys
                 }
-            self._guiding_vars_obs_keys = guiding_vars_obs_keys
-            self._guiding_vars_names = guiding_vars_obs_keys.keys()
+            self._guiding_vars_names = self._guiding_vars_obs_keys.keys()
         else:
             self._guiding_vars_names = []
 
-        if not isinstance(guiding_vars_scales, dict):
-            guiding_vars_scales = dict.fromkeys(self._guiding_vars_names, guiding_vars_scales)
+        if self.n_guided_factors > 0:
+            if not isinstance(self._guiding_vars_scales, dict):
+                self._guiding_vars_scales = dict.fromkeys(self._guiding_vars_names, self._guiding_vars_scales)
 
-        for opt_name, keys in zip(
-            ("nonnegative_weights", "nonnegative_factors", "guiding_vars_likelihoods", "guiding_vars_scales"),
-            (self._view_names, self._group_names, self._guiding_vars_names, self._guiding_vars_names),
-            strict=True,
-        ):
-            val = locals()[opt_name]
-            if not isinstance(val, dict):
-                setattr(self, f"_{opt_name}", dict.fromkeys(keys, val))
-
-        total_n_features = 0.1 * sum(self._n_features.values())
-        self._guiding_vars_scales = {name: scale * total_n_features for name, scale in guiding_vars_scales.items()}
-
-        self._pyro_guiding_vars_likelihoods = PyroModuleDict(
-            {
-                guiding_var_name: PyroLikelihood(
-                    guiding_vars_likelihoods[guiding_var_name],
-                    view_name=guiding_var_name,
-                    sample_dim=self._sample_plate_dim,
-                    feature_dim=self._feature_plate_dim,
-                    sample_means=sample_means,
-                    feature_means={"dummy_name": {guiding_var_name: torch.zeros(1, 1)}},
-                )
-                for guiding_var_name in self._guiding_vars_names
+            total_n_features = 0.1 * data.n_features_total
+            self._guiding_vars_scales = {
+                name: scale * total_n_features for name, scale in self._guiding_vars_scales.items()
             }
-        )
 
-        self._guiding_locs = PyroParameterDict()
-        self._guiding_scales = PyroParameterDict()
+            self._pyro_guiding_vars_likelihoods = PyroModuleDict(
+                {
+                    guiding_var_name: PyroLikelihood(
+                        self._guiding_vars_likelihoods[guiding_var_name],
+                        view_name=guiding_var_name,
+                        sample_dim=self._sample_plate_dim,
+                        feature_dim=self._feature_plate_dim,
+                    )
+                    for guiding_var_name in self._guiding_vars_names
+                }
+            )
 
-        self._guiding_vars_weights_dims = {}
-        for guiding_var_name in self._guiding_vars_names:
-            self._guiding_vars_weights_dims[guiding_var_name] = weights_dim = max(
-                self._guiding_vars_n_categories[guiding_var_name], 1
-            )
-            self._guiding_locs[guiding_var_name] = PyroParam(torch.full([weights_dim, 2]), constraint=constraints.real)
-            self._guiding_scales[guiding_var_name] = PyroParam(
-                torch.full([weights_dim, 2]), constraint=constraints.softplus_positive
-            )
+            self._guiding_locs = PyroParameterDict()
+            self._guiding_scales = PyroParameterDict()
+
+            self._guiding_vars_weights_dims = {}
+            for guiding_var_name in self._guiding_vars_names:
+                self._guiding_vars_weights_dims[guiding_var_name] = weights_dim = max(
+                    self._guiding_vars_n_categories[guiding_var_name], 1
+                )
+                self._guiding_locs[guiding_var_name] = PyroParam(
+                    torch.full([weights_dim, 2]), constraint=constraints.real
+                )
+                self._guiding_scales[guiding_var_name] = PyroParam(
+                    torch.full([weights_dim, 2]), constraint=constraints.softplus_positive
+                )
 
     _sample_plate_dim = -2
     _feature_plate_dim = -1
     _factor_plate_dim = -3
 
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
+        self._init(data)
+
         ret = {}
         for prior in chain(self._factor_priors, self._weight_priors):
             if priordsets := prior.get_datasets(data):
@@ -235,7 +265,7 @@ class MofaFlex(Term):
                     f"Initialization method `{self._init_factors}` not found. Please choose from `random`, `orthogonal`, `PCA`, or `NMF`."
                 )
 
-        for group_name, n in self._n_samples.items():
+        for group_name, n in data.n_samples.items():
             # scale factor values from -1 to 1 (per factor)
             q = init_tensor[group_name]["loc"]
 
@@ -256,7 +286,10 @@ class MofaFlex(Term):
         for prior in chain(self._factor_priors, self._weight_priors):
             self._factor_names = prior.adjust_factors(self._factor_names)
 
-        self._factor_names = np.concatenate((self._factor_names, self._guiding_vars_names))
+        if self.n_guided_factors > 0:
+            self._factor_names = np.concatenate((self._factor_names, self._guiding_vars_names))
+        else:
+            self._factor_names = np.asarray(self._factor_names)
         self._factor_order = np.arange(self._n_factors)
 
         if self._init_factors is not None:
@@ -274,13 +307,11 @@ class MofaFlex(Term):
                 self._factor_plate_dim,
                 self._sample_plate_dim,
                 self.n_total_factors,
-                self._n_samples,
+                data.n_samples,
                 factors_init_tensor,
             )
         for prior in self._weight_priors:
-            prior.on_train_start(
-                self._factor_plate_dim, self._feature_plate_dim, self.n_total_factors, self._n_features
-            )
+            prior.on_train_start(self._factor_plate_dim, self._feature_plate_dim, self.n_total_factors, data.n_features)
 
     def on_train_epoch_start(self, epoch: int):
         for prior in chain(self._factor_priors, self._weight_priors):
@@ -295,7 +326,7 @@ class MofaFlex(Term):
             for priors, nonnegative, names, attrname in zip(
                 (self._factor_priors, self._weight_priors),
                 (self._nonnegative_factors, self._nonnegative_weights),
-                (self._group_names, self._view_names),
+                (data.group_names, data.view_names),
                 ("_factors", "_weights"),
                 strict=True,
             ):
@@ -320,37 +351,8 @@ class MofaFlex(Term):
                 data, self._factor_names, data.feature_names, self._weights, self._nonnegative_weights, batch_size
             )
 
-    @property
-    def _group_names(self):
-        return self._n_samples.keys()
-
-    @property
-    def _view_names(self):
-        return self._n_features.keys()
-
-    @property
-    def n_guided_factors(self):
-        return len(self._guiding_vars_names)
-
-    @property
-    def _guiding_vars_factors(self):
-        return range(self.n_total_factors - self.n_guided_factors, self.n_total_factors)
-
-    @property
-    def n_factors(self) -> int:
-        return self._n_factors
-
-    @property
-    def n_total_factors(self) -> int:
-        return len(self._factor_names)
-
-    @property
-    def factor_names(self) -> NDArray[str | np.str_]:
-        """Factor names."""
-        return self._factor_names
-
     def _get_plates(self):
-        if len(self._guiding_vars_names):
+        if self.n_guided_factors > 0:
             guiding_var_plate = pyro.plate(
                 "plate_guiding_vars", 1, subsample=torch.arange(1), dim=self._feature_plate_dim
             )
@@ -387,9 +389,7 @@ class MofaFlex(Term):
         with guiding_var_categories_plates[guiding_var_name], guiding_var_coefficients_plate:
             return pyro.sample(
                 f"guiding_vars_w_{guiding_var_name}",
-                dist.Normal(
-                    self._guiding_locs[guiding_var_name], self._guiding_scales[guiding_var_name]
-                ),  # .to_event(2),
+                dist.Normal(self._guiding_locs[guiding_var_name], self._guiding_scales[guiding_var_name]),
             )
 
     @pyro_method
@@ -417,12 +417,10 @@ class MofaFlex(Term):
                 weights[view_name] = self._pos_transform(view_weights)
 
         estimates = {}
-        for group_name in self._group_names:
+        for group_name, gnonmissing_samples in nonmissing_samples.items():
             gestimates = {}
-            gnonmissing_samples = nonmissing_samples[group_name]
             gnonmissing_features = nonmissing_features[group_name]
-            for view_name in self._view_names:
-                vnonmissing_samples = gnonmissing_samples[view_name]
+            for view_name, vnonmissing_samples in gnonmissing_samples.items():
                 vnonmissing_features = gnonmissing_features[view_name]
 
                 z = factors[group_name][..., vnonmissing_samples, :]
@@ -508,11 +506,3 @@ class MofaFlex(Term):
             )
             for factor_idx, factor_name in enumerate(self.factor_names)
         )
-
-    @property
-    def component_order(self):
-        return self._factor_order
-
-    @component_order.setter
-    def component_order(self, order: NDArray[int]):
-        self._factor_order = order
