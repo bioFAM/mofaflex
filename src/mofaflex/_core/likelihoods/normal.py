@@ -11,6 +11,7 @@ from .base import R2, Likelihood
 
 class Normal(Likelihood):
     _priority = 0
+    _state_attrs = ("_shift", "_scale", "_dispersion")
 
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool, scale_per_group: bool = True):
         super().__init__(view_name, data, nonnegative)
@@ -23,7 +24,7 @@ class Normal(Likelihood):
         else:
             self._scale = data.apply(self._calc_scale_ungrouped, by_group=False, filter_views=view_name)
 
-        self._dispersions = None
+        self._dispersion = None
 
     def _calc_scale_ungrouped(self, adata: AnnData, group: NDArray[object], view_name: str, groups: list[str]):
         if adata.n_obs <= 1:

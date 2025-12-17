@@ -1,7 +1,8 @@
 from collections import namedtuple
+from contextlib import suppress
 from dataclasses import MISSING, dataclass, fields
 from io import BytesIO
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,102 @@ ShapeRate = namedtuple("ShapeRate", ["shape", "rate"])
 
 PyroParameterDict = PyroModule[torch.nn.ParameterDict]
 PyroModuleDict = PyroModule[torch.nn.ModuleDict]
+
+
+class SaveStateMixin:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if not hasattr(cls, "_registry"):
+            raise TypeError(f"Class {cls.__name__} does not have a '_registry' attribute.")
+
+    def save(self) -> dict[str, Any]:
+        """Called by the model to save its state to disk.
+
+        If a subclass has a class attribute `_state_attrs`, which is a sequence of strings, each element of this list is used
+        as the name of an instance variable to be saved to disk. Similarly, if a subclass has a class attribute `_state_attrs_meanstd`,
+        which is a sequence of strings, each element of this list is assumed to be an instance variable of type `MeanStd` to be saved
+        to disk. Subclasses must not reimplement this method. If custom behavior is desired, reimplement `_save` instead.
+        """
+        state = {}
+        state_meanstd = {}
+
+        cls = self.__class__
+        while cls is not None:
+            with suppress(AttributeError):
+                for attrname in cls._state_attrs:
+                    if isinstance(attr := getattr(self, attrname), MeanStd):
+                        state_meanstd[attrname] = attr._asdict()
+                    else:
+                        state[attrname] = attr
+            for base in cls.__bases__:
+                if issubclass(base, __class__):
+                    cls = base
+                    break
+            else:
+                cls = None
+
+        state.update(self._save())
+        return {"class": self.__class__.__name__, "state": state, "state_meanstd": state_meanstd}
+
+    def _save(self) -> dict[str, Any]:
+        """Hook to save a prior's state to disk."""
+        return {}
+
+    @classmethod
+    def load(
+        cls, state: dict[str, Any], n_samples: dict[str, int], n_features: dict[str, int], map_location=None, **kwargs
+    ):
+        """Called by the model to restore its state from disk.
+
+        If a subclass has a class attribute `state_attrs`, which is a sequence of strings, each element of this list is used
+        as the name of an instance variable to be restored. Similarly, if a subclass has a class attribute `_state_attrs_meanstd`,
+        which is a sequence of strings, each element of this list is assumed to be an instance variable of type `MeanStd` to be
+        restored.Subclasses must not reimplement this method. If custom behavior is desired, reimplement `_load` instead.
+
+        Args:
+            state: The saved state.
+            n_samples: The number of samples in each group.
+            n_features: The number of features in each group.
+            map_location: A device to map any potential PyTorch state to.
+            **kwargs: Additional arguments to `_load`.
+        """
+        try:
+            subcls = cls._registry[state["class"]]
+            obj = subcls.__new__(subcls)
+        except (KeyError, AttributeError):
+            obj = __class__.__new__(cls)
+        if isinstance(obj, PyroModule):
+            PyroModule.__init__(obj)
+        elif isinstance(obj, torch.nn.Module):
+            torch.nn.Module.__init__(obj)
+
+        for attrname, attr in state["state_meanstd"].items():
+            setattr(obj, attrname, MeanStd(**attr))
+        substate = state["state"]
+        for attrname, attr in substate.items():
+            setattr(obj, attrname, attr)
+        obj._load(substate, n_samples, n_features, map_location=map_location, **kwargs)
+        return obj
+
+    def _load(
+        self,
+        state: dict[str, Any],
+        n_samples: dict[str, int],
+        n_features: dict[str, int],
+        *,
+        map_location=None,
+        **kwargs,
+    ):
+        """Hook to load a prior's state from disk.
+
+        Args:
+            state: The saved state.
+            n_samples: The number of samples in each group.
+            n_features: The number of features in each group.
+            map_location: A device to map any potential PyTorch state to.
+            **kwargs: Additional, class-specific, arguments.
+        """
+        pass
 
 
 @dataclass(kw_only=True)

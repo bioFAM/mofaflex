@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
+from inspect import isabstract
 
 import numpy as np
 import pyro
@@ -9,9 +10,28 @@ from pyro.nn import PyroModule, pyro_method
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..pyro.utils import _PyroMeta
+from ..utils import SaveStateMixin
 
 
-class Term(ABC, PyroModule, metaclass=_PyroMeta):
+class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
+    _registry = {}
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+
+        if not isabstract(cls) and cls.__name__[0] != "_":
+            __class__._registry[cls.__name__] = cls
+
+    def __new__(cls, *args, **kwargs):
+        if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):
+            return super().__new__(cls)
+        try:
+            term = args[0]
+            subcls = cls._registry[term]
+            return subcls.__new__(subcls, *args[1:], **kwargs)
+        except KeyError as e:
+            raise NotImplementedError(f"Unknown term {term}.") from e
+
     @pyro_method
     @abstractmethod
     def model(

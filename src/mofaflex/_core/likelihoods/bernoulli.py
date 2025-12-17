@@ -10,6 +10,7 @@ from .base import R2, Likelihood
 
 class Bernoulli(Likelihood):
     _priority = 10
+    _state_attrs = ("_shift",)
 
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
         super().__init__(view_name, data, nonnegative)

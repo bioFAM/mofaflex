@@ -34,7 +34,7 @@ from .priors import API, APIType, FactorPriorType, Prior, WeightPriorType
 from .settings import settings
 from .terms import MofaFlex as MofaFlexTerm
 from .training import EarlyStopper
-from .utils import MeanStd, Options, impute, nanvar, sample_all_data_as_one_batch
+from .utils import Options, impute, nanvar, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
@@ -432,9 +432,7 @@ class MOFAFLEX:
                 init_scale=self._model_opts.init_scale,
             )
         }
-        model = MofaFlexModel(
-            n_samples=self.n_samples, n_features=self.n_features, terms=terms, likelihoods=self._model_opts.likelihoods
-        ).to(self._train_opts.device)
+        model = MofaFlexModel(terms=terms, likelihoods=self._model_opts.likelihoods).to(self._train_opts.device)
 
         n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
         gamma = 0.1
@@ -521,7 +519,8 @@ class MOFAFLEX:
             with self._train_opts.device, torch.inference_mode():
                 model.on_train_end(data, batch_size=self._train_opts.batch_size)
 
-            self._train_loss_elbo = np.asarray(train_loss_elbo)
+        self._train_loss_elbo = np.asarray(train_loss_elbo)
+        self._model = model
 
         if self._train_opts.save_path is not False:
             if self._train_opts.save_path is None:
@@ -532,7 +531,6 @@ class MOFAFLEX:
             Path(self._train_opts.save_path).parent.mkdir(parents=True, exist_ok=True)
             self._save(self._train_opts.save_path)
 
-        self._model = model
         self._init_api()
 
     def _get_postprocessed_factors(self, moment: Literal["mean", "std"] = "mean", **kwargs) -> dict[str, np.ndarray]:
@@ -661,13 +659,6 @@ class MOFAFLEX:
 
     def _save(self, path: str | Path):
         state = {
-            "weights": self._weights._asdict(),
-            "factors": self._factors._asdict(),
-            "n_guiding_vars": self._n_guiding_vars,
-            "n_factors": self._n_factors,
-            "factor_names": self._factor_names,
-            "factor_order": self._factor_order,
-            "dispersions": self._dispersions._asdict(),
             "train_loss_elbo": self._train_loss_elbo,
             "group_names": self._group_names,
             "view_names": self._view_names,
@@ -677,17 +668,9 @@ class MOFAFLEX:
             "data_opts": self._data_opts.asdict(),
             "model_opts": self._model_opts.asdict(),
             "train_opts": self._train_opts.asdict(),
+            "model": self._model.save(),
         }
         state["train_opts"]["device"] = str(state["train_opts"]["device"])
-        state["model_opts"]["likelihoods"] = {
-            view_name: str(likelihood) for view_name, likelihood in state["model_opts"]["likelihoods"].items()
-        }
-        state["model_opts"]["factor_prior"] = {
-            str(i): prior.save() for i, prior in enumerate(state["model_opts"]["factor_prior"])
-        }
-        state["model_opts"]["weight_prior"] = {
-            str(i): prior.save() for i, prior in enumerate(state["model_opts"]["weight_prior"])
-        }
 
         save_model(state, path)
 
@@ -704,38 +687,19 @@ class MOFAFLEX:
 
         if map_location is not None:
             state["train_opts"]["device"] = map_location
-        state["model_opts"]["likelihoods"] = {
-            view_name: Likelihood.get(likelihood)
-            for view_name, likelihood in state["model_opts"]["likelihoods"].items()
-        }
 
         model = cls.__new__(cls)
-        model._weights = MeanStd(**state["weights"])
-        model._factors = MeanStd(**state["factors"])
-        model._n_guiding_vars = state.get("n_guiding_vars")
-        model._n_factors = state["n_factors"]
-        model._factor_names = state["factor_names"]
-        model._factor_order = state["factor_order"]
-        model._dispersions = MeanStd(**state["dispersions"])
         model._train_loss_elbo = state["train_loss_elbo"]
         model._group_names = state["group_names"]
         model._view_names = state["view_names"]
         model._feature_names = state["feature_names"]
         model._sample_names = state["sample_names"]
-        model._annotations = state.get("annotations")
         model._metadata = state["metadata"]
         model._data_opts = DataOptions(**state["data_opts"])
         model._model_opts = ModelOptions(**state["model_opts"])
         model._train_opts = TrainingOptions(**state["train_opts"])
 
-        model._model_opts.factor_prior = [
-            Prior.load(state, model.n_total_factors, model.n_samples, map_location=map_location)
-            for state in model._model_opts.factor_prior.values()
-        ]
-        model._model_opts.weight_prior = [
-            Prior.load(state, model.n_total_factors, model.n_features, map_location=map_location)
-            for state in model._model_opts.weight_prior.values()
-        ]
+        model._model = MofaFlexModel.load(state["model"], model.n_samples, model.n_features, map_location=map_location)
 
         model._prior_api_properties = {}
         model._init_api()

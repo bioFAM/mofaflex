@@ -307,7 +307,16 @@ class GaussianProcess(Prior):
             state["gp_state"] = pickle_torch_state(self._gp.state_dict())
         return state
 
-    def _load(self, state: dict, n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
+    def _load(
+        self,
+        state: dict,
+        n_samples: dict[str, int],
+        n_features: dict[str, int],
+        *,
+        n_factors: int,
+        n_nonfactors: Mapping[str, int],
+        map_location=None,
+    ):
         self._gps = MeanStd(**state["gps"])
         self._init_gp(n_factors)
         with suppress(KeyError):

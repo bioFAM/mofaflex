@@ -3,6 +3,7 @@ import operator
 from collections import defaultdict
 from collections.abc import Mapping
 from functools import reduce
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,27 +25,22 @@ class MofaFlexModel(PyroModule):
     _sample_plate_dim = -2
     _feature_plate_dim = -1
 
-    def __init__(
-        self,
-        n_samples: Mapping[str, int],
-        n_features: Mapping[str, int],
-        terms: Mapping[str, Term],
-        likelihoods: Mapping[str, Likelihood],
-    ):
+    def __init__(self, terms: Mapping[str, Term], likelihoods: Mapping[str, Likelihood]):
         super().__init__()
-        self._n_samples = n_samples
-        self._n_features = n_features
 
         self._terms = PyroModuleDict(terms)
         self._likelihoods = likelihoods
 
+    def _init(self, data: MofaFlexDataset):
+        self._n_samples = data.n_samples
+        self._n_features = data.n_features
         self._scale_elbo = True
         n_views = len(self._view_names)
         self._view_scales = dict.fromkeys(self._view_names, 1.0)
         if self._scale_elbo and n_views > 1:
-            for view_name, view_n_features in n_features.items():
+            for view_name, view_n_features in data.n_features.items():
                 self._view_scales[view_name] = (n_views / (n_views - 1)) * (
-                    1.0 - view_n_features / sum(n_features.values())
+                    1.0 - view_n_features / data.n_features_total
                 )
 
     @property
@@ -130,6 +126,7 @@ class MofaFlexModel(PyroModule):
         Args:
             data: The dataset.
         """
+        self._init(data)
         return {
             termname: StackDataset(**dsets)
             for termname, term in self._terms.items()
@@ -293,3 +290,19 @@ class MofaFlexModel(PyroModule):
 
     def predict(self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)):
         return reduce(operator.add, (term.predict(group_name, view_name, subset_idx) for term in self._terms.values()))
+
+    def save(self) -> dict[str, Any]:
+        return {
+            "terms": {name: term.save() for name, term in self._terms.items()},
+            "likelihoods": {view_name: likelihood.save() for view_name, likelihood in self._likelihoods.items()},
+        }
+
+    @classmethod
+    def load(self, state: dict[str, Any], n_samples: dict[str, int], n_features: dict[str, int], map_location=None):
+        self._terms = PyroModuleDict(
+            {name: Term.load(term, n_samples, n_features) for name, term in state["terms"].items()}
+        )
+        self._likelihoods = {
+            view_name: Likelihood.load(likelihood, n_samples, n_features)
+            for view_name, likelihood in state["likelihoods"].items()
+        }

@@ -9,11 +9,13 @@ from .base import R2, Likelihood
 
 class NegativeBinomial(Likelihood):
     _priority = 5
+    _state_attrs = ("_shift", "_sample_means", "_dispersion")
 
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
         super().__init__(view_name, data, nonnegative)
         self._shift = data.apply_to_view(view_name, lambda adata, group_name: utils.nanmean(adata.X, axis=0))
         self._sample_means = data.apply_to_view(view_name, lambda adata, group_name: utils.nanmean(adata.X, axis=1))
+        self._dispersion = None
 
     def _get_pyro_likelihood(
         self,

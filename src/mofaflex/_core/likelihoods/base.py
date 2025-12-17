@@ -12,6 +12,7 @@ from scipy.sparse import issparse
 from ..datasets import MofaFlexDataset
 from ..pyro.likelihoods import PyroLikelihood
 from ..settings import settings
+from ..utils import SaveStateMixin
 
 _logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class _LikelihoodMeta(type(ABC)):
         return obj
 
 
-class Likelihood(ABC, metaclass=_LikelihoodMeta):
+class Likelihood(SaveStateMixin, ABC, metaclass=_LikelihoodMeta):
     """Base class for MOFA-FLEX likelihoods.
 
     All likelihood-specific functionality must be implemented via classmethods/staticmethods, subclasses
@@ -41,7 +42,8 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
           indicate higher priority.
     """
 
-    __registry = {}
+    _state_attrs = ("_view_name", "_nonnegative")
+    _registry = {}
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -54,14 +56,14 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
                 if arg not in init_sig.parameters:
                     raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
 
-            __class__.__registry[str(cls.__name__)] = cls
+            cls._registry[str(cls.__name__)] = cls
 
     def __new__(cls, *args, **kwargs):
         if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):
             return super().__new__(cls)
         try:
             likelihood = args[0]
-            subcls = cls.__registry[likelihood]
+            subcls = cls._registry[likelihood]
             return subcls.__new__(subcls, *args[1:], **kwargs)
         except KeyError as e:
             raise NotImplementedError(f"Unknown likelihood {likelihood}.") from e
@@ -74,7 +76,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
     @staticmethod
     def known_likelihoods() -> tuple[str]:
         """Get all known likelihoods."""
-        return tuple(__class__.__registry.keys())
+        return tuple(__class__._registry.keys())
 
     def get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int):
         self._pyro_likelihood = self._get_pyro_likelihood(data, sample_dim, feature_dim)
@@ -163,7 +165,7 @@ class Likelihood(ABC, metaclass=_LikelihoodMeta):
         xp = array_namespace(data)
         data = data[~xp.isnan(data)]
 
-        inferred = {subcls: subcls._priority for subcls in __class__.__registry.values() if subcls._validate(data, xp)}
+        inferred = {subcls: subcls._priority for subcls in __class__._registry.values() if subcls._validate(data, xp)}
         lklhdcls = max(((subcls, prio) for subcls, prio in inferred.items()), key=lambda x: x[1])[0]
         return lklhdcls
 

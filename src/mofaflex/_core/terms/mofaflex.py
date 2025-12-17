@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from itertools import chain
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import pyro
@@ -28,13 +28,29 @@ _logger = logging.getLogger(__name__)
 
 
 class MofaFlex(Term):
+    _state_attrs = (
+        "_n_factors",
+        "_nonnegative_factors",
+        "_nonnegative_weights",
+        "_guiding_vars_obs_keys",
+        "_guiding_vars_likelihoods",
+        "_guiding_vars_scales",
+        "_guiding_vars_names",
+        "_init_factors",
+        "_init_scale",
+        "_factor_names",
+        "_factor_order",
+        "_factors",
+        "_weights",
+    )
+
     def __init__(
         self,
         n_factors: int,
         factor_prior: Mapping[str | Sequence[str], FactorPriorType | APIPrior] | FactorPriorType | APIPrior = "Normal",
         weight_prior: Mapping[str | Sequence[str], WeightPriorType | APIPrior] | WeightPriorType | APIPrior = "Normal",
-        nonnegative_weights: Mapping[str, bool] | bool = False,
         nonnegative_factors: Mapping[str, bool] | bool = False,
+        nonnegative_weights: Mapping[str, bool] | bool = False,
         guiding_vars_obs_keys: str | Sequence[str] | Mapping[str, Mapping[str, str]] | None = None,
         guiding_vars_likelihoods: Mapping[str, str] | Literal["Normal", "Categorical", "Bernoulli"] | None = "Normal",
         guiding_vars_scales: Mapping[str, float] | float = 1.0,
@@ -54,8 +70,8 @@ class MofaFlex(Term):
         self._init_factors = init_factors
         self._init_scale = init_scale
 
-        self._pos_transform = torch.nn.ReLU()
         self._factor_names = [f"Factor {k + 1}" for k in range(n_factors)]
+        self._factor_order = np.arange(len(self._factor_names))
 
     @property
     def n_guided_factors(self):
@@ -96,6 +112,7 @@ class MofaFlex(Term):
         return self._factor_order
 
     def _init(self, data: MofaFlexDataset):
+        self._pos_transform = torch.nn.ReLU()
         for axis, (priorattr, names) in enumerate(
             zip(("_factor_priors", "_weight_priors"), (data.group_names, data.view_names), strict=True)
         ):
@@ -475,7 +492,7 @@ class MofaFlex(Term):
         for prior in self._weight_priors:
             prior.guide(factor_plate, feature_plates)
 
-        if len(self._guiding_vars_factors) > 0:
+        if self.n_guided_factors > 0:
             for guiding_var_name, guiding_var in guiding_vars.items():
                 self._guide_guiding_vars_weights_normal(
                     guiding_var_name, guiding_var_coefficients_plate, guiding_var_categories_plates
@@ -505,4 +522,36 @@ class MofaFlex(Term):
                 @ self._weights.mean[view_name][None, :, factor_idx],
             )
             for factor_idx, factor_name in enumerate(self.factor_names)
+        )
+
+    def _save(self) -> dict[str, Any]:
+        return {
+            "factor_priors": {str(i): prior.save() for i, prior in enumerate(self._factor_priors)},
+            "weight_priors": {str(i): prior.save() for i, prior in enumerate(self._weight_priors)},
+        }
+
+    def _load(
+        self, state: dict[str, Any], n_samples: dict[str, int], n_features: dict[str, int], map_location=None, **kwargs
+    ):
+        self._factor_priors = PyroModuleList(
+            Prior.load(
+                pstate,
+                n_samples=n_samples,
+                n_features=n_features,
+                map_location=map_location,
+                n_factors=self.n_total_factors,
+                n_nonfactors=n_samples,
+            )
+            for pstate in state["factor_priors"].values()
+        )
+        self._weight_priors = PyroModuleList(
+            Prior.load(
+                pstate,
+                n_samples=n_samples,
+                n_features=n_features,
+                map_location=map_location,
+                n_factors=self.n_total_factors,
+                n_nonfactors=n_features,
+            )
+            for pstate in state["weight_priors"].values()
         )

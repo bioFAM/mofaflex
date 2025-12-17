@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from contextlib import suppress
 from enum import Enum, auto
 from inspect import isabstract, signature
 from itertools import chain
-from typing import Any, Literal, NamedTuple
+from typing import Literal, NamedTuple
 
 import pandas as pd
 import pyro
@@ -14,7 +13,7 @@ from pyro.nn import PyroModule, pyro_method
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..pyro.utils import _PyroMeta
-from ..utils import MeanStd
+from ..utils import MeanStd, SaveStateMixin
 
 
 class APIType(Enum):
@@ -40,7 +39,7 @@ class API(NamedTuple):
     all factors. The property must return a slice or a sequence of indices."""
 
 
-class Prior(ABC, PyroModule, metaclass=_PyroMeta):
+class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     """Base class for MOFA-FLEX factors and weights priors.
 
     Subclasses can eiher implement `_model` and `_guide`, or reimplment `model` and `guide`. The former set of methods
@@ -67,8 +66,9 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         nonfactor_dim: The nonfactor domension. Sample dimension for factors and feature dimension for weights.
     """
 
-    __registry = {}
+    _registry = {}
     _apilist = []
+    _state_attrs = ("_axis", "_names")
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -81,14 +81,14 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
                 if arg not in init_sig.parameters:
                     raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
 
-            __class__.__registry[cls.__name__] = cls
+            __class__._registry[cls.__name__] = cls
 
     def __new__(cls, *args, **kwargs):
         if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):
             return super().__new__(cls)
         try:
             prior = args[0]
-            subcls = cls.__registry[prior]
+            subcls = cls._registry[prior]
             return subcls.__new__(subcls, *args[1:], **kwargs)
         except KeyError as e:
             raise NotImplementedError(f"Unknown prior {prior}.") from e
@@ -102,10 +102,6 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         elif self._axis == 1 and not self._weights_allowed():
             raise NotImplementedError(f"The prior {self.__class__.__name__} cannot be used for weights.")
         self._names = (names,) if isinstance(names, str) else names
-
-        with suppress(AttributeError):
-            for attr in self._state_attrs:
-                setattr(self, attr, None)
 
     @classmethod
     def _factors_allowed(cls):
@@ -385,74 +381,6 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         """The estimated factors/weights."""
         pass
 
-    def save(self) -> dict[str, Any]:
-        """Called by the model to save its state to disk.
-
-        If a subclass has a class attribute `_state_attrs`, which is a sequence of strings, each element of this list is used
-        as the name of an instance variable to be saved to disk. Similarly, if a subclass has a class attribute `_state_attrs_meanstd`,
-        which is a sequence of strings, each element of this list is assumed to be an instance variable of type `MeanStd` to be saved
-        to disk. Subclasses must not reimplement this method. If custom behavior is desired, reimplement `_save` instead.
-        """
-        state = {}
-        if hasattr(self, "_state_attrs"):  # TODO: walk the class hierarchy and save all the attrs from base classes
-            for attr in self._state_attrs:
-                state[attr] = getattr(self, attr)
-        if hasattr(self, "_state_attrs_meanstd"):
-            for attr in self._state_attrs_meanstd:
-                state[attr] = getattr(self, attr)._asdict()
-        state.update(self._save())
-        return {"axis": self._axis, "names": self._names, "class": self.__class__.__name__, "state": state}
-
-    def _save(self) -> dict[str, Any]:
-        """Hook to save a prior's state to disk."""
-        return {}
-
-    @classmethod
-    def load(cls, state: dict[str, Any], n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
-        """Called by the model to restore its state from disk.
-
-        If a subclass has a class attribute `state_attrs`, which is a sequence of strings, each element of this list is used
-        as the name of an instance variable to be restored. Similarly, if a subclass has a class attribute `_state_attrs_meanstd`,
-        which is a sequence of strings, each element of this list is assumed to be an instance variable of type `MeanStd` to be
-        restored.Subclasses must not reimplement this method. If custom behavior is desired, reimplement `_load` instead.
-
-        Args:
-            state: The saved state.
-            n_factors: The number of factors in the model.
-            n_nonfactors: The number of samples (if `self.axis == 0`) or features (if `self.axis == 1`)
-            map_location: A device to map any potential PyTorch state to.
-        """
-        try:
-            subcls = __class__.__registry[state["class"]]
-            obj = subcls.__new__(subcls)
-        except (KeyError, AttributeError):
-            obj = __class__.__new__(cls)
-        obj._axis = state["axis"]
-        obj._names = state["names"]
-
-        substate = state["state"]
-        if hasattr(obj, "_state_attrs"):  # TODO: walk the class hierarchy and load all the attrs from base classes
-            for attr in obj._state_attrs:
-                setattr(obj, attr, substate.get(attr))
-        if hasattr(obj, "_state_attrs_meanstd"):
-            for attrname in obj._state_attrs_meanstd:
-                if (attr := substate.get(attrname)) is not None:
-                    attr = MeanStd(**attr)
-                setattr(obj, attrname, attr)
-        obj._load(substate, n_factors, n_nonfactors, map_location=map_location)
-        return obj
-
-    def _load(self, state, n_factors: int, n_nonfactors: Mapping[str, int], map_location=None):
-        """Hook to load a prior's state from disk.
-
-        Args:
-            state: The saved state.
-            n_factors: The number of factors in the model.
-            n_nonfactors: The number of samples (if `self.axis == 0`) or features (if `self.axis == 1`)
-            map_location: A device to map any potential PyTorch state to.
-        """
-        pass
-
     @staticmethod
     def known_priors(filter: Literal["factors", "weights"] | None = None) -> Mapping[str, type]:
         """Get all known priors.
@@ -462,7 +390,7 @@ class Prior(ABC, PyroModule, metaclass=_PyroMeta):
         """
         if filter is not None:
             return {
-                name: subcls for name, subcls in __class__.__registry.items() if getattr(subcls, f"_{filter}_allowed")()
+                name: subcls for name, subcls in __class__._registry.items() if getattr(subcls, f"_{filter}_allowed")()
             }
         else:
-            return __class__.__registry.copy()
+            return __class__._registry.copy()
