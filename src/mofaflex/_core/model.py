@@ -43,6 +43,12 @@ class MofaFlexModel(PyroModule):
                     1.0 - view_n_features / data.n_features_total
                 )
 
+        nonnegative_views = set()
+        nonnegative_terms = [term.nonnegative for term in self._terms.values()]
+        for view_name in data.view_names:
+            if all(all(group[view_name] for group in term.values()) for term in nonnegative_terms):
+                nonnegative_views.add(view_name)
+
         if (
             not isinstance(self._likelihoods, dict | str | None)
             or isinstance(self._likelihoods, str)
@@ -57,14 +63,15 @@ class MofaFlexModel(PyroModule):
             msg = []
             for view_name, likelihood in self._likelihoods.items():
                 msg.append(f"{view_name}: {likelihood.__name__}")
-                self._likelihoods[view_name] = likelihood(view_name, data, False)
+                self._likelihoods[view_name] = likelihood(view_name, data, view_name in nonnegative_views)
             _logger.info("No likelihoods provided. Using inferred likelihoods: " + "; ".join(msg))
         else:
             if isinstance(self._likelihoods, str):
                 self._likelihoods = dict.fromkeys(data.view_names, self._likelihoods)
 
             self._likelihoods = {
-                view: Likelihood(likelihood, view, data, False) for view, likelihood in self._likelihoods.items()
+                view: Likelihood(likelihood, view, data, view_name in nonnegative_views)
+                for view, likelihood in self._likelihoods.items()
             }
 
             data.apply(
@@ -156,12 +163,14 @@ class MofaFlexModel(PyroModule):
         Args:
             data: The dataset.
         """
-        self._init(data)
-        return {
+        dsets = {
             termname: StackDataset(**dsets)
             for termname, term in self._terms.items()
             if (dsets := term.get_datasets(data)) is not None and len(dsets)
         }
+
+        self._init(data)
+        return dsets
 
     @pyro_method
     def guide(self, data, sample_idx, nonmissing_samples, nonmissing_features, **kwargs):

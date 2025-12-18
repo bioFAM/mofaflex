@@ -140,3 +140,9 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
             from the iterable.
         """
         return zip()
+
+    @property
+    @abstractmethod
+    def nonnegative(self) -> dict[str, dict[str, bool]]:
+        """Whether the term's prediction is constrained to non-negative values for each group and view."""
+        pass

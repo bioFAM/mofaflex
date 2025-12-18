@@ -509,6 +509,13 @@ class MofaFlex(Term):
         for i, prior in enumerate(self._weight_priors):
             yield from ((f"_weight_priors.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
 
+    @property
+    def nonnegative(self):
+        return {
+            group_name: {view_name: gfactors & vweights for view_name, vweights in self._nonnegative_weights.items()}
+            for group_name, gfactors in self._nonnegative_factors.items()
+        }
+
     def predict(self, group_name: str, view_name: str, subsample_idx: NDArray[int] | slice = slice(None)):
         return self._factors.mean[group_name][subsample_idx] @ self._weights.mean[view_name].T
 
