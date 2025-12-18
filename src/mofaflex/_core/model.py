@@ -261,8 +261,8 @@ class MofaFlexModel(PyroModule):
             if issparse(cdata):
                 cdata = cdata.toarray()
 
-            alignment_idx = align_global_array_to_local(  # noqa: F821
-                np.arange(self._n_features[view_name]), group_name, view_name, align_to="features"
+            alignment_idx = map_local_indices_to_global(  # noqa: F821
+                slice(None), group_name, view_name, align_to="features"
             )
             try:
                 r2_full = self._likelihoods[view_name].r2(

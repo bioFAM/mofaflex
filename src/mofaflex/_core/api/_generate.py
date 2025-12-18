@@ -19,9 +19,7 @@ class APIWrapper(ABC):
         elif other.__class__ != self.__class__:
             return False
         else:
-            return self._args == other._args and tuple(sorted(self._kwargs.items())) == tuple(
-                sorted(other._kwargs.items())
-            )
+            return self._args == other._args and self._kwargs == other._kwargs
 
     def __hash__(self):
         return hash((self.__class__, self._args, tuple(sorted(self._kwargs.items()))))
