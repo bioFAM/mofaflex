@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import Enum, auto
-from inspect import isabstract, signature
+from inspect import isabstract
 from itertools import chain
 from typing import Literal, NamedTuple
 
@@ -13,7 +13,7 @@ from pyro.nn import PyroModule, pyro_method
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..pyro.utils import _PyroMeta
-from ..utils import MeanStd, SaveStateMixin
+from ..utils import MeanStd, SaveStateMixin, checked_baseclass
 
 
 class APIType(Enum):
@@ -39,6 +39,7 @@ class API(NamedTuple):
     all factors. The property must return a slice or a sequence of indices."""
 
 
+@checked_baseclass(required_init_args=("axis", "names"), registry="dict")
 class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     """Base class for MOFA-FLEX factors and weights priors.
 
@@ -66,7 +67,6 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         nonfactor_dim: The nonfactor domension. Sample dimension for factors and feature dimension for weights.
     """
 
-    _registry = {}
     _apilist = []
     _state_attrs = ("_axis", "_names")
 
@@ -76,22 +76,6 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         if not isabstract(cls) and cls.__name__[0] != "_":
             if not cls._factors_allowed and not cls._weights_allowed:
                 raise TypeError(f"Class `{cls.__name__}` cannot be used for factors or weights.")
-            init_sig = signature(cls.__init__)
-            for arg in ("axis", "names"):
-                if arg not in init_sig.parameters:
-                    raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
-
-            __class__._registry[cls.__name__] = cls
-
-    def __new__(cls, *args, **kwargs):
-        if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):
-            return super().__new__(cls)
-        try:
-            prior = args[0]
-            subcls = cls._registry[prior]
-            return subcls.__new__(subcls, *args[1:], **kwargs)
-        except KeyError as e:
-            raise NotImplementedError(f"Unknown prior {prior}.") from e
 
     def __init__(self, axis: Literal[0, 1], names: str | Sequence[str]):
         super().__init__()

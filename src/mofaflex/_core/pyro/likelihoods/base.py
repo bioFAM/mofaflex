@@ -26,8 +26,6 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
         feature_dim: The feature dimension.
     """
 
-    __registry = {}
-
     def __init__(
         self, view_name: str, sample_dim: int, feature_dim: int, nsamples: Mapping[str, int], nfeatures: int, **kwargs
     ):
@@ -53,17 +51,6 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
             ):
                 if arg != param.name:
                     raise TypeError(f"Constructor of class {cls} is missing the {arg} argument at position {i + 1}.")
-
-            __class__.__registry[cls.__name__ if not cls.__name__.startswith("Pyro") else cls.__name__[4:]] = cls
-
-    def __new__(cls, likelihood: str, *args, **kwargs):
-        if cls != __class__:
-            return super().__new__(cls)
-        try:
-            subcls = cls.__registry[likelihood]
-            return subcls.__new__(subcls, None, *args, **kwargs)
-        except KeyError as e:
-            raise NotImplementedError(f"Unknown likelihood {likelihood}.") from e
 
     @pyro_method
     def model(

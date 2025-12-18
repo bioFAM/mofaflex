@@ -1,8 +1,11 @@
 from collections import namedtuple
+from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import MISSING, dataclass, fields
+from inspect import isabstract, signature
 from io import BytesIO
-from typing import Any, Literal, TypeAlias
+from itertools import islice
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -24,7 +27,8 @@ from scipy.sparse import (
 )
 from torch.utils.data import BatchSampler, SequentialSampler
 
-from .datasets import MofaFlexDataset
+if TYPE_CHECKING:
+    from .datasets import MofaFlexDataset
 
 PossiblySparseArray: TypeAlias = NDArray | spmatrix | sparray
 
@@ -35,12 +39,90 @@ PyroParameterDict = PyroModule[torch.nn.ParameterDict]
 PyroModuleDict = PyroModule[torch.nn.ModuleDict]
 
 
-class SaveStateMixin:
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        if not hasattr(cls, "_registry"):
-            raise TypeError(f"Class {cls.__name__} does not have a '_registry' attribute.")
+def checked_baseclass(
+    required_init_args: Sequence[str] | str = (),
+    required_init_kwargs: Sequence[str] | str = (),
+    required_init_kkwargs: bool = False,
+    required_attributes: Sequence[str] | str = (),
+    registry: Literal["set", "dict", None] = None,
+):
+    if isinstance(required_init_args, str):
+        required_init_args = (required_init_args,)
+    if isinstance(required_init_kwargs, str):
+        required_init_kwargs = (required_init_kwargs,)
+    if isinstance(required_attributes, str):
+        required_attributes = (required_attributes,)
 
+    def decorate(cls: type):
+        subinitcls = cls.__dict__.get("__init_subclass__", None)
+        if subinitcls is not None:
+            subinitcls = subinitcls.__get__(cls, cls)
+
+        def init_subclass(subcls, **kwargs):
+            super(cls).__init_subclass__(**kwargs)
+            if subinitcls is not None:
+                subinitcls(**kwargs)
+            if not isabstract(subcls) and subcls.__name__[0] != "_":
+                init_sig = signature(subcls.__init__)
+                for i, (required_arg, param) in enumerate(
+                    zip(required_init_args, islice(init_sig.parameters.values(), 1, None), strict=False)
+                ):
+                    if required_arg != param.name:
+                        raise TypeError(
+                            f"Constructor of class {subcls} is missing the {required_arg} argument at position {i + 1}."
+                        )
+                for required_arg in required_init_kwargs:
+                    if required_arg not in init_sig.parameters:
+                        raise TypeError(f"Constructor of class {subcls} is missing the {required_arg} argument.")
+                if required_init_kkwargs and "kwargs" not in init_sig.parameters:
+                    raise TypeError(f"Constructor of class {subcls} is missing the {kwargs} argument.")
+
+                for required_attr in required_attributes:
+                    if not hasattr(subcls, required_attr):
+                        raise TypeError(f"Class {subcls} is missing the {required_attr} attribute.")
+
+                if registry == "set":
+                    cls._registry.add(subcls)
+                elif registry == "dict":
+                    cls._registry[subcls.__name__] = subcls
+
+                    subinit = subcls.__dict__.get("__init__", None)
+
+                    def init(self, *args, **kwargs):
+                        if len(args) > len(init_sig.parameters) and subcls is not cls and args[0] == subcls.__name__:
+                            args = args[1:]
+                        if subinit is not None:
+                            subinit(self, *args, **kwargs)
+                        else:
+                            super(subcls, self).__init__(*args, **kwargs)
+
+                    subcls.__init__ = init
+
+        cls.__init_subclass__ = classmethod(init_subclass)
+
+        if registry == "dict":
+
+            def new(ccls, *args, **kwargs):
+                if ccls is not cls or len(args) == 0 or not isinstance(args[0], str):
+                    return super(cls, cls).__new__(ccls)
+                try:
+                    subclsname = args[0]
+                    subcls = ccls._registry[ccls.name]
+                    return subcls.__new__(subcls, *args[1:], **kwargs)
+                except KeyError as e:
+                    raise NotImplementedError(f"Uknown {cls.__name__.lower()} {subclsname}.") from e
+
+            cls._registry = {}
+            cls.__new__ = new
+        elif registry == "set":
+            cls._registry = set()
+
+        return cls
+
+    return decorate
+
+
+class SaveStateMixin:
     def save(self) -> dict[str, Any]:
         """Called by the model to save its state to disk.
 
@@ -186,7 +268,7 @@ def unpickle_torch_state(state: NDArray[np.uint8], map_location=None):
     return torch.load(pkl, map_location=map_location, weights_only=True)
 
 
-def sample_all_data_as_one_batch(data: MofaFlexDataset) -> dict[str, list[int]]:
+def sample_all_data_as_one_batch(data: "MofaFlexDataset") -> dict[str, list[int]]:
     return {
         k: next(
             iter(BatchSampler(SequentialSampler(range(nsamples)), batch_size=data.n_samples_total, drop_last=False))

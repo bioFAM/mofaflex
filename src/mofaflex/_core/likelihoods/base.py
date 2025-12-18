@@ -1,6 +1,5 @@
 import logging
 from abc import ABC, abstractmethod
-from inspect import isabstract, signature
 from typing import NamedTuple
 
 import numpy as np
@@ -12,7 +11,7 @@ from scipy.sparse import issparse
 from ..datasets import MofaFlexDataset
 from ..pyro.likelihoods import PyroLikelihood
 from ..settings import settings
-from ..utils import SaveStateMixin
+from ..utils import SaveStateMixin, checked_baseclass
 
 _logger = logging.getLogger(__name__)
 
@@ -22,16 +21,10 @@ class R2(NamedTuple):
     ss_tot: float
 
 
-class _LikelihoodMeta(type(ABC)):
-    def __call__(cls, *args, **kwargs):
-        obj = cls.__new__(cls, *args, **kwargs)
-        if obj.__class__ is not cls:
-            args = args[1:]
-        obj.__init__(*args, **kwargs)
-        return obj
-
-
-class Likelihood(SaveStateMixin, ABC, metaclass=_LikelihoodMeta):
+@checked_baseclass(
+    required_init_args=("view_name", "data", "nonnegative"), required_attributes="_priority", registry="dict"
+)
+class Likelihood(SaveStateMixin, ABC):
     """Base class for MOFA-FLEX likelihoods.
 
     All likelihood-specific functionality must be implemented via classmethods/staticmethods, subclasses
@@ -43,30 +36,6 @@ class Likelihood(SaveStateMixin, ABC, metaclass=_LikelihoodMeta):
     """
 
     _state_attrs = ("_view_name", "_nonnegative")
-    _registry = {}
-
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        if not isabstract(cls) and cls.__name__[0] != "_":
-            for attr in ("_priority",):
-                if not hasattr(cls, attr):
-                    raise NotImplementedError(f"Class `{cls.__name__}` does not have attribute `{attr}`.")
-            init_sig = signature(cls.__init__)
-            for arg in ("view_name", "data", "nonnegative"):
-                if arg not in init_sig.parameters:
-                    raise TypeError(f"Constructor of class `{cls.__name__}` is missing the {arg} argument.")
-
-            cls._registry[str(cls.__name__)] = cls
-
-    def __new__(cls, *args, **kwargs):
-        if cls != __class__ or len(args) == 0 or not isinstance(args[0], str):
-            return super().__new__(cls)
-        try:
-            likelihood = args[0]
-            subcls = cls._registry[likelihood]
-            return subcls.__new__(subcls, *args[1:], **kwargs)
-        except KeyError as e:
-            raise NotImplementedError(f"Unknown likelihood {likelihood}.") from e
 
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool = False):
         super().__init__()
@@ -154,7 +123,7 @@ class Likelihood(SaveStateMixin, ABC, metaclass=_LikelihoodMeta):
             raise ValueError(cls._format_validate_exception(view_name))
 
     @classmethod
-    def infer(cls, view: AnnData, *args) -> _LikelihoodMeta:
+    def infer(cls, view: AnnData, *args) -> type["Likelihood"]:
         """Infer a suitable likelihood for the given data.
 
         Args:

@@ -1,4 +1,3 @@
-import inspect
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -11,6 +10,8 @@ from anndata import AnnData
 from numpy.typing import NDArray
 from scipy.sparse import sparray, spmatrix
 from torch.utils.data import Dataset
+
+from ..utils import checked_baseclass
 
 T = TypeVar("T")
 ApplyCallable: TypeAlias = Callable[Concatenate[AnnData, str, str, ...], T]
@@ -46,6 +47,7 @@ class Preprocessor:
         return arr, nonmissing_samples, nonmissing_features
 
 
+@checked_baseclass(required_init_kwargs=("sample_names", "feature_names"), required_init_kkwargs=True, registry="set")
 class MofaFlexDataset(Dataset, ABC):
     """Base class for MOFA-FLEX datasets, compatible with the PyTorch dataloader interface.
 
@@ -82,8 +84,6 @@ class MofaFlexDataset(Dataset, ABC):
         cast_to: Data type to cast the data to. If `None`, no casting shall be performed.
     """
 
-    _subclasses = set()
-
     def __init__(
         self,
         data,
@@ -97,19 +97,10 @@ class MofaFlexDataset(Dataset, ABC):
         self.preprocessor = preprocessor
         self._cast_to = cast_to
 
-    def __init_subclass__(cls, **kwargs):
-        init_sig = inspect.signature(cls.__init__)
-        for arg in ("kwargs", "sample_names", "feature_names"):
-            if arg not in init_sig.parameters:
-                raise TypeError(f"Constructor of class {cls} is missing the {arg} argument.")
-
-        super().__init_subclass__(**kwargs)
-        __class__._subclasses.add(cls)
-
     def __new__(cls, data, *args, **kwargs):
         if cls != __class__:
             return super().__new__(cls)
-        for subcls in __class__._subclasses:
+        for subcls in __class__._registry:
             if subcls._accepts_input(data):
                 return subcls.__new__(subcls, data, *args, **kwargs)
         raise NotImplementedError("Input data type not recognized.")
