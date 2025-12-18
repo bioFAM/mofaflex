@@ -3,7 +3,7 @@ import operator
 from collections import defaultdict
 from collections.abc import Mapping
 from functools import reduce
-from typing import Any
+from typing import Any, get_args
 
 import numpy as np
 import pandas as pd
@@ -14,7 +14,7 @@ from pyro.nn import PyroModule, pyro_method
 from scipy.sparse import issparse
 
 from .datasets import MofaFlexDataset, StackDataset
-from .likelihoods import Likelihood
+from .likelihoods import Likelihood, LikelihoodType
 from .pyro.utils import PyroModuleDict
 from .terms import Term
 
@@ -25,7 +25,7 @@ class MofaFlexModel(PyroModule):
     _sample_plate_dim = -2
     _feature_plate_dim = -1
 
-    def __init__(self, terms: Mapping[str, Term], likelihoods: Mapping[str, Likelihood]):
+    def __init__(self, terms: Mapping[str, Term], likelihoods: Mapping[str, LikelihoodType] | LikelihoodType | None):
         super().__init__()
 
         self._terms = PyroModuleDict(terms)
@@ -42,6 +42,36 @@ class MofaFlexModel(PyroModule):
                 self._view_scales[view_name] = (n_views / (n_views - 1)) * (
                     1.0 - view_n_features / data.n_features_total
                 )
+
+        if (
+            not isinstance(self._likelihoods, dict | str | None)
+            or isinstance(self._likelihoods, str)
+            and self._likelihoods not in get_args(LikelihoodType)
+            or isinstance(self._likelihoods, dict)
+            and not all(val in get_args(LikelihoodType) for val in self._likelihoods.values())
+        ):
+            raise ValueError("Likelihoods must be a dictionary or a string containing a valid likelihood name.")
+
+        if self._likelihoods is None:
+            self._likelihoods = data.apply(Likelihood.infer, by_group=False)
+            msg = []
+            for view_name, likelihood in self._likelihoods.items():
+                msg.append(f"{view_name}: {likelihood.__name__}")
+                self._likelihoods[view_name] = likelihood(view_name, data, False)
+            _logger.info("No likelihoods provided. Using inferred likelihoods: " + "; ".join(msg))
+        else:
+            if isinstance(self._likelihoods, str):
+                self._likelihoods = dict.fromkeys(data.view_names, self._likelihoods)
+
+            self._likelihoods = {
+                view: Likelihood(likelihood, view, data, False) for view, likelihood in self._likelihoods.items()
+            }
+
+            data.apply(
+                lambda *args, likelihood, **kwargs: likelihood.validate(*args, **kwargs),
+                view_kwargs={"likelihood": self._likelihoods},
+                by_group=False,
+            )
 
     @property
     def _group_names(self):

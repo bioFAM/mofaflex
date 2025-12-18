@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import update_wrapper
 from itertools import chain
 from pathlib import Path
-from typing import Literal, NamedTuple, get_args
+from typing import Literal, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -28,7 +28,7 @@ from .. import pl
 from .api.priors import Prior as APIPrior
 from .datasets import MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import load_model, save_model
-from .likelihoods import Likelihood, LikelihoodType
+from .likelihoods import LikelihoodType
 from .model import MofaFlexModel
 from .priors import API, APIType, FactorPriorType, Prior, WeightPriorType
 from .settings import settings
@@ -177,8 +177,6 @@ class MOFAFLEX:
 
         if self._data_opts.plot_data_overview:
             pl.overview(data).show()
-
-        self._setup_likelihoods(data)
 
         # this needs to be after _filter_constant_features
         self._metadata = data.get_obs()
@@ -348,38 +346,6 @@ class MOFAFLEX:
     def training_loss(self) -> npt.NDArray[np.float32]:
         """Total loss (negative ELBO) for each training epoch."""
         return self._train_loss_elbo
-
-    def _setup_likelihoods(self, data):
-        if (
-            not isinstance(self._model_opts.likelihoods, dict | str | None)
-            or isinstance(self._model_opts.likelihoods, str)
-            and self._model_opts.likelihoods not in get_args(LikelihoodType)
-            or isinstance(self._model_opts.likelihoods, dict)
-            and not all(val in get_args(LikelihoodType) for val in self._model_opts.likelihoods.values())
-        ):
-            raise ValueError("Likelihoods must be a dictionary or a string containing a valid likelihood name.")
-
-        if self._model_opts.likelihoods is None:
-            self._model_opts.likelihoods = data.apply(Likelihood.infer, by_group=False)
-            msg = []
-            for view_name, likelihood in self._model_opts.likelihoods.items():
-                msg.append(f"{view_name}: {likelihood.__name__}")
-                self._model_opts.likelihoods[view_name] = likelihood(view_name, data, False)
-            _logger.info("No likelihoods provided. Using inferred likelihoods: " + "; ".join(msg))
-        else:
-            if isinstance(self._model_opts.likelihoods, str):
-                self._model_opts.likelihoods = dict.fromkeys(data.view_names, self._model_opts.likelihoods)
-
-            self._model_opts.likelihoods = {
-                view: Likelihood(likelihood, view, data, False)
-                for view, likelihood in self._model_opts.likelihoods.items()
-            }
-
-            data.apply(
-                lambda *args, likelihood, **kwargs: likelihood.validate(*args, **kwargs),
-                view_kwargs={"likelihood": self._model_opts.likelihoods},
-                by_group=False,
-            )
 
     def _preprocess_options(self, *args: Options):
         self._data_opts = DataOptions()
