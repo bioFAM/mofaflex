@@ -1,5 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import NamedTuple
 
 import numpy as np
@@ -41,11 +43,6 @@ class Likelihood(SaveStateMixin, ABC):
         super().__init__()
         self._view_name = view_name
         self._nonnegative = nonnegative
-
-    @staticmethod
-    def known_likelihoods() -> tuple[str]:
-        """Get all known likelihoods."""
-        return tuple(__class__._registry.keys())
 
     def get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int):
         self._pyro_likelihood = self._get_pyro_likelihood(data, sample_dim, feature_dim)
@@ -193,3 +190,8 @@ class Likelihood(SaveStateMixin, ABC):
                 f"R2 for view {self._view_name} is 0. Increase the number of factors and/or the number of training epochs."
             )
         return r2
+
+    @classmethod
+    @property
+    def known_likelihoods(cls) -> Mapping[str, type]:
+        return MappingProxyType(__class__._registry)

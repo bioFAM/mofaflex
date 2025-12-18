@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import Enum, auto
 from inspect import isabstract
 from itertools import chain
+from types import MappingProxyType
 from typing import Literal, NamedTuple
 
 import pandas as pd
@@ -377,4 +378,4 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
                 name: subcls for name, subcls in __class__._registry.items() if getattr(subcls, f"_{filter}_allowed")()
             }
         else:
-            return __class__._registry.copy()
+            return MappingProxyType(__class__._registry)

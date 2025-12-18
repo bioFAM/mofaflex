@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
+from types import MappingProxyType
 
 import numpy as np
 import pyro
@@ -128,3 +129,8 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     def nonnegative(self) -> dict[str, dict[str, bool]]:
         """Whether the term's prediction is constrained to non-negative values for each group and view."""
         pass
+
+    @classmethod
+    @property
+    def known_terms(cls) -> Mapping[str, type]:
+        return MappingProxyType(__class__._registry)

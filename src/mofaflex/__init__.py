@@ -2,7 +2,7 @@ import logging
 
 from . import pl, tl
 from ._core import MOFAFLEX, DataOptions, FeatureSet, FeatureSets, ModelOptions, TrainingOptions, settings
-from ._core.api import priors
+from ._core.api import likelihoods, priors, terms
 from ._version import __version__, __version_tuple__
 
 _logger = logging.getLogger(__name__)

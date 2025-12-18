@@ -1,1 +1,1 @@
-from . import priors
+from . import likelihoods, priors, terms
