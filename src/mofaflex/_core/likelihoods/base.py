@@ -11,9 +11,9 @@ from numpy.typing import NDArray
 from scipy.sparse import issparse
 
 from ..datasets import MofaFlexDataset
-from ..pyro.likelihoods import PyroLikelihood
 from ..settings import settings
 from ..utils import SaveStateMixin, checked_baseclass
+from .pyro import PyroLikelihood
 
 _logger = logging.getLogger(__name__)
 

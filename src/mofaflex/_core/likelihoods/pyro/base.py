@@ -10,8 +10,7 @@ from numpy.typing import NDArray
 from pyro import distributions as dist
 from pyro.nn import PyroModule, PyroParam, PyroSample, pyro_method
 
-from ...utils import MeanStd
-from ..utils import _PyroMeta
+from ...utils import MeanStd, _PyroMeta
 
 
 class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):

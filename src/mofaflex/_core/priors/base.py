@@ -13,8 +13,7 @@ from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
-from ..pyro.utils import _PyroMeta
-from ..utils import MeanStd, SaveStateMixin, checked_baseclass
+from ..utils import MeanStd, SaveStateMixin, _PyroMeta, checked_baseclass
 
 
 class APIType(Enum):

@@ -11,7 +11,7 @@ from pyro.distributions import constraints
 from pyro.nn import PyroParam
 
 from ..datasets import MofaFlexDataset
-from ..pyro.dist import ReinMaxBernoulli
+from ..dist import ReinMaxBernoulli
 from ..settings import settings
 from ..utils import MeanStd, PyroParameterDict, ShapeRate
 from .base import Prior

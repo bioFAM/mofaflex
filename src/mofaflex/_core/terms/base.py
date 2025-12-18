@@ -9,8 +9,7 @@ from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
-from ..pyro.utils import _PyroMeta
-from ..utils import SaveStateMixin, checked_baseclass
+from ..utils import SaveStateMixin, _PyroMeta, checked_baseclass
 
 
 @checked_baseclass(registry="dict")

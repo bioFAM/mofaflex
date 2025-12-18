@@ -15,8 +15,8 @@ from scipy.sparse import issparse
 
 from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood, LikelihoodType
-from .pyro.utils import PyroModuleDict
 from .terms import Term
+from .utils import PyroModuleDict
 
 _logger = logging.getLogger(__name__)
 

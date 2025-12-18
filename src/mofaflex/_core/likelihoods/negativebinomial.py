@@ -3,8 +3,8 @@ from numpy.typing import NDArray
 
 from .. import utils
 from ..datasets import MofaFlexDataset
-from ..pyro.likelihoods import PyroLikelihood, PyroNegativeBinomial
 from .base import R2, Likelihood
+from .pyro import PyroLikelihood, PyroNegativeBinomial
 
 
 class NegativeBinomial(Likelihood):

@@ -18,10 +18,9 @@ from sklearn.decomposition import NMF, PCA
 
 from ..api.priors import Prior as APIPrior
 from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset
+from ..likelihoods.pyro import PyroLikelihood
 from ..priors import FactorPriorType, Prior, WeightPriorType
-from ..pyro.likelihoods import PyroLikelihood
-from ..pyro.utils import PyroModuleDict, PyroParameterDict
-from ..utils import MeanStd
+from ..utils import MeanStd, PyroModuleDict, PyroParameterDict
 from .base import Term
 
 _logger = logging.getLogger(__name__)

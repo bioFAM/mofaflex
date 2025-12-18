@@ -1,3 +1,4 @@
+from abc import ABC
 from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import suppress
@@ -37,6 +38,11 @@ ShapeRate = namedtuple("ShapeRate", ["shape", "rate"])
 
 PyroParameterDict = PyroModule[torch.nn.ParameterDict]
 PyroModuleDict = PyroModule[torch.nn.ModuleDict]
+
+
+# https://stackoverflow.com/a/61350480
+class _PyroMeta(type(ABC), type(PyroModule)):
+    pass
 
 
 def checked_baseclass(

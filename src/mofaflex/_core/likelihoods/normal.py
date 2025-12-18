@@ -5,8 +5,8 @@ from numpy.typing import NDArray
 
 from .. import utils
 from ..datasets import MofaFlexDataset
-from ..pyro.likelihoods import PyroLikelihood, PyroNormal
 from .base import R2, Likelihood
+from .pyro import PyroLikelihood, PyroNormal
 
 
 class Normal(Likelihood):

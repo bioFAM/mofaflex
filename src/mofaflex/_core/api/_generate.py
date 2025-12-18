@@ -34,6 +34,9 @@ def init_api(module: str, basecls: type, subclss: Mapping[str, type]):
         coresig = signature(coreinit)
 
     all_ = []
+
+    basewrapper = type(basecls.__name__, (APIWrapper,), {"__module__": module})
+
     for subname, subcls in subclss.items():
         sig = signature(subcls.__init__)
         annots = subcls.__init__.__annotations__
@@ -64,12 +67,13 @@ def init_api(module: str, basecls: type, subclss: Mapping[str, type]):
         call.__name__ = "__call__"
         call.__qualname__ = f"{subname}.__call__"
         apicls = type(
-            subname, (APIWrapper,), {"_cls": subcls, "__init__": init, "__call__": call, "__module__": module}
+            subname, (basewrapper,), {"_cls": subcls, "__init__": init, "__call__": call, "__module__": module}
         )
         apicls.__doc__ = subcls.__doc__
 
         setattr(mod, subname, apicls)
         all_.append(subname)
 
+    setattr(mod, basewrapper.__name__, basewrapper)
     mod.__all__ = all_
     mod.__dir__ = lambda: all_

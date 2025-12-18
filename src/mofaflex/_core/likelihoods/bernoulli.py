@@ -4,8 +4,8 @@ from scipy.special import expit, logit
 
 from .. import utils
 from ..datasets import MofaFlexDataset
-from ..pyro.likelihoods import PyroBernoulli, PyroLikelihood
 from .base import R2, Likelihood
+from .pyro import PyroBernoulli, PyroLikelihood
 
 
 class Bernoulli(Likelihood):

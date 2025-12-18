@@ -14,7 +14,6 @@ from pyro.distributions import constraints
 from pyro.nn import PyroParam, pyro_method
 
 from ...datasets import CovariatesDataset, MofaFlexDataset
-from ...pyro.priors import GaussianProcess as PyroGP
 from ...utils import MeanStd, pickle_torch_state, unpickle_torch_state
 from .. import Prior
 from .gp import GP
@@ -107,9 +106,6 @@ class GaussianProcess(Prior):
             if pd.api.types.is_integer_dtype(covar.columns):
                 covar.columns = "Covariate " + covar.columns.astype(str)
         return {"gp_covariates": dset}
-
-    def _get_pyro_prior(self, n_factors: int, *args, **kwargs):
-        return PyroGP(self._names, *args, n_factors=n_factors, gp=self._gp, **kwargs)
 
     def _init_gp(self, n_factors: int):
         self._gp = GP(
