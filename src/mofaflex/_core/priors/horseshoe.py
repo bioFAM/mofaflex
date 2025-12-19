@@ -2,6 +2,7 @@ import logging
 import operator
 from collections.abc import Mapping, Sequence
 from functools import reduce
+from types import MappingProxyType
 from typing import Literal
 
 import numpy as np
@@ -282,17 +283,17 @@ class InformedHorseshoe(Horseshoe):
         )
 
     @property
-    def factors_subset(self):
+    def factors_subset(self) -> slice:
         return slice(self._informed_factors_start_idx, self._informed_factors_start_idx + self._n_informed_factors)
 
     @Prior._api
     @property
-    def n_informed_factors(self):
+    def n_informed_factors(self) -> int:
         """Number of informed factors."""
         return self._n_informed_factors
 
     @Prior._api(has_factors=False)
-    def get_significant_annotations(self) -> dict[str, pd.DataFrame]:
+    def get_significant_annotations(self) -> Mapping[str, pd.DataFrame]:
         """Get the results of significance testing of annotations against factors.
 
         The significance testing is an implementation of PCGSE :cite:p:`pmid26300978`. While
@@ -302,10 +303,10 @@ class InformedHorseshoe(Horseshoe):
         Returns:
             PCGSE results for each view or `None` if the model does not have prior annotations.
         """
-        return self._pcgse
+        return MappingProxyType(self._pcgse)
 
     @Prior._api(has_factors=True, factors_subset="factors_subset")
     @property
-    def annotations(self) -> dict[str, pd.DataFrame]:
+    def annotations(self) -> Mapping[str, pd.DataFrame]:
         """Annotation matrices for each view."""
-        return self._annotations
+        return MappingProxyType(self._annotations)

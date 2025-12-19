@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
+from types import MappingProxyType
 from typing import Literal
 
 import numpy as np
@@ -243,15 +244,19 @@ class GaussianProcess(Prior):
 
     @Prior._api
     @property
-    def covariates(self) -> dict[str, NDArray[np.float32]]:
+    def covariates(self) -> Mapping[str, NDArray[np.float32]]:
         """Covariates for each group."""
-        return self._orig_covariates if self._orig_covariates is not None else self._covariates
+        return (
+            MappingProxyType(self._orig_covariates)
+            if self._orig_covariates is not None
+            else MappingProxyType(self._covariates)
+        )
 
     @Prior._api
     @property
-    def warped_covariates(self) -> dict[str, NDArray[np.float32]] | None:
+    def warped_covariates(self) -> Mapping[str, NDArray[np.float32]] | None:
         """Time-warped covariates for each group, if dynamic time warping was enabled."""
-        return self._covariates if self._orig_covariates is not None else None
+        return MappingProxyType(self._covariates) if self._orig_covariates is not None else None
 
     @Prior._api
     @property
@@ -277,7 +282,7 @@ class GaussianProcess(Prior):
         moment: Literal["mean", "std"] = "mean",
         x: Mapping[str, np.ndarray | torch.Tensor] | None = None,
         batch_size: int | None = None,
-    ) -> dict[str, pd.DataFrame]:
+    ) -> Mapping[str, pd.DataFrame]:
         """Get all latent functions.
 
         Args:
@@ -289,7 +294,7 @@ class GaussianProcess(Prior):
         """
         gp_old = getattr(self._gps, moment)
         if x is None:
-            return gp_old
+            return MappingProxyType(gp_old)
         else:
             gps = getattr(self._get_gps(x, batch_size), moment)
             for group_name_calc, gp_calc in gps.items():

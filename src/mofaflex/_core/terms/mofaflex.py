@@ -153,11 +153,11 @@ class MofaFlex(Term):
         return chain(super().__dir__(), self._prior_api_properties.keys())
 
     @property
-    def n_guided_factors(self):
+    def n_guided_factors(self) -> int:
         return len(self._guiding_vars_names)
 
     @property
-    def _guiding_vars_factors(self):
+    def _guiding_vars_factors(self) -> range:
         return range(self.n_total_factors - self.n_guided_factors, self.n_total_factors)
 
     @property
@@ -174,7 +174,7 @@ class MofaFlex(Term):
         return self._factor_names
 
     @property
-    def component_order(self):
+    def component_order(self) -> NDArray[int]:
         return self._factor_order
 
     @component_order.setter
@@ -189,7 +189,7 @@ class MofaFlex(Term):
         self._factor_order = order
 
     @property
-    def factor_order(self):
+    def factor_order(self) -> NDArray[int]:
         return self._factor_order
 
     @factor_order.setter

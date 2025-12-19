@@ -136,9 +136,9 @@ class MOFAFLEX:
         return len(self.view_names)
 
     @property
-    def feature_names(self) -> dict[str, npt.NDArray[str]]:
+    def feature_names(self) -> Mapping[str, npt.NDArray[str]]:
         """Feature names for each view."""
-        return self._feature_names
+        return MappingProxyType(self._feature_names)
 
     @property
     def n_features(self) -> dict[str, int]:
@@ -151,9 +151,9 @@ class MOFAFLEX:
         return sum(self.n_features.values())
 
     @property
-    def sample_names(self) -> dict[str, npt.NDArray[str]]:
+    def sample_names(self) -> Mapping[str, npt.NDArray[str]]:
         """Sample names for each group."""
-        return self._sample_names
+        return MappingProxyType(self._sample_names)
 
     @property
     def n_samples(self) -> dict[str, int]:
@@ -171,7 +171,7 @@ class MOFAFLEX:
         return self._train_loss_elbo
 
     @property
-    def terms(self) -> dict[str, Term]:
+    def terms(self) -> Mapping[str, Term]:
         """The additive terms."""
         return MappingProxyType(self._terms)
 

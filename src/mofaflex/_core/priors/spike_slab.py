@@ -1,4 +1,5 @@
 from collections.abc import Iterator, Mapping, Sequence
+from types import MappingProxyType
 from typing import Literal
 
 import numpy as np
@@ -139,8 +140,8 @@ class SpikeSlab(Prior):
         return {name: self._probs[name].squeeze(self._squeezedims) for name in self._names}
 
     @Prior._api
-    def get_sparse_a̲x̲i̲s̲_probabilities(self) -> dict[str, pd.DataFrame]:
-        return self._probabilities
+    def get_sparse_a̲x̲i̲s̲_probabilities(self) -> Mapping[str, pd.DataFrame]:
+        return MappingProxyType(self._probabilities)
 
     def postprocess_results(
         self,
