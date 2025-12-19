@@ -1,7 +1,7 @@
 import logging
 import operator
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import reduce
 from typing import Any, get_args
 
@@ -29,7 +29,10 @@ class MofaFlexModel(PyroModule):
     def __init__(
         self,
         terms: Mapping[str, Term],
-        likelihoods: Mapping[str, LikelihoodType | APILikelihood] | LikelihoodType | APILikelihood | None,
+        likelihoods: Mapping[str | Sequence[str], LikelihoodType | APILikelihood]
+        | LikelihoodType
+        | APILikelihood
+        | None,
     ):
         super().__init__()
 
@@ -78,13 +81,17 @@ class MofaFlexModel(PyroModule):
             if isinstance(self._likelihoods, str | APILikelihood):
                 self._likelihoods = dict.fromkeys(data.view_names, self._likelihoods)
 
-            self._likelihoods = {
-                view: Likelihood(likelihood, view, data, view_name in nonnegative_views)
-                if isinstance(likelihood, str)
-                else likelihood(view, data, view_name in nonnegative_views)
-                for view, likelihood in self._likelihoods.items()
-            }
-
+            likelihoods = {}
+            for views, likelihood in self._likelihoods.items():
+                if isinstance(views, str):
+                    views = (views,)
+                for view in views:
+                    likelihoods[view] = (
+                        Likelihood(likelihood, view, data, view_name in nonnegative_views)
+                        if isinstance(likelihood, str)
+                        else likelihood(view, data, view_name in nonnegative_views)
+                    )
+            self._likelihoods = likelihoods
             data.apply(
                 lambda *args, likelihood, **kwargs: likelihood.validate(*args, **kwargs),
                 view_kwargs={"likelihood": self._likelihoods},
