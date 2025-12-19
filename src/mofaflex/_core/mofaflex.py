@@ -3,7 +3,7 @@ import logging
 import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from functools import update_wrapper
 from itertools import chain
 from pathlib import Path
@@ -25,16 +25,16 @@ from tqdm.auto import tqdm
 from tqdm.notebook import tqdm_notebook
 
 from .. import pl
-from .api.priors import Prior as APIPrior
+from .api.likelihoods import Likelihood as APILikelihood
 from .datasets import MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import load_model, save_model
 from .likelihoods import LikelihoodType
 from .model import MofaFlexModel
-from .priors import API, APIType, FactorPriorType, Prior, WeightPriorType
+from .priors import API, APIType, Prior
 from .settings import settings
-from .terms import MofaFlex as MofaFlexTerm
+from .terms import Term
 from .training import EarlyStopper
-from .utils import Options, impute, nanvar, sample_all_data_as_one_batch
+from .utils import impute, nanvar, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
@@ -45,110 +45,40 @@ class _PriorApiProperty(NamedTuple):
 
 
 @dataclass(kw_only=True)
-class DataOptions(Options):
-    """Options for the data."""
+class _Options:
+    def asdict(self):
+        # avoid the deepcopy done by dataclasses.asdict
+        return {f.name: getattr(self, f.name) for f in fields(self)}
 
-    group_by: str | Sequence[str] | None = None
-    """Columns of `.obs` in :class:`MuData<mudata.MuData>` objects to group data by. Ignored if the input data
-    is not a :class:`MuData<mudata.MuData>` object.
-    """
-
-    layer: Mapping[str, str | None] | Mapping[str, Mapping[str, str | None]] | str | None = None
-    """Which layer to use. If `None`, the `.X` element will be used. If `str`, the same layer will be used for
-    all groups and views. If a dict of strings, the keys must correspond to view names and the values to layers.
-    If a nested dict, different layers can be used for each combination of group and view. The last format is
-    only accepted if the data is a nested dictionary of :class:`AnnData<anndata.AnnData>` objects."""
-
-    scale_per_group: bool = True
-    """Scale Normal likelihood data per group, otherwise across all groups."""
-
-    guiding_vars_obs_keys: str | Sequence[str] | Mapping[str, Mapping[str, str]] | None = None
-    """Keys of .obs attribute of each :class:`AnnData<anndata.AnnData>` object that contains guiding variable values."""
-
-    use_obs: Literal["union", "intersection"] | None = "union"
-    """How to align observations across views. Ignored if the data is not a nested dict of :class:`AnnData<anndata.AnnData>` objects."""
-
-    use_var: Literal["union", "intersection"] | None = "union"
-    """How to align variables across groups. Ignored if the data is not a nested dict of :class:`AnnData<anndata.AnnData>` objects."""
-
-    subset_var: str | None = "highly_variable"
-    """`.var` column with boolean values to select features."""
-
-    plot_data_overview: bool = True
-    """Plot data overview."""
-
-    remove_constant_features: bool = True
-    """Remove constant features from the data."""
+    def __post_init__(self):
+        # after an HDF5 roundtrip, these are numpy scalars, which PyTorch doesn't handle well'
+        for f in fields(self):
+            if f.type in (float, int, bool):
+                setattr(self, f.name, f.type(getattr(self, f.name)))
 
 
 @dataclass(kw_only=True)
-class ModelOptions(Options):
-    """Options for the model."""
-
-    n_factors: int = 0
-    """Number of latent factors."""
-
-    factor_prior: Mapping[str | Sequence[str], FactorPriorType | APIPrior] | FactorPriorType | APIPrior = "Normal"
-    """Factor priors for each group (if dict) or for all groups (if str)."""
-
-    weight_prior: Mapping[str | Sequence[str], WeightPriorType | APIPrior] | WeightPriorType | APIPrior = "Normal"
-    """Weight priors for each view (if dict) or for all views (if str)."""
-
-    likelihoods: Mapping[str, LikelihoodType] | LikelihoodType | None = None
-    """Data likelihoods for each view (if dict) or for all views (if str). Inferred automatically if None."""
-
-    nonnegative_weights: Mapping[str, bool] | bool = False
-    """Non-negativity constraints for weights for each view (if dict) or for all views (if bool)."""
-
-    guiding_vars_likelihoods: Mapping[str, str] | Literal["Normal", "Categorical", "Bernoulli"] | None = "Normal"
-    """Likelihood for each guiding variable (if dict) or for all guiding variables (if str)."""
-
-    guiding_vars_scales: Mapping[str, float] | float = 1.0
-    """Scale for the likelihood of each guiding variable, to put more or less emphasis on them during training."""
-
-    nonnegative_factors: Mapping[str, bool] | bool = False
-    """Non-negativity constraints for factors for each group (if dict) or for all groups (if bool)."""
-
-    init_factors: float | Literal["random", "orthogonal", "pca"] = "random"
-    """Initialization method for factors."""
-
-    init_scale: float = 0.1
-    """Initialization scale of Normal distribution for factors."""
+class _DataOptions(_Options):
+    group_by: str | Sequence[str] | None
+    layer: Mapping[str, str | None] | Mapping[str, Mapping[str, str | None]] | str | None
+    use_obs: Literal["union", "intersection"] | None
+    use_var: Literal["union", "intersection"] | None
+    subset_var: str | None
+    remove_constant_features: bool
 
 
 @dataclass(kw_only=True)
-class TrainingOptions(Options):
-    """Options for training."""
-
-    device: str | torch.device = "cuda"
-    """Device to run training on."""
-
-    batch_size: int = 0
-    """Batch size."""
-
-    max_epochs: int = 10_000
-    """Maximum number of training epochs."""
-
-    n_particles: int = 1
-    """Number of particles for ELBO estimation."""
-
-    lr: float = 0.001
-    """Learning rate."""
-
-    early_stopper_patience: int = 100
-    """Number of steps without relevant improvement to stop training."""
-
-    save_path: Path | str | None = None
-    """Path to save model."""
-
-    seed: int | None = None
-    """Seed for the pseudorandom number generator."""
-
-    num_workers: int = 0
-    """Number of data loader workers."""
-
-    pin_memory: bool = False
-    """Whether to use pinned memory in the data loader."""
+class _TrainingOptions(_Options):
+    device: str | torch.device
+    batch_size: int
+    max_epochs: int
+    n_particles: int
+    lr: float
+    early_stopper_patience: int
+    save_path: Path | str | None
+    seed: int | None
+    num_workers: int
+    pin_memory: bool
 
     def __post_init__(self):
         super().__post_init__()
@@ -156,38 +86,21 @@ class TrainingOptions(Options):
 
 
 class MOFAFLEX:
-    """Fit the model using the provided data.
-
-    Args:
-        data: can be any of:
-
-            - MuData object
-            - Nested dict with group names as keys, view names as subkeys and AnnData objects as values
-              (incompatible with :class:`TrainingOptions` `.group_by`)
-
-        *args: Options for training.
-    """
-
-    def __init__(self, data: MuData | Mapping[str, Mapping[str, AnnData]], *args: Options):
-        self._preprocess_options(*args)
-        data = self._make_dataset(data)
-        self._filter_constant_features(data)
-
-        self._adjust_options(data)
-
-        if self._data_opts.plot_data_overview:
-            pl.overview(data).show()
-
-        # this needs to be after _filter_constant_features
-        self._metadata = data.get_obs()
-        self._view_names = data.view_names
-        self._group_names = data.group_names
-        self._sample_names = data.sample_names
-        self._feature_names = data.feature_names
+    def __init__(self, **kwargs: Term):
+        self._terms = kwargs
 
         self._prior_api_properties: dict[str, _PriorApiProperty] = {}
 
-        self._fit(data)
+    def __add__(self, other: "MOFAFLEX"):
+        if not isinstance(other, __class__):
+            return NotImplemented
+        if self._model is not None or other._model is not None:
+            raise ValueError("Can not add terms to an already trained model.")
+        if len(intersection := self._terms.keys() & other._terms.keys()) > 0:
+            raise ValueError(
+                f"Operands must have unique term names, but terms {', '.join(intersection)} were found in both operands."
+            )
+        return __class__(**self._terms, **other._terms)
 
     def _results_to_df(
         self,
@@ -347,19 +260,92 @@ class MOFAFLEX:
         """Total loss (negative ELBO) for each training epoch."""
         return self._train_loss_elbo
 
-    def _preprocess_options(self, *args: Options):
-        self._data_opts = DataOptions()
-        self._model_opts = ModelOptions()
-        self._train_opts = TrainingOptions()
+    def fit(
+        self,
+        data: MuData | Mapping[str, Mapping[str, AnnData]],
+        *,
+        likelihoods: Mapping[str, LikelihoodType | APILikelihood] | LikelihoodType | APILikelihood | None = None,
+        group_by: str | Sequence[str] | None = None,
+        layer: Mapping[str, str | None] | Mapping[str, Mapping[str, str | None]] | str | None = None,
+        use_obs: Literal["union", "intersection"] = "union",
+        use_var: Literal["union", "intersection"] = "union",
+        subset_var: str | None = "highly_variable",
+        plot_data_overview: bool = True,
+        remove_constant_features: bool = True,
+        device: str | torch.device = "cuda",
+        batch_size: int = 0,
+        max_epochs: int = 10_000,
+        lr: float = 0.001,
+        early_stopper_patience: int = 100,
+        save_path: Path | str | None = None,
+        seed: int | None = None,
+        num_workers: int = 0,
+        pin_memory: bool = False,
+        n_particles: int = 1,
+    ):
+        """Fit the model using the provided data.
 
-        for arg in args:
-            match arg:
-                case DataOptions():
-                    self._data_opts |= arg
-                case ModelOptions():
-                    self._model_opts |= arg
-                case TrainingOptions():
-                    self._train_opts |= arg
+        Args:
+            data: can be any of:
+
+                - MuData object
+                - Nested dict with group names as keys, view names as subkeys and AnnData objects as values
+                  (incompatible with `.group_by`)
+
+            likelihoods: Data likelihoods for each view (if dict) or for all views (if str or Likelihood).
+                Inferred automatically if None.
+            group_by: Columns of `.obs` in :class:`MuData<mudata.MuData>` objects to group data by. Ignored if the input
+                data is not a :class:`MuData<mudata.MuData>` object.
+            layer: Which layer to use. If `None`, the `.X` element will be used. If `str`, the same layer will be used for
+                all groups and views. If a dict of strings, the keys must correspond to view names and the values to layers.
+                If a nested dict, different layers can be used for each combination of group and view. The last format is
+                only accepted if the data is a nested dictionary of :class:`AnnData<anndata.AnnData>` objects.
+            use_obs: How to align observations across views. Ignored if the data is not a nested dict of
+                :class:`AnnData<anndata.AnnData>` objects.
+            use_var: How to align variables across groups. Ignored if the data is not a nested dict of
+                :class:`AnnData<anndata.AnnData>` objects.
+            subset_var: `.var` column with boolean values to select features.
+            plot_data_overview: Plot data overview.
+            remove_constant_features: Remove constant features from the data.
+            device: Device to run training on.
+            batch_size: Batch size.
+            max_epochs: Maximum number of training epochs.
+            lr: Learning rate.
+            early_stopper_patience: Number of steps without relevant improvement to stop training.
+            save_path: Path to save model.
+            seed: Seed for the pseudorandom number generator.
+            num_workers: Number of data loader workers.
+            pin_memory: Whether to use pinned memory in the data loader.
+            n_particles: Number of particles for ELBO estimation.
+        """
+        self._data_opts = _DataOptions(
+            group_by=group_by,
+            layer=layer,
+            use_obs=use_obs,
+            use_var=use_var,
+            subset_var=subset_var,
+            remove_constant_features=remove_constant_features,
+        )
+        self._train_opts = _TrainingOptions(
+            device=device,
+            batch_size=batch_size,
+            max_epochs=max_epochs,
+            n_particles=n_particles,
+            lr=lr,
+            early_stopper_patience=early_stopper_patience,
+            save_path=save_path,
+            seed=seed,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+        data = self._make_dataset(data)
+        self._filter_constant_features(data)
+
+        self._metadata = data.get_obs()
+        self._view_names = data.view_names
+        self._group_names = data.group_names
+        self._sample_names = data.sample_names
+        self._feature_names = data.feature_names
 
         if self._train_opts.seed is not None:
             try:
@@ -371,34 +357,15 @@ class MOFAFLEX:
         if self._train_opts.seed is None:
             self._train_opts.seed = int(time.strftime("%y%m%d%H%M"))
 
-    def _adjust_options(self, data: Mapping[str, Mapping[str, AnnData]]):
-        for opt_name, keys in zip(
-            ("nonnegative_weights", "nonnegative_factors"), (data.view_names, data.group_names), strict=True
-        ):
-            val = getattr(self._model_opts, opt_name)
-            if not isinstance(val, dict):
-                setattr(self._model_opts, opt_name, dict.fromkeys(keys, val))
         self._train_opts.device = self._setup_device(self._train_opts.device)
-        if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= data.n_samples_total):
-            self._train_opts.batch_size = data.n_samples_total
+        if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= self.n_samples_total):
+            self._train_opts.batch_size = self.n_samples_total
 
-    def _fit(self, data):
+        if plot_data_overview:
+            pl.overview(data).show()
+
         pyro.set_rng_seed(self._train_opts.seed)
-
-        terms = {
-            "mofaflex": MofaFlexTerm(
-                n_factors=self._model_opts.n_factors,
-                guiding_vars_likelihoods=self._model_opts.guiding_vars_likelihoods,
-                guiding_vars_scales=self._model_opts.guiding_vars_scales,
-                factor_prior=self._model_opts.factor_prior,
-                weight_prior=self._model_opts.weight_prior,
-                nonnegative_factors=self._model_opts.nonnegative_factors,
-                nonnegative_weights=self._model_opts.nonnegative_weights,
-                init_factors=self._model_opts.init_factors,
-                init_scale=self._model_opts.init_scale,
-            )
-        }
-        model = MofaFlexModel(terms=terms, likelihoods=self._model_opts.likelihoods).to(self._train_opts.device)
+        model = MofaFlexModel(terms=self._terms, likelihoods=likelihoods).to(self._train_opts.device)
 
         n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
         gamma = 0.1
@@ -632,7 +599,6 @@ class MOFAFLEX:
             "sample_names": self._sample_names,
             "metadata": self._metadata,
             "data_opts": self._data_opts.asdict(),
-            "model_opts": self._model_opts.asdict(),
             "train_opts": self._train_opts.asdict(),
             "model": self._model.save(),
         }
@@ -661,9 +627,8 @@ class MOFAFLEX:
         model._feature_names = state["feature_names"]
         model._sample_names = state["sample_names"]
         model._metadata = state["metadata"]
-        model._data_opts = DataOptions(**state["data_opts"])
-        model._model_opts = ModelOptions(**state["model_opts"])
-        model._train_opts = TrainingOptions(**state["train_opts"])
+        model._data_opts = _DataOptions(**state["data_opts"])
+        model._train_opts = _TrainingOptions(**state["train_opts"])
 
         model._model = MofaFlexModel.load(state["model"], model.n_samples, model.n_features, map_location=map_location)
 

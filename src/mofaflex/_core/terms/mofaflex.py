@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from itertools import chain
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pyro
@@ -16,7 +16,6 @@ from scipy import stats
 from scipy.sparse import issparse
 from sklearn.decomposition import NMF, PCA
 
-from ..api.priors import Prior as APIPrior
 from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset
 from ..likelihoods.pyro import PyroLikelihood
 from ..priors import FactorPriorType, Prior, WeightPriorType
@@ -24,6 +23,9 @@ from ..utils import MeanStd, PyroModuleDict, PyroParameterDict
 from .base import Term
 
 _logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from ..api.priors import Prior as APIPrior
 
 
 class MofaFlex(Term):
@@ -46,8 +48,12 @@ class MofaFlex(Term):
     def __init__(
         self,
         n_factors: int,
-        factor_prior: Mapping[str | Sequence[str], FactorPriorType | APIPrior] | FactorPriorType | APIPrior = "Normal",
-        weight_prior: Mapping[str | Sequence[str], WeightPriorType | APIPrior] | WeightPriorType | APIPrior = "Normal",
+        factor_prior: Mapping[str | Sequence[str], FactorPriorType | "APIPrior"]
+        | FactorPriorType
+        | "APIPrior" = "Normal",
+        weight_prior: Mapping[str | Sequence[str], WeightPriorType | "APIPrior"]
+        | WeightPriorType
+        | "APIPrior" = "Normal",
         nonnegative_factors: Mapping[str, bool] | bool = False,
         nonnegative_weights: Mapping[str, bool] | bool = False,
         guiding_vars_obs_keys: str | Sequence[str] | Mapping[str, Mapping[str, str]] | None = None,
@@ -111,6 +117,8 @@ class MofaFlex(Term):
         return self._factor_order
 
     def _init(self, data: MofaFlexDataset):
+        from ..api.priors import Prior as APIPrior
+
         self._pos_transform = torch.nn.ReLU()
         for axis, (priorattr, names) in enumerate(
             zip(("_factor_priors", "_weight_priors"), (data.group_names, data.view_names), strict=True)

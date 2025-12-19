@@ -2,7 +2,6 @@ from abc import ABC
 from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import suppress
-from dataclasses import MISSING, dataclass, fields
 from inspect import isabstract, signature
 from io import BytesIO
 from itertools import islice
@@ -222,50 +221,6 @@ class SaveStateMixin:
             **kwargs: Additional, class-specific, arguments.
         """
         pass
-
-
-@dataclass(kw_only=True)
-class Options:
-    def __or__(self, other):
-        if self.__class__ is not other.__class__:
-            raise TypeError("Can only merge objects of the same type")
-
-        kwargs = self.asdict()
-        for f in fields(other):
-            val = getattr(other, f.name)
-            if (
-                f.default is not MISSING
-                and val != f.default
-                or f.default_factory is not MISSING
-                and val != f.default_factory()
-            ):
-                kwargs[f.name] = val
-        return self.__class__(**kwargs)
-
-    def __ior__(self, other):
-        if self.__class__ is not other.__class__:
-            raise TypeError("Can only merge objects of the same type")
-
-        for f in fields(other):
-            val = getattr(other, f.name)
-            if (
-                f.default is not MISSING
-                and val != f.default
-                or f.default_factory is not MISSING
-                and val != f.default_factory()
-            ):
-                setattr(self, f.name, val)
-        return self
-
-    def asdict(self):
-        # avoid the deepcopy done by dataclasses.asdict
-        return {f.name: getattr(self, f.name) for f in fields(self)}
-
-    def __post_init__(self):
-        # after an HDF5 roundtrip, these are numpy scalars, which PyTorch doesn't handle well'
-        for f in fields(self):
-            if f.type in (float, int, bool):
-                setattr(self, f.name, f.type(getattr(self, f.name)))
 
 
 def pickle_torch_state(state: dict) -> NDArray[np.uint8]:

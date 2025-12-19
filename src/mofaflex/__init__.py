@@ -1,7 +1,7 @@
 import logging
 
 from . import pl, tl
-from ._core import MOFAFLEX, DataOptions, FeatureSet, FeatureSets, ModelOptions, TrainingOptions, settings
+from ._core import MOFAFLEX, FeatureSet, FeatureSets, settings
 from ._core.api import likelihoods, priors, terms
 from ._version import __version__, __version_tuple__
 

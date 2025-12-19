@@ -13,6 +13,7 @@ from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 from scipy.sparse import issparse
 
+from .api.likelihoods import Likelihood as APILikelihood
 from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood, LikelihoodType
 from .terms import Term
@@ -25,7 +26,11 @@ class MofaFlexModel(PyroModule):
     _sample_plate_dim = -2
     _feature_plate_dim = -1
 
-    def __init__(self, terms: Mapping[str, Term], likelihoods: Mapping[str, LikelihoodType] | LikelihoodType | None):
+    def __init__(
+        self,
+        terms: Mapping[str, Term],
+        likelihoods: Mapping[str, LikelihoodType | APILikelihood] | LikelihoodType | APILikelihood | None,
+    ):
         super().__init__()
 
         self._terms = PyroModuleDict(terms)
@@ -50,13 +55,17 @@ class MofaFlexModel(PyroModule):
                 nonnegative_views.add(view_name)
 
         if (
-            not isinstance(self._likelihoods, dict | str | None)
+            not isinstance(self._likelihoods, dict | str | APILikelihood | None)
             or isinstance(self._likelihoods, str)
             and self._likelihoods not in get_args(LikelihoodType)
             or isinstance(self._likelihoods, dict)
-            and not all(val in get_args(LikelihoodType) for val in self._likelihoods.values())
+            and not all(
+                isinstance(val, APILikelihood) or val in get_args(LikelihoodType) for val in self._likelihoods.values()
+            )
         ):
-            raise ValueError("Likelihoods must be a dictionary or a string containing a valid likelihood name.")
+            raise ValueError(
+                "Likelihoods must be a dictionary or a string containing a valid likelihood name or a Likelihood instance."
+            )
 
         if self._likelihoods is None:
             self._likelihoods = data.apply(Likelihood.infer, by_group=False)
@@ -66,11 +75,13 @@ class MofaFlexModel(PyroModule):
                 self._likelihoods[view_name] = likelihood(view_name, data, view_name in nonnegative_views)
             _logger.info("No likelihoods provided. Using inferred likelihoods: " + "; ".join(msg))
         else:
-            if isinstance(self._likelihoods, str):
+            if isinstance(self._likelihoods, str | APILikelihood):
                 self._likelihoods = dict.fromkeys(data.view_names, self._likelihoods)
 
             self._likelihoods = {
                 view: Likelihood(likelihood, view, data, view_name in nonnegative_views)
+                if isinstance(likelihood, str)
+                else likelihood(view, data, view_name in nonnegative_views)
                 for view, likelihood in self._likelihoods.items()
             }
 
