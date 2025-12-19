@@ -1,13 +1,17 @@
+import inspect
 import logging
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from functools import update_wrapper
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import numpy as np
+import pandas as pd
 import pyro
 import pyro.distributions as dist
 import torch
+from anndata import AnnData
 from array_api_compat import array_namespace
 from numpy.typing import NDArray
 from pyro.distributions import constraints
@@ -18,7 +22,7 @@ from sklearn.decomposition import NMF, PCA
 
 from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset
 from ..likelihoods.pyro import PyroLikelihood
-from ..priors import FactorPriorType, Prior, WeightPriorType
+from ..priors import API, APIType, FactorPriorType, Prior, WeightPriorType
 from ..utils import MeanStd, PyroModuleDict, PyroParameterDict
 from .base import Term
 
@@ -26,6 +30,11 @@ _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..api.priors import Prior as APIPrior
+
+
+class _PriorApiProperty(NamedTuple):
+    obj: Prior
+    attr: str
 
 
 class MofaFlex(Term):
@@ -78,6 +87,71 @@ class MofaFlex(Term):
         self._factor_names = [f"Factor {k + 1}" for k in range(n_factors)]
         self._factor_order = np.arange(len(self._factor_names))
 
+        self._prior_api_properties: dict[str, _PriorApiProperty] = {}
+
+    def _results_to_df(
+        self,
+        results: Mapping[str, np.ndarray],
+        axis: Literal[0, 1],
+        ordered: bool = False,
+        factors_subset: slice = slice(None),
+    ):
+        factor_names = self.factor_names[factors_subset]
+        ret = {}
+        for name, res in results.items():
+            if ordered:
+                factor_order = self.factor_order[factors_subset]
+                factor_order = np.argsort(np.argsort(factor_order))
+                res = res[:, factor_order]
+            ret[name] = pd.DataFrame(
+                res, index=self._sample_names[name] if axis == 0 else self._feature_names[name], columns=factor_names
+            )
+        return ret
+
+    def _wrap_api_method(self, axis: Literal[0, 1], prior: Prior, api: API):
+        def wrapper_func(self, *args, **kwargs):
+            with torch.device(self._train_opts.device):
+                ret = getattr(prior, api.name)
+                if api.type == APIType.method:
+                    ret = ret(*args, **kwargs)
+            return ret
+
+        if not api.has_factors:
+            wrapped = wrapper_func
+        else:
+
+            def wrapper_func_order(self, *args, ordered: bool = False, **kwargs):
+                ret = wrapper_func(self, *args, **kwargs)
+                factors_subset = getattr(prior, api.factors_subset) if api.factors_subset is not None else slice(None)
+                return self._results_to_df(ret, axis, ordered, factors_subset)
+
+            wrapped = wrapper_func_order
+
+        return wrapped
+
+    def _init_api(self):
+        for axis, priors in ((0, self._factor_priors), (1, self._weight_priors)):
+            for prior in priors:
+                for api in prior.api():
+                    name = _apinames[(axis, prior.__class__.__name__, api.name)]
+                    if api.type == APIType.property and not api.has_factors:
+                        self._prior_api_properties[name] = _PriorApiProperty(prior, api.name)
+                        continue
+                    wrapped = self._wrap_api_method(axis, prior, api)
+                    dummy = getattr(self.__class__, name)
+                    update_wrapper(wrapped, dummy)
+                    setattr(self, name, wrapped.__get__(self))
+
+    def __getattribute__(self, name):
+        try:
+            prop = super().__getattribute__("_prior_api_properties")[name]
+            return getattr(prop.obj, prop.attr)
+        except (KeyError, AttributeError):
+            return super().__getattribute__(name)
+
+    def __dir__(self):
+        return chain(super().__dir__(), self._prior_api_properties.keys())
+
     @property
     def n_guided_factors(self):
         return len(self._guiding_vars_names)
@@ -110,13 +184,21 @@ class MofaFlex(Term):
             raise ValueError(f"`order` must be 1-dimensional, got {order.ndim}-dimensional array.")
         if order.size != self.n_total_factors:
             raise ValueError(f"Wrong size of `order` argument. Need {self.n_total_factors}, got {order.size}.")
+        if order.min() != 0 or order.max() != self.n_total_factors - 1 or np.unique(order).size != order.size:
+            raise ValueError(f"The ordering must contain all integers in [0, {self.n_factors}).")
         self._factor_order = order
 
     @property
     def factor_order(self):
         return self._factor_order
 
+    @factor_order.setter
+    def factor_order(self, order: NDArray[int]):
+        self.component_order = order
+
     def _init(self, data: MofaFlexDataset):
+        self._sample_names = data.sample_names
+        self._feature_names = data.feature_names
         from ..api.priors import Prior as APIPrior
 
         self._pos_transform = torch.nn.ReLU()
@@ -375,6 +457,8 @@ class MofaFlex(Term):
                 data, self._factor_names, data.feature_names, self._weights, self._nonnegative_weights, batch_size
             )
 
+        self._init_api()
+
     def _get_plates(self):
         if self.n_guided_factors > 0:
             guiding_var_plate = pyro.plate(
@@ -569,3 +653,204 @@ class MofaFlex(Term):
             )
             for pstate in state["weight_priors"].values()
         )
+
+        self._prior_api_properties = {}
+        self._init_api()
+
+    def _get_postprocessed_factors(self, moment: Literal["mean", "std"] = "mean", **kwargs) -> dict[str, np.ndarray]:
+        factors = {}
+        for prior in self._factor_priors:
+            factors.update(prior.postprocess_results(self._factors, moment=moment, **kwargs))
+        return factors
+
+    def get_factors(  # noqa: D417
+        self,
+        moment: Literal["mean", "std"] = "mean",
+        ordered: bool = False,
+        return_type: Literal["pandas", "anndata"] = "pandas",
+        **kwargs,
+    ) -> dict[str, pd.DataFrame | AnnData]:
+        """Get the factor matrices Z for each group.
+
+        Args:
+            moment: Which moment of the posterior distribution to return.
+            ordered: Whether to return the factors ordered by explained variance (highest to lowest).
+            return_type: Format of the returned object.
+        """
+        factors = self._get_postprocessed_factors(moment, **kwargs)
+        factors = self._results_to_df(factors, axis=0, ordered=ordered)
+
+        if return_type == "anndata":
+            for group_name, group_factors in factors.items():
+                group_adata = AnnData(group_factors)
+                group_adata.obs = pd.concat(self._metadata[group_name].values(), axis=1)
+                group_adata.obs = group_adata.obs.loc[:, ~group_adata.obs.columns.duplicated()]
+                factors[group_name] = group_adata
+
+        return factors
+
+    def _get_postprocessed_weights(self, moment: Literal["mean", "std"] = "mean", **kwargs) -> dict[str, np.ndarray]:
+        weights = {}
+        for prior in self._weight_priors:
+            weights.update(prior.postprocess_results(self._weights, moment=moment, **kwargs))
+        return weights
+
+    def get_weights(  # noqa: D417
+        self, moment: Literal["mean", "std"] = "mean", ordered: bool = False, **kwargs
+    ) -> dict[str, pd.DataFrame]:
+        """Get the weight matrices W for each view.
+
+        Args:
+            return_type: Format of the returned object.
+            moment: Which moment of the posterior distribution to return.
+            ordered: Whether to return the factors ordered by explained variance (highest to lowest).
+        """
+        weights = self._get_postprocessed_weights(moment, **kwargs)
+        weights = self._results_to_df(weights, axis=1, ordered=ordered)
+
+        return weights
+
+
+# init API for docs
+def _init_api():
+    def raise_(exc):
+        raise exc
+
+    def get_line_indentation(line: str):
+        for i, s in enumerate(line):
+            if not s.isspace():
+                return i
+        return np.inf
+
+    def get_indentation(docstring: str):
+        if not docstring:
+            return 0
+        lines = docstring.expandtabs(4).splitlines()
+        min_indent = np.inf
+        for line in lines[1:]:
+            min_indent = min(min_indent, get_line_indentation(line))
+        return min_indent if np.isfinite(min_indent) else 0
+
+    def make_dummy_function(name: str, prior: str, is_property: bool):
+        if is_property:
+            return lambda self: raise_(
+                AttributeError(
+                    f"The '{name}' property is only available when using the '{prior}' prior.", obj=self, name=name
+                )
+            )
+        else:
+            return lambda self, *args, **kwargs: raise_(
+                AttributeError(
+                    f"The '{name}' method is only available when using the '{prior}' prior.", obj=self, name=name
+                )
+            )
+
+    apinames: dict[tuple[int, str, str], str] = {}
+
+    getters = MofaFlex.get_factors, MofaFlex.get_weights
+    getter_sigs = tuple(inspect.signature(getter) for getter in getters)
+    getter_params = tuple([param for param in sig.parameters.values() if param.name != "kwargs"] for sig in getter_sigs)
+    getter_annots = tuple(getter.__annotations__ for getter in getters)
+    getter_docs = [getter.__doc__ for getter in getters]
+    getter_indents = [" " * get_indentation(doc) for doc in getter_docs]
+
+    for axis, axisname, priors in (
+        (0, "factor", Prior.known_priors("factors")),
+        (1, "weight", Prior.known_priors("weights")),
+    ):
+        namescount = Counter()
+        for api in chain(*(x.api() for x in priors.values())):
+            namescount[api.name] += 1
+        duplicates = {k for k, v in namescount.items() if v > 1}
+
+        for prior, priorcls in priors.items():
+            for api in priorcls.api():
+                name = api.name if api.name not in duplicates else f"{api.name}_{prior}"
+                name = name.replace("a̲x̲i̲s̲", axisname)
+                if api.type == APIType.property and api.has_factors:
+                    name = f"get_{name}"
+                apinames[(axis, prior, api.name)] = name
+
+                if api.type == APIType.property and not api.has_factors:
+                    attr = property(make_dummy_function(name, prior, True))
+                    attr.__doc__ = (
+                        getattr(priorcls, api.name).__doc__ + "\n\n.. important::\n"
+                        f"   This property is only available when using the {prior} prior."
+                    )
+                    setattr(MofaFlex, name, attr)
+                    continue
+
+                func = getattr(priorcls, api.name)
+                if api.type == APIType.property:
+                    func = func.fget
+                doc = func.__doc__
+                sig = inspect.signature(func)
+                params = list(sig.parameters.values())
+                annots = func.__annotations__.copy()
+                wrapperfunc = make_dummy_function(name, prior, False)
+                if not api.has_factors:
+                    wrapperfunc.__doc__ = doc
+                else:
+                    if doc is not None:
+                        doc += "\n\n"
+                    else:
+                        doc = ""
+                    indent = " " * get_indentation(doc)
+                    wrapperfunc.__doc__ = (
+                        doc + f"{indent}Args:\n"
+                        f"{indent}    ordered: Whether to return the factors ordered by explained variance (highest to lowest).\n\n"
+                        f"{indent}.. important::\n"
+                        f"{indent}   This method is only available when using the `{prior}` prior."
+                    )
+                    params.append(
+                        inspect.Parameter(
+                            "ordered", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False, annotation=bool
+                        )
+                    )
+                    annots["ordered"] = bool
+                    wrapperfunc.__signature__ = sig.replace(parameters=params)
+                    wrapperfunc.__annotations__ = annots
+                    wrapperfunc.__qualname__ = f"{MofaFlex.__qualname__}.{name}"
+                    wrapperfunc.__name__ = name
+                setattr(MofaFlex, name, wrapperfunc)
+
+            postprocess_method = priorcls.postprocess_results
+            params = [
+                param
+                for param in inspect.signature(postprocess_method).parameters.values()
+                if param.name not in {"self", "results", "moment", "kwargs"}
+            ]
+            if len(params) > 0:
+                getter_params[axis].extend(params)
+                for param in params:
+                    getter_annots[axis][param.name] = param.annotation
+                if doc := postprocess_method.__doc__:
+                    docindent = get_indentation(doc)
+                    lines = doc.expandtabs(4).splitlines()
+                    lines[0] = getter_indents[axis] + "Args:"
+                    for i, line in enumerate(lines[1:]):
+                        lines[i + 1] = getter_indents[axis] + "    " + line[docindent:]
+                    doc = "\n".join(lines)
+                    getter_docs[axis] += (
+                        "\n"
+                        + doc
+                        + f"\n{getter_indents[axis]}        .. important::\n{getter_indents[axis]}           This argument is only available when using the `{prior}` prior."
+                    )
+
+    # can't move this inside the loop due to Python's late binding closures
+    getter_wrappers = (
+        lambda self, *args, **kwargs: getters[0](self, *args, **kwargs),
+        lambda self, *args, **kwargs: getters[1](self, *args, **kwargs),
+    )
+    for axis, (method, wrapper) in enumerate(zip(getters, getter_wrappers, strict=True)):
+        wrapper.__signature__ = getter_sigs[axis].replace(parameters=getter_params[axis])
+        wrapper.__annotations__ = getter_annots[axis]
+        wrapper.__doc__ = getter_docs[axis]
+        wrapper.__qualname__ = method.__qualname__
+        wrapper.__name__ = method.__name__
+        setattr(MofaFlex, method.__name__, wrapper)
+
+    return apinames
+
+
+_apinames = _init_api()
