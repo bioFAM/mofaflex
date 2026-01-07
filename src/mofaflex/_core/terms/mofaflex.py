@@ -134,6 +134,7 @@ class MofaFlex(Term):
             for prior in priors:
                 for api in prior.api():
                     name = _apinames[(axis, prior.__class__.__name__, api.name)]
+                    self._api(name)
                     if api.type == APIType.property and not api.has_factors:
                         self._prior_api_properties[name] = _PriorApiProperty(prior, api.name)
                         continue
@@ -152,6 +153,7 @@ class MofaFlex(Term):
     def __dir__(self):
         return chain(super().__dir__(), self._prior_api_properties.keys())
 
+    @Term._api
     @property
     def n_guided_factors(self) -> int:
         return len(self._guiding_vars_names)
@@ -160,14 +162,17 @@ class MofaFlex(Term):
     def _guiding_vars_factors(self) -> range:
         return range(self.n_total_factors - self.n_guided_factors, self.n_total_factors)
 
+    @Term._api
     @property
     def n_factors(self) -> int:
         return self._n_factors
 
+    @Term._api
     @property
     def n_total_factors(self) -> int:
         return len(self._factor_names)
 
+    @Term._api
     @property
     def factor_names(self) -> NDArray[str | np.str_]:
         """Factor names."""
@@ -188,6 +193,7 @@ class MofaFlex(Term):
             raise ValueError(f"The ordering must contain all integers in [0, {self.n_factors}).")
         self._factor_order = order
 
+    @Term._api
     @property
     def factor_order(self) -> NDArray[int]:
         return self._factor_order
@@ -663,6 +669,7 @@ class MofaFlex(Term):
             factors.update(prior.postprocess_results(self._factors, moment=moment, **kwargs))
         return factors
 
+    @Term._api
     def get_factors(  # noqa: D417
         self,
         moment: Literal["mean", "std"] = "mean",
@@ -695,6 +702,7 @@ class MofaFlex(Term):
             weights.update(prior.postprocess_results(self._weights, moment=moment, **kwargs))
         return weights
 
+    @Term._api
     def get_weights(  # noqa: D417
         self, moment: Literal["mean", "std"] = "mean", ordered: bool = False, **kwargs
     ) -> dict[str, pd.DataFrame]:

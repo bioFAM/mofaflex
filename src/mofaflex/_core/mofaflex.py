@@ -28,7 +28,7 @@ from .io import load_model, save_model
 from .likelihoods import LikelihoodType
 from .model import MofaFlexModel
 from .settings import settings
-from .terms import Term
+from .terms import Term, TermWrapper
 from .training import EarlyStopper
 from .utils import impute, nanvar, sample_all_data_as_one_batch
 
@@ -173,7 +173,10 @@ class MOFAFLEX:
     @property
     def terms(self) -> Mapping[str, Term]:
         """The additive terms."""
-        return MappingProxyType(self._terms)
+        return MappingProxyType(self._wrapped_terms)
+
+    def _init_api(self):
+        self._wrapped_terms = {name: TermWrapper(self, term) for name, term in self._terms.items()}
 
     def fit(
         self,
@@ -369,6 +372,7 @@ class MOFAFLEX:
 
         self._train_loss_elbo = np.asarray(train_loss_elbo)
         self._model = model
+        self._init_api()
 
         if self._train_opts.save_path is not False:
             if self._train_opts.save_path is None:
@@ -491,5 +495,6 @@ class MOFAFLEX:
         model._train_opts = _TrainingOptions(**state["train_opts"])
 
         model._model = MofaFlexModel.load(state["model"], model.n_samples, model.n_features, map_location=map_location)
+        model._init_api()
 
         return model

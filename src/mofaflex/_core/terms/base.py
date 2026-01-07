@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
-from types import MappingProxyType
+from collections.abc import Callable, Iterable, Mapping
+from types import MappingProxyType, MethodType
 
 import numpy as np
 import pyro
@@ -14,6 +16,67 @@ from ..utils import SaveStateMixin, _PyroMeta, checked_baseclass
 
 @checked_baseclass(registry="dict")
 class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
+    _apilist = []
+
+    def api(self) -> Iterable[str]:
+        """The user-facing API of this term."""
+        return self._apilist
+
+    def api_methods(self) -> Iterable[str]:
+        """The user-facing methods of this term."""
+        return (api for api in self._apilist if not isinstance(getattr(self.__class__, api), property))
+
+    def api_properties(self) -> Iterable[str]:
+        """The user-facing properties of this prior."""
+        return (api for api in self._apilist if isinstance(getattr(self.__class__, api), property))
+
+    def _api(obj: Callable | property | Term | None = None, attr: MethodType | property | str | None = None):
+        """Mark a method or property as user-facing.
+
+        Subclasses can use this to expose properties or methods to the end user through the main model class.
+        """
+
+        def _add_api(owner, api: str):
+            if "_apilist" not in owner.__dict__:
+                owner._apilist = owner._apilist.copy()
+            owner._apilist.append(api)
+
+        class __api:
+            def __new__(cls, func: Callable | MethodType | property):
+                if isinstance(func, MethodType):
+                    _add_api(func.__self__, func, __name__)
+                    return None
+                else:
+                    return super().__new__(cls)
+
+            def __init__(self, func: Callable | property):
+                self._func = func
+                if isinstance(func, property):
+                    self.setter = self._setter
+                    self.deleter = self._deleter
+
+            def __set_name__(self, owner, name: str):
+                _add_api(owner, name)
+                setattr(owner, name, self._func)
+
+            def _setter(self, func):
+                return self._func.setter(func)
+
+            def _deleter(self, func):
+                return self._func.deleter(func)
+
+        if obj is not None:
+            if isinstance(obj, Callable | property) and not isinstance(obj, __class__):
+                return __api(obj)
+            elif isinstance(attr, MethodType):
+                return __api(attr)
+            elif attr is None:
+                raise ValueError("need attr if invoked on a Term instance")
+            _add_api(obj, attr)
+            return obj
+        else:
+            return __api
+
     @pyro_method
     @abstractmethod
     def model(
