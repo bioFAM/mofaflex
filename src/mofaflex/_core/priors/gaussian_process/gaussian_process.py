@@ -33,11 +33,11 @@ class GaussianProcess(Prior):
         mefisto_kernel: Whether to use the MEFISTO group covariance kernel or treat groups independently.
         independent_lengthscales: Whether to use a separate lengthscale per covariate dimension.
         group_cvar_rank: Rank of the group correlation matrix. Only relevant if `mefisto_kernel=True`.
-        warp_groups: List of groups to apply dynamic time warping to.
+        warp: Whether to use dynamic time warping. Warping is only supported for 1D covariates.
         warp_interval: Apply dynamic time warping every `warp_interval` epochs.
         warp_open_begin: Perform open-ended alignment.
         warp_open_end: Perform open-ended alignment.
-        warp_reference_group: Reference group to align the others to. Defaults to the first group of `warp_groups`.
+        warp_reference_group: Reference group to align the others to. Defaults to the first group.
     """
 
     _state_attrs = (
@@ -50,7 +50,7 @@ class GaussianProcess(Prior):
         "_mefisto_kernel",
         "_independent_lengthscales",
         "_group_covar_rank",
-        "_warp_groups",
+        "_warp",
         "_warp_interval",
         "_warp_open_begin",
         "_warp_open_end",
@@ -71,7 +71,7 @@ class GaussianProcess(Prior):
         mefisto_kernel: bool = True,
         independent_lengthscales: bool = False,
         group_covar_rank: int = 1,
-        warp_groups: Sequence[str] = (),
+        warp: bool = False,
         warp_interval: int = 20,
         warp_open_begin: bool = True,
         warp_open_end: bool = True,
@@ -91,7 +91,7 @@ class GaussianProcess(Prior):
         self._mefisto_kernel = mefisto_kernel
         self._independent_lengthscales = independent_lengthscales
         self._group_covar_rank = group_covar_rank
-        self._warp_groups = [warp_groups] if isinstance(warp_groups, str) else list(warp_groups)
+        self._warp = warp
         self._warp_interval = warp_interval
         self._warp_open_begin = warp_open_begin
         self._warp_open_end = warp_open_end
@@ -131,26 +131,23 @@ class GaussianProcess(Prior):
         init_loc: float = 0.0
         init_scale: float = 0.1
 
-        if len(self._warp_groups) > 1:
-            if not set(self._warp_groups) <= set(self._names):
-                raise ValueError(
-                    "The set of groups with dynamic time warping must be a subset of groups with a GP factor prior."
-                )
-            self._warp_groups_order = {}
-            for g in self._warp_groups:
-                ccov = self._covariates[g].to_numpy().squeeze()
-                if ccov.ndim > 1:
-                    raise ValueError(
-                        f"Warping can only be performed with 1D covariates, but the covariate for group {g} has {ccov.ndim} dimensions."
-                    )
-                self._warp_groups_order[g] = ccov.argsort()
-            self._orig_covariates = {g: c.copy() for g, c in self._covariates.items()}
+        if self._warp:
+            if len(self.names) > 1:
+                self._warp_groups_order = {}
+                for g in self.names:
+                    ccov = self._covariates[g].to_numpy().squeeze()
+                    if ccov.ndim > 1:
+                        raise ValueError(
+                            f"Warping can only be performed with 1D covariates, but the covariate for group {g} has {ccov.ndim} dimensions."
+                        )
+                    self._warp_groups_order[g] = ccov.argsort()
+                self._orig_covariates = {g: c.copy() for g, c in self._covariates.items()}
 
-            if self._warp_reference_group is None:
-                self._warp_reference_group = self._warp_groups[0]
-        elif len(self._warp_groups) == 1:
-            _logger.warning("Need at least 2 groups for warping, but only one was given. Ignoring warping.")
-            self._warp_groups = []
+                if self._warp_reference_group is None:
+                    self._warp_reference_group = self.names[0]
+            elif len(self.names) == 1:
+                _logger.warning("Need at least 2 groups for warping, but only one was given. Ignoring warping.")
+                self._warp = False
 
         self._init_gp(n_factors)
         self._gp = pyro.module("gp", self._gp)
@@ -180,14 +177,15 @@ class GaussianProcess(Prior):
         self._scale = PyroParam(scale, constraint=constraints.softplus_positive)
 
     def on_train_epoch_end(self, epoch: int):
-        if len(self._warp_groups) and epoch > 0 and not epoch % self._warp_interval:
+        if self._warp and epoch > 0 and not epoch % self._warp_interval:
             factormeans = {
                 group_name: mean.cpu().numpy() for group_name, mean in self.posterior.mean.items()
             }  # TODO: investigate how warping interacts with non-negativity
-            refgroup = self._warp_reference_group
-            reffactormeans = factormeans[refgroup].mean(axis=0)
-            refidx = self._warp_groups_order[refgroup]
-            for g in self._warp_groups[1:]:
+            reffactormeans = factormeans[self._warp_reference_group].mean(axis=0)
+            refidx = self._warp_groups_order[self._warp_reference_group]
+            for g in self.names:
+                if g == self._warp_reference_group:
+                    continue
                 idx = self._warp_groups_order[g]
                 alignment = dtw(
                     reffactormeans[refidx],
@@ -197,9 +195,9 @@ class GaussianProcess(Prior):
                     step_pattern="asymmetric",
                 )
                 self._covariates[g] = self._orig_covariates[g].copy()
-                self._covariates[g].iloc[idx[alignment.index2], 0] = self._orig_covariates[refgroup].iloc[
-                    refidx[alignment.index1], 0
-                ]
+                self._covariates[g].iloc[idx[alignment.index2], 0] = self._orig_covariates[
+                    self._warp_reference_group
+                ].iloc[refidx[alignment.index1], 0]
             self._gp.update_inducing_points(covar.to_numpy() for covar in self._covariates.values())
 
     def on_train_end(
