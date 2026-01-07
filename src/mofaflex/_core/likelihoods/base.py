@@ -192,6 +192,5 @@ class Likelihood(SaveStateMixin, ABC):
         return r2
 
     @classmethod
-    @property
     def known_likelihoods(cls) -> Mapping[str, type]:
         return MappingProxyType(__class__._registry)
