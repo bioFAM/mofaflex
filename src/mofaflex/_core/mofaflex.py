@@ -2,6 +2,7 @@ import logging
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
+from itertools import chain
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
@@ -90,6 +91,19 @@ class MOFAFLEX:
                 f"Operands must have unique term names, but terms {', '.join(intersection)} were found in both operands."
             )
         return __class__(**self._terms, **other._terms)
+
+    def __dir__(self):
+        sdir = super().__dir__()
+        if hasattr(self, "_wrapped_terms") and len(self._wrapped_terms) == 1:
+            return chain(sdir, next(iter(self._wrapped_terms.values())).__dir__(forward=False))
+        else:
+            return sdir
+
+    def __getattr__(self, name):
+        if hasattr(self, "_wrapped_terms") and len(self._wrapped_terms) == 1:
+            return next(iter(self._wrapped_terms.values())).__getattr__(name, forward=False)
+        else:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'", name=name, obj=self)
 
     def _make_dataset(self, data: MuData | Mapping[str, Mapping[str, AnnData]]) -> MofaFlexDataset:
         return MofaFlexDataset(

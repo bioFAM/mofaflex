@@ -184,9 +184,6 @@ class MofaFlex(Term):
         except (KeyError, AttributeError):
             return super().__getattribute__(name)
 
-    def __dir__(self):
-        return chain(super().__dir__(), self._prior_api_properties.keys())
-
     @Term._api
     @property
     def n_guided_factors(self) -> int:

@@ -13,16 +13,19 @@ class TermWrapper:
         self._model = model
         self._term = term
 
-    def __dir__(self):
-        return chain(self._model.__dir__(), self._term.api())
+    def __dir__(self, forward: bool = True):
+        return chain(self._model.__dir__(), self._term.api()) if forward else self._term.api()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name, forward: bool = True):
+        err = AttributeError(
+            f"'{self._term.__class__.__name__}' object has no attribute '{name}'", name=name, obj=self._term
+        )
         if name in self._term.api():
             return getattr(self._term, name)
-        else:
+        elif forward:
             try:
                 return getattr(self._model, name)
             except AttributeError as e:
-                raise AttributeError(
-                    f"'{self._term.__class__.__name__}' object has no attribute '{name}'", name=name, obj=self._term
-                ) from e
+                raise err from e
+        else:
+            raise err
