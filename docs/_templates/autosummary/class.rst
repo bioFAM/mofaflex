@@ -39,7 +39,7 @@ Attributes
 
 {% for item in attributes %}
 
-.. autoattribute:: {{ [objname, item] | join(".") }}
+.. autoattribute:: {{ [fullname, item] | join(".") }}
 {%- endfor %}
 
 {% endif %}
@@ -52,7 +52,7 @@ Methods
 
 {% for item in methods %}
 
-.. automethod:: {{ [objname, item] | join(".") }}
+.. automethod:: {{ [fullname, item] | join(".") }}
 {%- endfor %}
 
 {% endif %}

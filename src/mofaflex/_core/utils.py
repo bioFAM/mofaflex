@@ -1,3 +1,4 @@
+import os
 from abc import ABC
 from collections import namedtuple
 from collections.abc import Sequence
@@ -221,6 +222,10 @@ class SaveStateMixin:
             **kwargs: Additional, class-specific, arguments.
         """
         pass
+
+
+def building_docs() -> bool:
+    return "MOFAFLEX_DOCS" in os.environ
 
 
 def pickle_torch_state(state: dict) -> NDArray[np.uint8]:

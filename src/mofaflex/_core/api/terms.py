@@ -1,6 +1,7 @@
 from inspect import Parameter, Signature, signature
 
 from ..terms import Term
+from ..utils import building_docs
 
 __all__ = []
 
@@ -15,15 +16,21 @@ def _init_api():
         return wrapper
 
     for termname, term in Term.known_terms.items():
-        wrapper = make_wrapper(term)
-        sig = signature(term.__init__)
-        params = [signature(wrapper).parameters["name"]] + [
-            Parameter(param.name, Parameter.KEYWORD_ONLY, default=param.default, annotation=param.annotation)
-            for param in sig.parameters.values()
-        ]
-        wrapper.__signature__ = Signature(params)
-        wrapper.__annotations__ = term.__init__.__annotations__ | {"name": str}
-        wrapper.__doc__ = term.__doc__
+        if not building_docs():
+            wrapper = make_wrapper(term)
+            sig = signature(term.__init__)
+            params = [signature(wrapper).parameters["name"]] + [
+                Parameter(param.name, Parameter.KEYWORD_ONLY, default=param.default, annotation=param.annotation)
+                for param in sig.parameters.values()
+            ]
+            wrapper.__signature__ = Signature(params)
+            wrapper.__annotations__ = term.__init__.__annotations__ | {"name": str}
+            wrapper.__doc__ = term.__doc__
+        else:
+            wrapper = type(termname, (), {"__module__": __name__, "__doc__": term.__doc__})
+            wrapper.__init__ = term.__init__
+            for api in term.api():
+                setattr(wrapper, api, getattr(term, api))
 
         globals()[termname] = wrapper
         __all__.append(termname)

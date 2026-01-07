@@ -10,13 +10,18 @@
 .. autosummary::
     :toctree: generated
 
-    DataOptions
-    ModelOptions
-    TrainingOptions
-    SmoothOptions
     MOFAFLEX
     FeatureSet
     FeatureSets
+```
+
+### Terms
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+    :recursive:
+
+    terms
 ```
 
 ### Priors

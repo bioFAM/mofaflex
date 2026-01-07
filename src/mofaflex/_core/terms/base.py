@@ -14,23 +14,42 @@ from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..utils import SaveStateMixin, _PyroMeta, checked_baseclass
 
 
+class _Wrapper:
+    def __init__(self, func):
+        self._func = func
+        self._clsfunc = classmethod(func)
+
+    def __get__(self, instance, owner):
+        obj = self._func if instance is not None else self._clsfunc
+        return obj.__get__(instance, owner)
+
+
+def _class_and_instancemethod(func):
+    return _Wrapper(func)
+
+
 @checked_baseclass(registry="dict")
 class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     _apilist = []
 
+    @_class_and_instancemethod
     def api(self) -> Iterable[str]:
         """The user-facing API of this term."""
         return self._apilist
 
+    @_class_and_instancemethod
     def api_methods(self) -> Iterable[str]:
         """The user-facing methods of this term."""
         return (api for api in self._apilist if not isinstance(getattr(self.__class__, api), property))
 
+    @_class_and_instancemethod
     def api_properties(self) -> Iterable[str]:
         """The user-facing properties of this prior."""
         return (api for api in self._apilist if isinstance(getattr(self.__class__, api), property))
 
-    def _api(obj: Callable | property | Term | None = None, attr: MethodType | property | str | None = None):
+    def _api(
+        obj: Callable | property | Term | type[Term] | None = None, attr: MethodType | property | str | None = None
+    ):
         """Mark a method or property as user-facing.
 
         Subclasses can use this to expose properties or methods to the end user through the main model class.
@@ -66,7 +85,7 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
                 return self._func.deleter(func)
 
         if obj is not None:
-            if isinstance(obj, Callable | property) and not isinstance(obj, __class__):
+            if isinstance(obj, Callable | property) and not isinstance(obj, __class__) and not isinstance(obj, type):
                 return __api(obj)
             elif isinstance(attr, MethodType):
                 return __api(attr)

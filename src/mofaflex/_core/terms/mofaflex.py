@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import reduce, update_wrapper
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -21,16 +21,14 @@ from scipy import stats
 from scipy.sparse import issparse
 from sklearn.decomposition import NMF, PCA
 
+from ..api import priors as apipriors
 from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset
 from ..likelihoods.pyro import PyroLikelihood
 from ..priors import API, APIType, FactorPriorType, Prior, WeightPriorType
-from ..utils import MeanStd, PyroModuleDict, PyroParameterDict
+from ..utils import MeanStd, PyroModuleDict, PyroParameterDict, building_docs
 from .base import Term
 
 _logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from ..api.priors import Prior as APIPrior
 
 
 class _PriorApiProperty(NamedTuple):
@@ -58,12 +56,12 @@ class MofaFlex(Term):
     def __init__(
         self,
         n_factors: int,
-        factor_prior: Mapping[str | Sequence[str], FactorPriorType | "APIPrior"]
+        factor_prior: Mapping[str | Sequence[str], FactorPriorType | apipriors.Prior]
         | FactorPriorType
-        | "APIPrior" = "Normal",
-        weight_prior: Mapping[str | Sequence[str], WeightPriorType | "APIPrior"]
+        | apipriors.Prior = "Normal",
+        weight_prior: Mapping[str | Sequence[str], WeightPriorType | apipriors.Prior]
         | WeightPriorType
-        | "APIPrior" = "Normal",
+        | apipriors.Prior = "Normal",
         nonnegative_factors: Mapping[str, bool] | bool = False,
         nonnegative_weights: Mapping[str, bool] | bool = False,
         guiding_vars_obs_keys: str | Sequence[str] | Mapping[str, Mapping[str, str]] | None = None,
@@ -793,6 +791,7 @@ def _init_api():
     getter_docs = [getter.__doc__ for getter in getters]
     getter_indents = [" " * get_indentation(doc) for doc in getter_docs]
 
+    seen_priors = set()
     for axis, axisname, priors in (
         (0, "factor", Prior.known_priors("factors")),
         (1, "weight", Prior.known_priors("weights")),
@@ -803,6 +802,18 @@ def _init_api():
         duplicates = {k for k, v in namescount.items() if v > 1}
 
         for prior, priorcls in priors.items():
+            if building_docs() and prior not in seen_priors:
+                apiprior = getattr(apipriors, prior)
+                doc = apiprior.__doc__
+                if doc is None:
+                    doc = ""
+                indent = " " * get_indentation(doc)
+                apiprior.__doc__ = (
+                    doc + f"\n\n{indent}.. important::\n"
+                    f"{indent}   All methods and properties of this class are only accessible through the :class:`~.terms.MofaFlex` class."
+                )
+                seen_priors.add(prior)
+
             for api in priorcls.api():
                 name = api.name if api.name not in duplicates else f"{api.name}_{prior}"
                 name = name.replace("a̲x̲i̲s̲", axisname)
@@ -814,9 +825,13 @@ def _init_api():
                     attr = property(make_dummy_function(name, prior, True))
                     attr.__doc__ = (
                         getattr(priorcls, api.name).__doc__ + "\n\n.. important::\n"
-                        f"   This property is only available when using the {prior} prior."
+                        f"   This property is only available when using the :class:`~.priors.{prior}` prior."
                     )
                     setattr(MofaFlex, name, attr)
+
+                    if building_docs():
+                        Term._api(MofaFlex, name)
+                        setattr(getattr(apipriors, prior), name, getattr(priorcls, api.name))
                     continue
 
                 func = getattr(priorcls, api.name)
@@ -827,19 +842,19 @@ def _init_api():
                 params = list(sig.parameters.values())
                 annots = func.__annotations__.copy()
                 wrapperfunc = make_dummy_function(name, prior, False)
+                if api.has_factors or building_docs():
+                    indent = " " * get_indentation(doc)
                 if not api.has_factors:
                     wrapperfunc.__doc__ = doc
+                    wrapperfunc.__signature__ = sig
                 else:
                     if doc is not None:
                         doc += "\n\n"
                     else:
                         doc = ""
-                    indent = " " * get_indentation(doc)
                     wrapperfunc.__doc__ = (
                         doc + f"{indent}Args:\n"
                         f"{indent}    ordered: Whether to return the factors ordered by explained variance (highest to lowest).\n\n"
-                        f"{indent}.. important::\n"
-                        f"{indent}   This method is only available when using the `{prior}` prior."
                     )
                     params.append(
                         inspect.Parameter(
@@ -851,6 +866,18 @@ def _init_api():
                     wrapperfunc.__annotations__ = annots
                     wrapperfunc.__qualname__ = f"{MofaFlex.__qualname__}.{name}"
                     wrapperfunc.__name__ = name
+
+                if building_docs():
+                    wrapperfunc2 = make_dummy_function(name, prior, False)  # can't copy function objects'
+                    wrapperfunc2.__signature__ = wrapperfunc.__signature__
+                    update_wrapper(wrapperfunc2, wrapperfunc)
+                    setattr(getattr(apipriors, prior), name, wrapperfunc2)
+                    Term._api(MofaFlex, name)
+
+                wrapperfunc.__doc__ += (
+                    f"\n{indent}.. important::\n"
+                    f"{indent}   This method is only available when using the :class:`~.priors.{prior}` prior.\n"
+                )
                 setattr(MofaFlex, name, wrapperfunc)
 
             postprocess_method = priorcls.postprocess_results
@@ -873,7 +900,7 @@ def _init_api():
                     getter_docs[axis] += (
                         "\n"
                         + doc
-                        + f"\n{getter_indents[axis]}        .. important::\n{getter_indents[axis]}           This argument is only available when using the `{prior}` prior."
+                        + f"\n{getter_indents[axis]}        .. important::\n{getter_indents[axis]}           This argument is only available when using the :class:`~.priors.{prior}` prior."
                     )
 
     # can't move this inside the loop due to Python's late binding closures
