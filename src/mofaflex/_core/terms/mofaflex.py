@@ -1,8 +1,9 @@
 import inspect
 import logging
+import operator
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
-from functools import update_wrapper
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from functools import reduce, update_wrapper
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
@@ -129,16 +130,46 @@ class MofaFlex(Term):
 
         return wrapped
 
+    @staticmethod
+    def _merge_api_results(results: Iterable):
+        results = tuple(results)
+        if (
+            all(isinstance(result, Mapping) for result in results)
+            and len(reduce(operator.and_, (result.keys() for result in results))) == 0
+        ):
+            ret = {}
+            for result in results:
+                ret.update(result)
+            return ret
+        else:
+            return results
+
+    @staticmethod
+    def _wrap_list_of_wrapped_methods(methods: Iterable[Callable]):
+        def wrapper_func(self, *args, **kwargs):
+            return __class__._merge_api_results(method(*args, **kwargs) for method in methods)
+
+        return wrapper_func
+
     def _init_api(self):
         for axis, priors in ((0, self._factor_priors), (1, self._weight_priors)):
+            grouped_priors = defaultdict(list)
             for prior in priors:
-                for api in prior.api():
-                    name = _apinames[(axis, prior.__class__.__name__, api.name)]
+                grouped_priors[prior.__class__.__name__].append(prior)
+            for gpriors in grouped_priors.values():
+                apis = gpriors[0].api()
+                for api in apis:
+                    name = _apinames[(axis, gpriors[0].__class__.__name__, api.name)]
                     self._api(name)
                     if api.type == APIType.property and not api.has_factors:
-                        self._prior_api_properties[name] = _PriorApiProperty(prior, api.name)
+                        self._prior_api_properties[name] = _PriorApiProperty(gpriors, api.name)
                         continue
-                    wrapped = self._wrap_api_method(axis, prior, api)
+                    if len(priors) > 1:
+                        wrapped = self._wrap_list_of_wrapped_methods(
+                            self._wrap_api_method(axis, prior, api) for prior in gpriors
+                        )
+                    else:
+                        wrapped = self._wrap_api_method(axis, prior, api)
                     dummy = getattr(self.__class__, name)
                     update_wrapper(wrapped, dummy)
                     setattr(self, name, wrapped.__get__(self))
@@ -146,7 +177,10 @@ class MofaFlex(Term):
     def __getattribute__(self, name):
         try:
             prop = super().__getattribute__("_prior_api_properties")[name]
-            return getattr(prop.obj, prop.attr)
+            if len(prop.obj) > 1:
+                return self._merge_api_results(getattr(obj, prop.attr) for obj in prop.obj)
+            else:
+                return getattr(prop.obj[0], prop.attr)
         except (KeyError, AttributeError):
             return super().__getattribute__(name)
 
