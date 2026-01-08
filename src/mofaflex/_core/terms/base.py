@@ -43,9 +43,7 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         """The user-facing properties of this prior."""
         return (api for api in self._apilist if isinstance(getattr(self.__class__, api), property))
 
-    def _api(
-        obj: Callable | property | Term | type[Term] | None = None, attr: MethodType | property | str | None = None
-    ):
+    def _api(obj: Callable | property | Term | type[Term], attr: MethodType | property | str | None = None):
         """Mark a method or property as user-facing.
 
         Subclasses can use this to expose properties or methods to the end user through the main model class.
@@ -59,7 +57,7 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         class __api:
             def __new__(cls, func: Callable | MethodType | property):
                 if isinstance(func, MethodType):
-                    _add_api(func.__self__, func, __name__)
+                    _add_api(func.__self__, func.__name__)
                     return None
                 else:
                     return super().__new__(cls)
@@ -80,17 +78,14 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
             def _deleter(self, func):
                 return self._func.deleter(func)
 
-        if obj is not None:
-            if isinstance(obj, Callable | property) and not isinstance(obj, __class__) and not isinstance(obj, type):
-                return __api(obj)
-            elif isinstance(attr, MethodType):
-                return __api(attr)
-            elif attr is None:
-                raise ValueError("need attr if invoked on a Term instance")
-            _add_api(obj, attr)
-            return obj
-        else:
-            return __api
+        if isinstance(obj, Callable | property) and not isinstance(obj, __class__) and not isinstance(obj, type):
+            return __api(obj)
+        elif isinstance(attr, MethodType):
+            return __api(attr)
+        elif attr is None:
+            raise ValueError("need attr if invoked on a Term instance")
+        _add_api(obj, attr)
+        return obj
 
     @pyro_method
     @abstractmethod
