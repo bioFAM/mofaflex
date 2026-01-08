@@ -19,10 +19,12 @@ from ..pcgse import pcgse_test
 from ..utils import MeanStd, PyroParameterDict
 from .base import Prior
 
-_logger = logging.getLogger()
+_logger = logging.getLogger(__name__)
 
 
 class Horseshoe(Prior):
+    """Horseshoe sparsity-inducing prior."""
+
     def _on_train_start(
         self,
         factor_dim: int,

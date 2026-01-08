@@ -65,10 +65,14 @@ class _SimpleLocationScale(Prior):
 
 
 class Normal(_SimpleLocationScale):
+    """Standard Normal prior."""
+
     def __init__(self, names: Sequence[str]):
         super().__init__(names, pyro.distributions.Normal)
 
 
 class Laplace(_SimpleLocationScale):
+    """Standard Laplace prior."""
+
     def __init__(self, names: Sequence[str]):
         super().__init__(names, pyro.distributions.Laplace)

@@ -23,6 +23,16 @@ _logger = logging.getLogger(__name__)
 
 
 class MofaFlexModel(PyroModule):
+    """The MOFA-FLEX model.
+
+    The model consists of multiple additive terms and a likelihood. Each additive term is responsible for handling its own
+    parameters and state opaquely to the overall model.
+
+    Args:
+        terms: The additive terms.
+        likelihoods: The likelhood for each view (if a mapping) or for all views otherwise.
+    """
+
     _sample_plate_dim = -2
     _feature_plate_dim = -1
 
@@ -346,6 +356,13 @@ class MofaFlexModel(PyroModule):
             )
 
     def predict(self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)):
+        """Create a prediction for a given group and view.
+
+        Args:
+            group_name: The group.
+            view_name: The view.
+            subset_idx: The subset of samples to predict for.
+        """
         return reduce(operator.add, (term.predict(group_name, view_name, subset_idx) for term in self._terms.values()))
 
     def save(self) -> dict[str, Any]:

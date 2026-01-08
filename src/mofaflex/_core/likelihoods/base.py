@@ -29,12 +29,17 @@ class R2(NamedTuple):
 class Likelihood(SaveStateMixin, ABC):
     """Base class for MOFA-FLEX likelihoods.
 
-    All likelihood-specific functionality must be implemented via classmethods/staticmethods, subclasses
-    must be stateless. Subclasses must also contain two attributes:
+    Subclasses must contain the `priority` attribute, which is used during likelihood inference to return the
+    most suitable likelihood if multiple likelihoods  are suitable for the given data. Must be non-negative,
+    higher values indicate higher priority.
 
-        - `_priority`: used during likelihood inference to return the most suitable likelihood
-          if multiple likelihoods  are suitable for the given data. Must be non-negative, higher values
-          indicate higher priority.
+    Subclasses must also implement the `_get_pyro_likelihood`, `_validate`, `_r2_impl`, and `transform_prediction`
+    methods.
+
+    Args:
+        view_name: The name of the view for this likelihood.
+        data: The dataset.
+        nonnegative: Whether the model prediction for this view is constrained to be nonnegative.
     """
 
     _state_attrs = ("_view_name", "_nonnegative")
@@ -45,18 +50,20 @@ class Likelihood(SaveStateMixin, ABC):
         self._nonnegative = nonnegative
 
     def get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int):
-        self._pyro_likelihood = self._get_pyro_likelihood(data, sample_dim, feature_dim)
-        return self._pyro_likelihood
-
-    @abstractmethod
-    def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
         """Set up a Pyro likelihood object.
+
+        Subclasses must not reimpllement this method, but `_get_pyro_likelihood`.
 
         Args:
             data: The dataset.
             sample_dim: The sample dimension.
             feature_dim: the feature dimension.
         """
+        self._pyro_likelihood = self._get_pyro_likelihood(data, sample_dim, feature_dim)
+        return self._pyro_likelihood
+
+    @abstractmethod
+    def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
         pass
 
     def on_train_start(self):
@@ -192,5 +199,6 @@ class Likelihood(SaveStateMixin, ABC):
         return r2
 
     @classmethod
-    def known_likelihoods(cls) -> Mapping[str, type]:
+    def known_likelihoods(cls) -> Mapping[str, type["Likelihood"]]:
+        """Get all known likelihoods."""
         return MappingProxyType(__class__._registry)

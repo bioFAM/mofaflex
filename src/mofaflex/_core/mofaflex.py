@@ -78,6 +78,11 @@ class _TrainingOptions(_Options):
 
 
 class MOFAFLEX:
+    """The MOFA-FLEX model.
+
+    This class is not meant to be instantiated by the user. Rather, it is created by instiating a :mod:`term <.terms>`.
+    """
+
     def __init__(self, **kwargs: Term):
         self._terms = kwargs
 

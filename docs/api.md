@@ -33,6 +33,15 @@
     priors
 ```
 
+### Likelihoods
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+    :recursive:
+
+    likelihoods
+```
+
 ### Settings
 
 An instance of the [](#_core.settings.Settings) class is available as `mofaflex.settings` and allows configuring MOFA-FLEX.

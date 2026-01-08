@@ -85,9 +85,7 @@ def merge_covariates(covariates: Mapping[str, Mapping[str, pd.DataFrame]]):
 
 class CovariatesDataset(Dataset):
     def __init__(
-        self,
-        covariates: Mapping[str, Mapping[str, pd.DataFrame | np.ndarray]],
-        cast_to: np.ScalarType | None = np.float32,
+        self, covariates: Mapping[str, Mapping[str, pd.DataFrame | np.ndarray]], cast_to: np.number | None = np.float32
     ):
         super().__init__()
         self._covariates = covariates

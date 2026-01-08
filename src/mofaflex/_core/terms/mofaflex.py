@@ -37,6 +37,28 @@ class _PriorApiProperty(NamedTuple):
 
 
 class MofaFlex(Term):
+    """A MOFA-like term representing the product of two low-rank matrices.
+
+    The factor matrix has dimensions `n_samples` x `n_total_factors`, the weight matrix has dimensions
+    `n_total_factors` x `n_features`. See :ref:`the in-depth model description <modeldescription>` for details.
+
+    Args:
+        n_factors: Number of latent factors.
+        factor_prior: Factor priors for each group (if dict) or for all groups (otherwise). The dictionary keys
+            may be either strings, representing individual groups, or tuples of strings, in which case the corresponding
+            value will be used for all groups named in the tuple.
+        weight_prior: Weight priors for each group (if dict) or for all groups (otherwise). The dictionary keys
+            may be either strings, representing individual views, or tuples of strings, in which case the corresponding
+            value will be used for all views named in the tuple.
+        nonnegative_factors: Non-negativity constraints for factors for each group (if dict) or for all groups (if bool).
+        nonnegative_weights: Non-negativity constraints for weights for each view (if dict) or for all views (if bool).
+        guiding_vars_obs_keys: Keys of .obs attribute of each :class:`AnnData<anndata.AnnData>` object that contains guiding variable values.
+        guiding_vars_likelihoods: Likelihood for each guiding variable (if dict) or for all guiding variables (if str).
+        guiding_vars_scales: Scale for the likelihood of each guiding variable, to put more or less emphasis on them during training.
+        init_factors: Initialization method for factors.
+        init_scale: Initialization scale of Normal distribution for factors.
+    """
+
     _state_attrs = (
         "_n_factors",
         "_nonnegative_factors",
@@ -185,6 +207,7 @@ class MofaFlex(Term):
     @Term._api
     @property
     def n_guided_factors(self) -> int:
+        """Number of guided factors."""
         return len(self._guiding_vars_names)
 
     @property
@@ -194,11 +217,13 @@ class MofaFlex(Term):
     @Term._api
     @property
     def n_factors(self) -> int:
+        """Number of unguided factors."""
         return self._n_factors
 
     @Term._api
     @property
     def n_total_factors(self) -> int:
+        """Total number of factors."""
         return len(self._factor_names)
 
     @Term._api
@@ -225,6 +250,7 @@ class MofaFlex(Term):
     @Term._api
     @property
     def factor_order(self) -> NDArray[int]:
+        """Ordering of factors by explained variance (highest to lowest)."""
         return self._factor_order
 
     @factor_order.setter

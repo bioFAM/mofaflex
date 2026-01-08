@@ -102,10 +102,11 @@ def checked_baseclass(
                         else:
                             super(subcls, self).__init__(*args, **kwargs)
 
-                    if subinit is not None:
-                        init.__signature__ = signature(subinit)
-                        init.__annotations__ = subinit.__annotations__
-                        init.__doc__ = subinit.__doc__
+                    if subinit is None:
+                        subinit = subcls.__init__
+                    init.__signature__ = signature(subinit)
+                    init.__annotations__ = subinit.__annotations__
+                    init.__doc__ = subinit.__doc__
 
                     subcls.__init__ = init
 

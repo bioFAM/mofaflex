@@ -9,6 +9,13 @@ if TYPE_CHECKING:
 
 
 class TermWrapper:
+    """Wrapper class for additive termsthat only exposes the user-facing API.
+
+    If a requested attribute is not found in the term, the wrapper tries to get it from the main
+    MOFAFLEX instance. This is helpful to be able to access things like `n_samples` and `n_features`
+    directly from terms without also having access to the MOFAFLEX instance.
+    """
+
     def __init__(self, model: MOFAFLEX, term: Term):
         self._model = model
         self._term = term

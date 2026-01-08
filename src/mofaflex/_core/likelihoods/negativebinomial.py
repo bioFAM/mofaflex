@@ -8,6 +8,8 @@ from .pyro import PyroLikelihood, PyroNegativeBinomial
 
 
 class NegativeBinomial(Likelihood):
+    """Negative binomial likelhood for count data."""
+
     _priority = 5
     _state_attrs = ("_shift", "_sample_means", "_dispersion")
 

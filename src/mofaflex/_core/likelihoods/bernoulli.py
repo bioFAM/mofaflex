@@ -9,6 +9,8 @@ from .pyro import PyroBernoulli, PyroLikelihood
 
 
 class Bernoulli(Likelihood):
+    """Bernoulli likelihood for binary data."""
+
     _priority = 10
     _state_attrs = ("_shift",)
 

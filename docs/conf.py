@@ -93,7 +93,7 @@ intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable/", None),
     "pandas": ("https://pandas.pydata.org/docs/", None),
     "plotnine": ("https://plotnine.org/", None),
-    "pytorch": ("https://pytorch.org/docs/stable/", None),
+    "pytorch": ("https://docs.pytorch.org/docs/stable/", None),
     "muon-tutorials": ("https://muon-tutorials.readthedocs.io/en/latest", None),
 }
 

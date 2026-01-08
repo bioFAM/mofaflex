@@ -10,6 +10,12 @@ from .pyro import PyroLikelihood, PyroNormal
 
 
 class Normal(Likelihood):
+    """Gaussian likelihood for continuous data.
+
+    Args:
+        scale_per_group: Scale data per group, otherwise across all groups.
+    """
+
     _priority = 0
     _state_attrs = ("_shift", "_scale", "_dispersion")
 

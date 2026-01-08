@@ -84,10 +84,12 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
 
     @classmethod
     def factors_allowed(cls):
+        """`True` if this prior can be used for factors."""
         return getattr(cls, "_factors", True)
 
     @classmethod
     def weights_allowed(cls):
+        """`True` if this prior can be used for weights."""
         return getattr(cls, "_weights", True)
 
     @property
@@ -371,7 +373,7 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         pass
 
     @staticmethod
-    def known_priors(filter: Literal["factors", "weights"] | None = None) -> Mapping[str, type]:
+    def known_priors(filter: Literal["factors", "weights"] | None = None) -> Mapping[str, type["Prior"]]:
         """Get all known priors.
 
         Args:

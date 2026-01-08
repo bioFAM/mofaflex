@@ -26,6 +26,12 @@ class _class_and_instancemethod:
 
 @checked_baseclass(registry="dict")
 class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
+    """Base class for MOFA-FLEX additive terms.
+
+    Subclasses must implement `model`, `guide`, and `nonnegative`. Method or properties that should be exposed
+    to the end user must be marked with `@Term._api`.
+    """
+
     _apilist = []
 
     @_class_and_instancemethod
@@ -130,15 +136,36 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     def predict(
         self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)
     ) -> NDArray[np.floating]:
+        """Predict the value of the term for a given group and view.
+
+        Args:
+            group_name: The group.
+            view_name: The view.
+            subset_idx: The subset of samples to predict for.
+        """
         pass
 
     def prediction_components(
         self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)
     ) -> Iterable[tuple[str, NDArray[np.floating]]]:
+        """Predict individual components of this term.
+
+        If the term itself has some additive components, e.g. factors in a factor model, predict each component individually.
+
+        Args:
+            group_name: The group.
+            view_name: The view.
+            subset_idx: The subset of samples to predict for.
+        """
         pass
 
     @property
-    def component_order(self):
+    def component_order(self) -> NDArray[int]:
+        """Ordering of individual components of this term.
+
+        If the term itself has some additive components, e.g. factors in a factor model, this property specifies the ordering
+        of those components, for example by explained variance.
+        """
         pass
 
     @component_order.setter
@@ -202,7 +229,7 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         """Whether the term's prediction is constrained to non-negative values for each group and view."""
         pass
 
-    @classmethod
-    @property
-    def known_terms(cls) -> Mapping[str, type]:
+    @staticmethod
+    def known_terms() -> Mapping[str, type[Term]]:
+        """Get all known terms."""
         return MappingProxyType(__class__._registry)
