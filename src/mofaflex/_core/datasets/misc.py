@@ -60,12 +60,7 @@ class CovariatesDataset(Dataset):
 
         if isinstance(group_names, str):
             group_names = (group_names,)
-        covariates = data.get_covariates(0, obs_key, obsm_key)
-
-        if group_names is not None:
-            for group_name in list(covariates.keys()):
-                if group_name not in group_names:
-                    del covariates[group_name]
+        covariates = data.get_covariates(0, obs_key, obsm_key, group_names)
 
         # if data is categorical, get unique categories
         categories = None

@@ -373,6 +373,7 @@ class MuDataDataset(MofaFlexDataset):
         axis: int,
         key: Mapping[str, str],
         mkey: Mapping[str, str],
+        filter_names: Sequence[str] | None,
         fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]],
     ) -> tuple[dict[str, dict[str, NDArray]], dict[str, NDArray]]:
         if axis == 0:
@@ -388,7 +389,11 @@ class MuDataDataset(MofaFlexDataset):
         covariates = defaultdict(dict)
         covar_dims = defaultdict(set)
         for group_name, group_idx in self._groups.items():
+            if axis == 0 and filter_names is not None and group_name not in filter_names:
+                continue
             for modname in self.view_names:
+                if axis == 1 and filter_names is not None and modname not in filter_names:
+                    continue
                 subdata = self._data[group_idx, self.feature_names[modname]]
                 mod = subdata.mod[modname]
                 outer_key, inner_key = (group_name, modname)[dict_reorder]

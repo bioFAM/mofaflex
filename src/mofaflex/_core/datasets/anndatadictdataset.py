@@ -405,6 +405,7 @@ class AnnDataDictDataset(MofaFlexDataset):
         axis: int,
         key: Mapping[str, str],
         mkey: Mapping[str, str],
+        filter_names: Sequence[str] | None,
         fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]],
     ) -> tuple[dict[str, dict[str, NDArray]], dict[str, NDArray]]:
         if axis == 0:
@@ -422,7 +423,11 @@ class AnnDataDictDataset(MofaFlexDataset):
         covariates = defaultdict(dict)
         covar_dims = defaultdict(set)
         for group_name, group in self._data.items():
+            if axis == 0 and filter_names is not None and group_name not in filter_names:
+                continue
             for view_name, view in group.items():
+                if axis == 1 and filter_names is not None and view_name not in filter_names:
+                    continue
                 outer_key, inner_key = (group_name, view_name)[dict_reorder]
 
                 ckey = key.get(outer_key, None)

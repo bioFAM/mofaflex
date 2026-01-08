@@ -307,6 +307,7 @@ class MofaFlexDataset(Dataset, ABC):
         axis: Literal[0, 1, "samples", "features"],
         key: str | dict[str, str] | None = None,
         mkey: str | dict[str, str] | None = None,
+        filter_names: str | Sequence[str] | None = None,
         fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]] = lambda _: pd.NA,
     ) -> dict[str, dict[str, pd.DataFrame]]:
         """Get the covariates for each group (if axis in (0, "samples")) or view (if axis in (1, "features")).
@@ -315,6 +316,7 @@ class MofaFlexDataset(Dataset, ABC):
             axis: The covariate axis
             key: Column in `.obs` or `.var` for each group/view containing the covariate.
             mkey: Key in `.obsm` or `.varm` for each group/view containing the covariates.
+            filter_names: List of groups (for `axis==0`) or views (for `axis==1`) to include. If `None`, will include all groups/views.
             fill_value: Function returning the alignment fill value (see `align_local_array_to_global`) for a given array dtype.
         """
         if axis in (0, "samples"):
@@ -332,7 +334,9 @@ class MofaFlexDataset(Dataset, ABC):
             mkey = {}
         elif isinstance(mkey, str):
             mkey = dict.fromkeys(names, mkey)
-        return self._get_covariates(axis, key, mkey, fill_value)
+        if isinstance(filter_names, str):
+            filter_names = (filter_names,)
+        return self._get_covariates(axis, key, mkey, filter_names, fill_value)
 
     @abstractmethod
     def _get_covariates(
@@ -340,6 +344,7 @@ class MofaFlexDataset(Dataset, ABC):
         axis: int,
         key: Mapping[str, str],
         mkey: Mapping[str, str],
+        filter_names: Sequence[str] | None,
         fill_value: Callable[[np.dtype], Union[*np.ScalarType]],
     ) -> tuple[dict[str, dict[str, NDArray]], dict[str, NDArray]]:
         """Get the covariates for each group/view.
