@@ -14,7 +14,7 @@ from pyro.nn import PyroParam
 from ..datasets import MofaFlexDataset
 from ..dist import ReinMaxBernoulli
 from ..settings import settings
-from ..utils import MeanStd, PyroParameterDict, ShapeRate
+from ..utils import MeanStd, PyroParameterDict
 from .base import Prior
 
 
@@ -80,14 +80,15 @@ class SpikeSlab(Prior):
     ):
         self._precisions = MeanStd({}, {})
         self._probabilities = {}
-        precisions = self._pyro_prior.posterior_precision
-        probs = self._pyro_prior.posterior_probability
 
         for name in self._names:
-            d = dist.Gamma(concentration=precisions.shape[name], rate=precisions.rate[name])
+            precision_shape = self.__shapes[name].squeeze(self._squeezedims)
+            precision_rate = self._rates[name].squeeze(self._squeezedims)
+            d = dist.Gamma(concentration=precision_shape, rate=precision_rate)
             self._precisions.mean[name] = d.mean.cpu().numpy().T
             self._precisions.std[name] = d.stddev.cpu().numpy().T
-            self._probabilities[name] = probs[name].cpu().numpy().T
+
+            self._probabilities[name] = self._probs[name].squeeze(self._squeezedims).cpu().numpy().T
 
     def _model(self, name: str, factor_plate: pyro.plate, nonfactor_plate: pyro.plate, **kwargs) -> torch.Tensor:
         with factor_plate:
@@ -126,18 +127,6 @@ class SpikeSlab(Prior):
             posteriors.mean[name] = self._locs[name].squeeze(self._squeezedims)
             posteriors.std[name] = self._scales[name].squeeze(self._squeezedims)
         return posteriors
-
-    @property
-    def posterior_precision(self) -> ShapeRate:
-        posteriors = ShapeRate({}, {})
-        for name in self._names:
-            posteriors.shape[name] = self.__shapes[name].squeeze(self._squeezedims)
-            posteriors.rate[name] = self._rates[name].squeeze(self._squeezedims)
-        return posteriors
-
-    @property
-    def posterior_probability(self) -> dict[str, torch.Tensor]:
-        return {name: self._probs[name].squeeze(self._squeezedims) for name in self._names}
 
     @Prior._api
     def get_sparse_a̲x̲i̲s̲_probabilities(self) -> Mapping[str, pd.DataFrame]:
