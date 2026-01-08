@@ -234,17 +234,16 @@ class MofaFlex(Term):
     def _init(self, data: MofaFlexDataset):
         self._sample_names = data.sample_names
         self._feature_names = data.feature_names
-        from ..api.priors import Prior as APIPrior
 
         self._pos_transform = torch.nn.ReLU()
-        for axis, (priorattr, names) in enumerate(
-            zip(("_factor_priors", "_weight_priors"), (data.group_names, data.view_names), strict=True)
+        for priorattr, names in zip(
+            ("_factor_priors", "_weight_priors"), (data.group_names, data.view_names), strict=True
         ):
             priors = getattr(self, priorattr)
             if isinstance(priors, str):
-                priors = [Prior(priors, axis=axis, names=names)]
-            elif isinstance(priors, APIPrior):
-                priors = [priors(axis=axis, names=names)]
+                priors = [Prior(priors, names)]
+            elif isinstance(priors, apipriors.Prior):
+                priors = [priors(names)]
             else:
                 prior_groups = defaultdict(list)
                 for group_name, prior in priors.items():
@@ -255,11 +254,17 @@ class MofaFlex(Term):
                 priors = []
                 for priorname, names in prior_groups.items():
                     if isinstance(priorname, str):
-                        prior = Prior(priorname, axis=axis, names=names)
+                        prior = Prior(priorname, names)
                     else:
-                        prior = priorname(axis=axis, names=names)
+                        prior = priorname(names)
                     priors.append(prior)
             setattr(self, priorattr, PyroModuleList(priors))
+        for prior in self._factor_priors:
+            if not prior.factors_allowed():
+                raise ValueError(f"The prior {prior.__class__.__name__} cannot be used for factors.")
+        for prior in self._weight_priors:
+            if not prior.weights_allowed():
+                raise ValueError(f"The prior {prior.__class__.__name__} cannot be used for weights.")
 
         if isinstance(self._nonnegative_factors, bool):
             self._nonnegative_factors = dict.fromkeys(data.group_names, self._nonnegative_factors)
@@ -322,15 +327,32 @@ class MofaFlex(Term):
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
         self._init(data)
 
-        ret = {}
-        for prior in chain(self._factor_priors, self._weight_priors):
-            if priordsets := prior.get_datasets(data):
-                ret.update(priordsets)
+        for axis, priors in ((0, self._factor_priors), (1, self._weight_priors)):
+            for prior in priors:
+                self._factor_names = prior.adjust_factors(data, axis, self._factor_names)
+
+        ret = defaultdict(dict)
+        for prior in self._factor_priors:
+            if priordsets := prior.get_datasets(
+                data, 0, self._factor_plate_dim, self._sample_plate_dim, self.n_total_factors, data.n_samples
+            ):
+                for dsetname, dset in priordsets.items():
+                    ret[dsetname].update(dset)  # handle multiple priors of the same class with different settings
+        for dsetname, dset in ret.items():
+            ret[dsetname] = CovariatesDataset(dset)
+
+        self._weight_dsets = defaultdict(dict)
+        for prior in self._weight_priors:
+            if priordsets := prior.get_datasets(
+                data, 1, self._factor_plate_dim, self._feature_plate_dim, self.n_total_factors, data.n_features
+            ):
+                for dsetname, dset in priordsets.items():
+                    self._weight_dsets[dsetname].update(dset)
 
         if self.n_guided_factors > 0:
             guiding_vars = {}
             for guiding_var_name, obs_key in self._guiding_vars_obs_keys.items():
-                guiding_vars[guiding_var_name] = CovariatesDataset(data, obs_key=obs_key)
+                guiding_vars[guiding_var_name] = CovariatesDataset(data.get_covariates(0, obs_key=obs_key))
             ret["guiding_vars"] = guiding_vars = StackDataset(**guiding_vars)
 
             for guiding_var_name, guiding_var_likelihood in self._guiding_vars_likelihoods.items():
@@ -424,9 +446,6 @@ class MofaFlex(Term):
         return init_tensor
 
     def on_train_start(self, data: MofaFlexDataset):
-        for prior in chain(self._factor_priors, self._weight_priors):
-            self._factor_names = prior.adjust_factors(self._factor_names)
-
         if self.n_guided_factors > 0:
             self._factor_names = np.concatenate((self._factor_names, self._guiding_vars_names))
         else:
@@ -453,6 +472,12 @@ class MofaFlex(Term):
             )
         for prior in self._weight_priors:
             prior.on_train_start(self._factor_plate_dim, self._feature_plate_dim, self.n_total_factors, data.n_features)
+
+        for dsets in self._weight_dsets.values():
+            for view_name, dset in dsets.items():
+                if data.cast_to is not None:
+                    dset = dset.astype(data.cast_to, copy=False)
+                dsets[view_name] = torch.as_tensor(dset)
 
     def on_train_epoch_start(self, epoch: int):
         for prior in chain(self._factor_priors, self._weight_priors):
@@ -553,7 +578,7 @@ class MofaFlex(Term):
 
         weights = {}
         for prior in self._weight_priors:
-            weights.update(prior.model(factor_plate, feature_plates))
+            weights.update(prior.model(factor_plate, feature_plates, **self._weight_dsets))
 
         for view_name, view_weights in weights.items():
             if self._nonnegative_weights[view_name]:
@@ -616,7 +641,7 @@ class MofaFlex(Term):
             prior.guide(factor_plate, sample_plates, **kwargs)
 
         for prior in self._weight_priors:
-            prior.guide(factor_plate, feature_plates)
+            prior.guide(factor_plate, feature_plates, **self._weight_dsets)
 
         if self.n_guided_factors > 0:
             for guiding_var_name, guiding_var in guiding_vars.items():

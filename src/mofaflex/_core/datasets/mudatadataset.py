@@ -375,7 +375,7 @@ class MuDataDataset(MofaFlexDataset):
         mkey: Mapping[str, str],
         filter_names: Sequence[str] | None,
         fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]],
-    ) -> tuple[dict[str, dict[str, NDArray]], dict[str, NDArray]]:
+    ) -> dict[str, dict[str, pd.DataFrame]]:
         if axis == 0:
             attr = "obs"
             dict_reorder = slice(None)

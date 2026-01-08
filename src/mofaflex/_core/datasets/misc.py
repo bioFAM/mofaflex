@@ -6,8 +6,6 @@ import torch
 from numpy.typing import NDArray
 from torch.utils.data import BatchSampler, Dataset, RandomSampler, Sampler, StackDataset
 
-from .base import MofaFlexDataset
-
 
 class MofaFlexBatchSampler(Sampler[Mapping[str, Sequence[int]]]):
     """A sampler for dicts.
@@ -48,56 +46,53 @@ class MofaFlexBatchSampler(Sampler[Mapping[str, Sequence[int]]]):
             yield {k: next(sampler) for k, sampler in iterators.items()}
 
 
+def merge_covariates(covariates: Mapping[str, Mapping[str, pd.DataFrame]]):
+    # if data is categorical, get unique categories
+    categories = None
+    for group_covars in covariates.values():
+        for view_covars in group_covars.values():
+            dtypes = view_covars.dtypes
+            if dtypes.nunique() > 1:
+                raise ValueError("Mixed dtypes for a covariate are not supported.")
+            if dtypes.iloc[0] == "category":
+                categories = (
+                    view_covars.iloc[0].cat.categories
+                    if categories is None
+                    else categories.union(view_covars.iloc[0].cat.categories)
+                )
+    for group_covars in covariates.values():
+        for view_covars in group_covars.values():
+            if view_covars.dtypes.iloc[0] == "category":
+                for col in view_covars.columns:
+                    view_covars[col] = view_covars[col].cat.set_categories(categories)
+
+    # ensure the covariate value is consistent across views (nanmean or first)
+    merged_covariates = {}
+    for group_name, group_covars in covariates.items():
+        group_covariates = pd.concat(group_covars, axis=0, names=["view", "sample"])
+        if (
+            group_covariates.dtypes.iloc[0] == "category"
+            or pd.api.types.is_integer_dtype(group_covariates.dtypes.iloc[0])
+            and np.all(group_covariates.iloc[:, 0] >= 0)
+        ):
+            cov = group_covariates.groupby("sample").first()
+        else:
+            cov = group_covariates.groupby("sample").mean()
+        cov.rename_axis(index=None, inplace=True)
+        merged_covariates[group_name] = cov
+    return merged_covariates
+
+
 class CovariatesDataset(Dataset):
     def __init__(
         self,
-        data: MofaFlexDataset,
-        obs_key: Mapping[str, str] | None = None,
-        obsm_key: Mapping[str, str] | None = None,
-        group_names: str | Sequence[str] | None = None,
+        covariates: Mapping[str, Mapping[str, pd.DataFrame | np.ndarray]],
+        cast_to: np.ScalarType | None = np.float32,
     ):
         super().__init__()
-
-        if isinstance(group_names, str):
-            group_names = (group_names,)
-        covariates = data.get_covariates(0, obs_key, obsm_key, group_names)
-
-        # if data is categorical, get unique categories
-        categories = None
-        for group_covars in covariates.values():
-            for view_covars in group_covars.values():
-                dtypes = view_covars.dtypes
-                if dtypes.nunique() > 1:
-                    raise ValueError("Mixed dtypes for a covariate are not supported.")
-                if dtypes.iloc[0] == "category":
-                    categories = (
-                        view_covars.iloc[0].cat.categories
-                        if categories is None
-                        else categories.union(view_covars.iloc[0].cat.categories)
-                    )
-        for group_covars in covariates.values():
-            for view_covars in group_covars.values():
-                if view_covars.dtypes.iloc[0] == "category":
-                    for col in view_covars.columns:
-                        view_covars[col] = view_covars[col].cat.set_categories(categories)
-
-        # ensure the covariate value is consistent across views (nanmean or first)
-        self.covariates = {}
-        for group_name, group_covars in covariates.items():
-            group_covariates = pd.concat(group_covars, axis=0, names=["view", "sample"])
-            if (
-                group_covariates.dtypes.iloc[0] == "category"
-                or pd.api.types.is_integer_dtype(group_covariates.dtypes.iloc[0])
-                and np.all(group_covariates.iloc[:, 0] >= 0)
-            ):
-                cov = group_covariates.groupby("sample").first()
-            else:
-                cov = group_covariates.groupby("sample").mean()
-            cov.rename_axis(index=None, inplace=True)
-            self.covariates[group_name] = cov
-
-        self._n_samples = max(data.n_samples.values())
-        self._cast_to = data.cast_to
+        self._covariates = covariates
+        self._n_samples = max(covar.shape[0] for covar in self._covariates.values())
+        self._cast_to = cast_to
 
     def __len__(self):
         return self._n_samples
@@ -105,15 +100,19 @@ class CovariatesDataset(Dataset):
     def __getitem__(self, idx: dict[str, int | list[int]]) -> dict[str, NDArray]:
         ret = {}
         for group_name, group_idx in idx.items():
-            if group_name in self.covariates:
-                group = self.covariates[group_name].iloc[group_idx, :]
-                if group.dtypes.iloc[0] == "category":
-                    arr = np.stack(tuple(group[col].cat.codes.to_numpy() for col in group.columns), axis=1).astype(
-                        self._cast_to
-                    )
-                    arr[arr < 0] = np.nan
+            if group_name in self._covariates:
+                arr = self._covariates[group_name]
+                if isinstance(arr, pd.DataFrame):
+                    arr = arr.iloc[group_idx, :]
+                    if arr.dtypes.iloc[0] == "category":
+                        arr = np.stack(tuple(arr[col].cat.codes.to_numpy() for col in arr.columns), axis=1)
+                        arr[arr < 0] = np.nan
+                    else:
+                        arr = arr.to_numpy()
                 else:
-                    arr = group.to_numpy().astype(self._cast_to)
+                    arr = arr[group_idx, :]
+                if self._cast_to is not None:
+                    arr = arr.astype(self._cast_to, copy=False)
                 ret[group_name] = arr
         return ret
 
@@ -136,12 +135,3 @@ class StackDataset(StackDataset):
             raise ValueError("Expected nested dataset to have a `__getitems__` method.")
 
         return dataset.__getitems__(idx)
-
-
-class GuidingVarsDataset(StackDataset):
-    def __init__(self, data: MofaFlexDataset, guiding_vars_obs_keys: Mapping[str, Mapping[str, str]] | None = None):
-        datasets = {}
-        for guiding_var_name, obs_key in guiding_vars_obs_keys.items():
-            datasets[guiding_var_name] = CovariatesDataset(data, obs_key=obs_key)
-
-        super().__init__(**datasets)

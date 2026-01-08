@@ -12,8 +12,8 @@ from .base import Prior
 
 
 class _SimpleLocationScale(Prior):
-    def __init__(self, axis: Literal[0, 1], names: Sequence[str], prior_dist: type[pyro.distributions.Distribution]):
-        super().__init__(axis, names)
+    def __init__(self, names: Sequence[str], prior_dist: type[pyro.distributions.Distribution]):
+        super().__init__(names)
 
         self._prior_dist = prior_dist
 
@@ -65,10 +65,10 @@ class _SimpleLocationScale(Prior):
 
 
 class Normal(_SimpleLocationScale):
-    def __init__(self, axis: Literal[0, 1], names: Sequence[str]):
-        super().__init__(axis, names, pyro.distributions.Normal)
+    def __init__(self, names: Sequence[str]):
+        super().__init__(names, pyro.distributions.Normal)
 
 
 class Laplace(_SimpleLocationScale):
-    def __init__(self, axis: Literal[0, 1], names: Sequence[str]):
-        super().__init__(axis, names, pyro.distributions.Laplace)
+    def __init__(self, names: Sequence[str]):
+        super().__init__(names, pyro.distributions.Laplace)

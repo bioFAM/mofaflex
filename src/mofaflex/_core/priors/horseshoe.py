@@ -80,7 +80,7 @@ class Horseshoe(Prior):
             self._locs[name] = PyroParam(loc)
             self._scales[name] = PyroParam(scale, constraint=constraints.softplus_positive)
 
-    def _get_prior_scale(self, name: str):
+    def _get_prior_scale(self, name: str, **kwargs):
         return None
 
     def _model(self, name: str, factor_plate: pyro.plate, nonfactor_plate: pyro.plate, **kwargs) -> torch.Tensor:
@@ -95,7 +95,7 @@ class Horseshoe(Prior):
                         f"caux_z_{name}", dist.InverseGamma(torch.full((1,), 0.5), torch.full((1,), 0.5))
                     )
                     c = torch.sqrt(caux)
-                    if (prior_scale := self._get_prior_scale(name)) is not None:
+                    if (prior_scale := self._get_prior_scale(name, **kwargs)) is not None:
                         c = c * prior_scale.reshape(self._shapes[name])
                     local_scale = (c * local_scale) / torch.sqrt(c**2 + local_scale**2)
                 return pyro.sample(f"z_{name}", dist.Normal(torch.zeros((1,)), local_scale))
@@ -156,14 +156,8 @@ class InformedHorseshoe(Horseshoe):
         "_pcgse",
     )
 
-    def __init__(
-        self,
-        axis: Literal[0, 1],
-        names: str | Sequence[str],
-        annotations_varm_key: str,
-        annotation_confidence: float = 0.99,
-    ):
-        super().__init__(axis, names)
+    def __init__(self, names: str | Sequence[str], annotations_varm_key: str, annotation_confidence: float = 0.99):
+        super().__init__(names)
 
         self._annotations_varm_key = annotations_varm_key
         self._annotation_confidence = annotation_confidence
@@ -178,6 +172,18 @@ class InformedHorseshoe(Horseshoe):
     ):
         super()._on_train_start(factor_dim, nonfactor_dim, n_factors, n_nonfactors, init_tensor)
 
+    def _get_prior_scale(self, name: str, hs_prior_scales: dict[str, torch.Tensor], **kwargs):
+        return hs_prior_scales[name]
+
+    def get_datasets(
+        self,
+        data: MofaFlexDataset,
+        axis: Literal[0, 1],
+        factor_dim: int,
+        nonfactor_dim: int,
+        n_factors: int,
+        n_nonfactors: Mapping[str, int],
+    ) -> dict[str, dict[str, np.ndarray]]:
         prior_scales = {
             name: np.clip(
                 self._annotations.get(name, np.broadcast_to(0, (self._n_informed_factors, n_nonfactors[name]))).astype(
@@ -214,44 +220,35 @@ class InformedHorseshoe(Horseshoe):
             prior_scale = prior_scales[name]
             if factor_dim < nonfactor_dim and prior_scale.shape[0] != n_factors:
                 prior_scale = prior_scale.T
-            self.register_buffer(f"_prior_scales_{name}", torch.as_tensor(prior_scale))
 
-    def _get_prior_scale(self, name: str):
-        return getattr(self, f"_prior_scales_{name}", None)
+        return {"hs_prior_scales": prior_scales}
 
-    def get_datasets(self, data: MofaFlexDataset) -> None:
+    def adjust_factors(self, data: MofaFlexDataset, axis: Literal[0, 1], factors: list[str]) -> list[str]:
         annotations = data.get_covariates(
-            self.axis,
+            axis,
             mkey=self._annotations_varm_key,
+            filter_names=self._names,
             fill_value=lambda dt: False if dt == "boolean" or dt == np.bool else pd.NA,
         )
         for name in list(annotations.keys()):
-            if name not in self._names:
-                _logger.warning(
-                    f"Horseshoe prior required for annotations for view {name}. Annotations will be ignored."
-                )
-                del annotations[name]
+            annot = annotations[name]
+            if all(np.all((a.dtypes == np.bool) | (a.dtypes == "boolean")) for a in annot.values()):
+                annot = reduce(operator.or_, annot.values())
             else:
-                annot = annotations[name]
-                if all(np.all((a.dtypes == np.bool) | (a.dtypes == "boolean")) for a in annot.values()):
-                    annot = reduce(operator.or_, annot.values())
-                else:
-                    annot = (
-                        pd.concat(annot, axis=0, names=["view", "feature"])
-                        .groupby("feature")
-                        .mean()
-                        .rename_axis(index=None)
-                    )
-                if pd.api.types.is_integer_dtype(annot.columns.dtype):
-                    self._annotations_names = [f"Informed Factor {i + 1}" for i in range(annot.shape[1])]
-                else:
-                    self._annotations_names = annot.columns.to_list()
-                annotations[name] = annot.to_numpy()
+                annot = (
+                    pd.concat(annot, axis=0, names=["view", "feature"])
+                    .groupby("feature")
+                    .mean()
+                    .rename_axis(index=None)
+                )
+            if pd.api.types.is_integer_dtype(annot.columns.dtype):
+                self._annotations_names = [f"Informed Factor {i + 1}" for i in range(annot.shape[1])]
+            else:
+                self._annotations_names = annot.columns.to_list()
+            annotations[name] = annot.to_numpy()
         if len(annotations) == 0:
             raise ValueError("No annotations found.")
         self._annotations = annotations
-
-    def adjust_factors(self, factors: list[str]) -> list[str]:
         self._informed_factors_start_idx = len(factors)
         self._n_informed_factors = len(self._annotations_names)
         factors.extend(self._annotations_names)

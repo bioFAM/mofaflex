@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroParam, pyro_method
 
-from ...datasets import CovariatesDataset, MofaFlexDataset
+from ...datasets import MofaFlexDataset, merge_covariates
 from ...utils import MeanStd, pickle_torch_state, unpickle_torch_state
 from .. import Prior
 from .gp import GP
@@ -62,7 +62,6 @@ class GaussianProcess(Prior):
 
     def __init__(
         self,
-        axis: Literal[0, 1, "samples", "features"],
         names: str | Sequence[str],
         covariates_obs_key: str | Mapping[str] | None = None,
         covariates_obsm_key: str | Mapping[str] | None = None,
@@ -77,7 +76,7 @@ class GaussianProcess(Prior):
         warp_open_end: bool = True,
         warp_reference_group: str | None = None,
     ):
-        super().__init__(axis, names)
+        super().__init__(names)
 
         if covariates_obs_key is None and covariates_obsm_key is None:
             raise ValueError("Neither `covariates_obs_key` nor covariates_obsm_key` given.")
@@ -100,13 +99,20 @@ class GaussianProcess(Prior):
         self._gp = None
         self._gps = None
 
-    def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
-        dset = CovariatesDataset(data, self._obs_key, self._obsm_key, self._names)
-        self._covariates = dset.covariates
+    def get_datasets(
+        self,
+        data: MofaFlexDataset,
+        axis: Literal[0, 1],
+        factor_dim: int,
+        nonfactor_dim: int,
+        n_factors: int,
+        n_nonfactors: Mapping[str, int],
+    ) -> dict[str, dict[str, pd.DataFrame]]:
+        self._covariates = merge_covariates(data.get_covariates(axis, self._obs_key, self._obsm_key, self._names))
         for covar in self._covariates.values():
             if pd.api.types.is_integer_dtype(covar.columns):
                 covar.columns = "Covariate " + covar.columns.astype(str)
-        return {"gp_covariates": dset}
+        return {"gp_covariates": self._covariates}
 
     def _init_gp(self, n_factors: int):
         self._gp = GP(

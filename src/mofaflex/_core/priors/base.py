@@ -6,13 +6,14 @@ from itertools import chain
 from types import MappingProxyType
 from typing import Literal, NamedTuple
 
+import numpy as np
 import pandas as pd
 import pyro
 import torch
 from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 
-from ..datasets import CovariatesDataset, MofaFlexDataset
+from ..datasets import MofaFlexDataset
 from ..utils import MeanStd, SaveStateMixin, _PyroMeta, checked_baseclass
 
 
@@ -39,7 +40,7 @@ class API(NamedTuple):
     all factors. The property must return a slice or a sequence of indices."""
 
 
-@checked_baseclass(required_init_args=("axis", "names"), registry="dict")
+@checked_baseclass(required_init_args=("names"), registry="dict")
 class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     """Base class for MOFA-FLEX factors and weights priors.
 
@@ -68,7 +69,7 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     """
 
     _apilist = []
-    _state_attrs = ("_axis", "_names")
+    _state_attrs = "_names"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -77,28 +78,17 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
             if not cls._factors_allowed and not cls._weights_allowed:
                 raise TypeError(f"Class `{cls.__name__}` cannot be used for factors or weights.")
 
-    def __init__(self, axis: Literal[0, 1], names: str | Sequence[str]):
+    def __init__(self, names: str | Sequence[str]):
         super().__init__()
-        self._axis = axis
-
-        if self._axis == 0 and not self._factors_allowed():
-            raise NotImplementedError(f"The prior {self.__class__.__name__} cannot be used for factors.")
-        elif self._axis == 1 and not self._weights_allowed():
-            raise NotImplementedError(f"The prior {self.__class__.__name__} cannot be used for weights.")
         self._names = (names,) if isinstance(names, str) else names
 
     @classmethod
-    def _factors_allowed(cls):
+    def factors_allowed(cls):
         return getattr(cls, "_factors", True)
 
     @classmethod
-    def _weights_allowed(cls):
+    def weights_allowed(cls):
         return getattr(cls, "_weights", True)
-
-    @property
-    def axis(self) -> Literal[0, 1]:
-        """The axis of this prior."""
-        return self._axis
 
     @property
     def names(self) -> tuple[str]:
@@ -168,7 +158,15 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         """The user-facing properties of this prior."""
         return (api for api in cls._apilist if api.type == APIType.property)
 
-    def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset] | None:
+    def get_datasets(
+        self,
+        data: MofaFlexDataset,
+        axis: Literal[0, 1],
+        factor_dim: int,
+        nonfactor_dim: int,
+        n_factors: int,
+        n_nonfactors: Mapping[str, int],
+    ) -> dict[str, dict[str, pd.DataFrame | np.ndarray]] | None:
         """Hook that is called prior to training.
 
         If a prior requires any additional covariates during training, it should return a dict of datasets. The keys of
@@ -176,17 +174,24 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
 
         Args:
             data: The dataset.
+            axis: The axis of this prior (0 for samples, 1 for features).
+            factor_dim: The factor dimension.
+            nonfactor_dim: The nonfactor domension. Sample dimension for factors and feature dimension for weights.
+            n_factors: The number of factors.
+            n_nonfactors: The number of samples (if `axis == 0`) or features (if `axis == 1`)
         """
         pass
 
-    def adjust_factors(self, factors: list[str]) -> list[str]:
+    def adjust_factors(self, data: MofaFlexDataset, axis: Literal[0, 1], factors: list[str]) -> list[str]:
         """Adjust the number and/or names of the factors in the model.
 
         If a subclass needs to add additional factors to the entire model, this is the place to do it. The subclass should
         store the indices of the factors it added if those need special treatment during training. This is guaranteed to be
-        called after `get_datasets`.
+        called before `get_datasets`.
 
         Args:
+            data: The dataset.
+            axis: The axis of this prior (0 for samples, 1 for features).
             factors: A list of factor names.
 
         Returns:
@@ -226,7 +231,7 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
             factor_dim: The factor dimension.
             nonfactor_dim: The nonfactor domension. Sample dimension for factors and feature dimension for weights.
             n_factors: The number of factors.
-            n_nonfactors: The number of samples (if `self.axis == 0`) or features (if `self.axis == 1`)
+            n_nonfactors: The number of samples (if this prior is used for factors) or features (if this prior is used for weights).
             init_tensor: Initialization values.
         """
         self._shapes = {}
@@ -374,7 +379,7 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         """
         if filter is not None:
             return {
-                name: subcls for name, subcls in __class__._registry.items() if getattr(subcls, f"_{filter}_allowed")()
+                name: subcls for name, subcls in __class__._registry.items() if getattr(subcls, f"{filter}_allowed")()
             }
         else:
             return MappingProxyType(__class__._registry)

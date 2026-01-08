@@ -346,7 +346,7 @@ class MofaFlexDataset(Dataset, ABC):
         mkey: Mapping[str, str],
         filter_names: Sequence[str] | None,
         fill_value: Callable[[np.dtype], Union[*np.ScalarType]],
-    ) -> tuple[dict[str, dict[str, NDArray]], dict[str, NDArray]]:
+    ) -> dict[str, dict[str, pd.DataFrame]]:
         """Get the covariates for each group/view.
 
         This method is called by `get_covariates`.
