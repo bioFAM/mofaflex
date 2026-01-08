@@ -14,7 +14,7 @@ from ..datasets import CovariatesDataset, MofaFlexDataset
 from ..utils import SaveStateMixin, _PyroMeta, checked_baseclass
 
 
-class _Wrapper:
+class _class_and_instancemethod:
     def __init__(self, func):
         self._func = func
         self._clsfunc = classmethod(func)
@@ -22,10 +22,6 @@ class _Wrapper:
     def __get__(self, instance, owner):
         obj = self._func if instance is not None else self._clsfunc
         return obj.__get__(instance, owner)
-
-
-def _class_and_instancemethod(func):
-    return _Wrapper(func)
 
 
 @checked_baseclass(registry="dict")
