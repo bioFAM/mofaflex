@@ -16,7 +16,6 @@ from anndata import AnnData
 from mudata import MuData
 from pyro.infer import SVI, TraceMeanField_ELBO
 from pyro.optim import ClippedAdam
-from scipy.sparse import issparse
 from torch.utils.data import DataLoader, default_convert
 from torch.utils.data._utils.collate import collate  # this is documented, so presumably part of the public API
 from tqdm.auto import tqdm
@@ -28,10 +27,9 @@ from .datasets import MofaFlexBatchSampler, MofaFlexDataset, StackDataset
 from .io import load_model, save_model
 from .likelihoods import LikelihoodType
 from .model import MofaFlexModel
-from .settings import settings
 from .terms import Term, TermWrapper
 from .training import EarlyStopper
-from .utils import impute, nanvar, sample_all_data_as_one_batch
+from .utils import filter_constant_features, impute, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
@@ -80,7 +78,7 @@ class _TrainingOptions(_Options):
 class MOFAFLEX:
     """The MOFA-FLEX model.
 
-    This class is not meant to be instantiated by the user. Rather, it is created by instiating a :mod:`term <.terms>`.
+    This class is not meant to be instantiated by the user. Rather, it is created by instantiating a :mod:`term <.terms>`.
     """
 
     def __init__(self, **kwargs: Term):
@@ -119,20 +117,6 @@ class MOFAFLEX:
             use_var=self._data_opts.use_var,
             subset_var=self._data_opts.subset_var,
         )
-
-    def _filter_constant_features(self, data: MofaFlexDataset):
-        if self._data_opts.remove_constant_features:
-            nonconstantfeatures = {}
-            view_vars = data.apply(lambda adata, group_name, view_name: nanvar(adata.X, axis=0), by_group=False)
-            threshold = settings.get("eps")
-            for view_name, viewvar in view_vars.items():
-                nonconst = viewvar > threshold
-                _logger.debug(f"Removing {nonconst.size - nonconst.sum()} features from view {view_name}.")
-                if issparse(nonconst):
-                    nonconst = nonconst.toarray()
-                nonconstantfeatures[view_name] = data.feature_names[view_name][nonconst]
-
-            data.reindex_features(nonconstantfeatures)
 
     @property
     def group_names(self) -> npt.NDArray[str]:
@@ -276,7 +260,8 @@ class MOFAFLEX:
             pin_memory=pin_memory,
         )
         data = self._make_dataset(data)
-        self._filter_constant_features(data)
+        if self._data_opts.remove_constant_features:
+            filter_constant_features(data)
 
         self._metadata = data.get_obs()
         self._view_names = data.view_names

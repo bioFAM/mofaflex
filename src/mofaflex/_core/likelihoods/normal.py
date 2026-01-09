@@ -28,7 +28,9 @@ class Normal(Likelihood):
         if scale_per_group:
             self._scale = data.apply_to_view(view_name, self._calc_scale_grouped)
         else:
-            self._scale = data.apply(self._calc_scale_ungrouped, by_group=False, filter_views=view_name)
+            self._scale = data.apply(
+                self._calc_scale_ungrouped, by_group=False, filter_views=view_name, groups=data.group_names
+            )[view_name]
 
         self._dispersion = None
 

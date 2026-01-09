@@ -7,9 +7,7 @@ from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix
 
 from mofaflex import settings
 from mofaflex._core import MofaFlexDataset
-from mofaflex._core.likelihoods import Likelihood
-from mofaflex._core.preprocessing import MofaFlexPreprocessor
-from mofaflex._core.utils import sample_all_data_as_one_batch
+from mofaflex._core.utils import filter_constant_features, sample_all_data_as_one_batch
 
 
 @pytest.fixture(scope="module", params=[np.asarray, csc_array, csc_matrix, csr_array, csr_matrix])
@@ -113,27 +111,13 @@ def adata_dict(rng, array, array1_n_constant_cols, array2_n_constant_cols, array
     return adata_dict, constgenes
 
 
-@pytest.mark.parametrize("likelihood", ["Normal", "NegativeBinomial", "Bernoulli"])
 @pytest.mark.parametrize("usedask", [False, True])
-@pytest.mark.filterwarnings("ignore:invalid value encountered in (scalar )?divide:RuntimeWarning")
-@pytest.mark.filterwarnings("ignore:Degrees of freedom <= 0 for slice:RuntimeWarning")
-@pytest.mark.filterwarnings("ignore:Mean of empty slice.:RuntimeWarning")
-def test_remove_constant_features(adata_dict, arrays_are, likelihood, usedask):
+def test_remove_constant_features(adata_dict, arrays_are, usedask):
     adata_dict, constgenes = adata_dict
 
     with settings.override(use_dask=usedask):
         dataset = MofaFlexDataset(adata_dict)
-        likelihoods = dict.fromkeys(dataset.view_names, Likelihood.get(likelihood))
-
-        preprocessor = MofaFlexPreprocessor(
-            dataset,
-            likelihoods,
-            dict.fromkeys(dataset.view_names, False),
-            dict.fromkeys(dataset.group_names, False),
-            scale_per_group=True,
-            remove_constant_features=True,
-        )
-        dataset.preprocessor = preprocessor
+        filter_constant_features(dataset)
         result = dataset.__getitems__(sample_all_data_as_one_batch(dataset))["data"]
 
     if arrays_are == "groups":

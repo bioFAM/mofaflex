@@ -1,3 +1,4 @@
+import logging
 import os
 from abc import ABC
 from collections import namedtuple
@@ -28,8 +29,12 @@ from scipy.sparse import (
 )
 from torch.utils.data import BatchSampler, SequentialSampler
 
+from .settings import settings
+
 if TYPE_CHECKING:
     from .datasets import MofaFlexDataset
+
+_logger = logging.getLogger(__name__)
 
 PossiblySparseArray: TypeAlias = NDArray | spmatrix | sparray
 
@@ -247,6 +252,20 @@ def sample_all_data_as_one_batch(data: "MofaFlexDataset") -> dict[str, list[int]
         )
         for k, nsamples in data.n_samples.items()
     }
+
+
+def filter_constant_features(data: "MofaFlexDataset"):
+    nonconstantfeatures = {}
+    view_vars = data.apply(lambda adata, group_name, view_name: nanvar(adata.X, axis=0), by_group=False)
+    threshold = settings.get("eps")
+    for view_name, viewvar in view_vars.items():
+        nonconst = viewvar > threshold
+        _logger.debug(f"Removing {nonconst.size - nonconst.sum()} features from view {view_name}.")
+        if issparse(nonconst):
+            nonconst = nonconst.toarray()
+        nonconstantfeatures[view_name] = data.feature_names[view_name][nonconst]
+
+    data.reindex_features(nonconstantfeatures)
 
 
 def mean(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):

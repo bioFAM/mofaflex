@@ -17,8 +17,8 @@ def adata(rng, create_adata, likelihood, random_array, request):
 
 def test_infer_likelihoods(adata, likelihood):
     inferred = Likelihood.infer(adata)
-    assert likelihood == inferred
+    assert likelihood == inferred.__name__
 
 
 def test_validate_likelihoods(adata, likelihood):
-    Likelihood.get(likelihood).validate(adata, None, None)
+    Likelihood.known_likelihoods()[likelihood].validate(adata, None, None)
