@@ -202,8 +202,8 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         return factors
 
     def postprocess_results(
-        self, results: MeanStd, moment: Literal["mean", "std"] = "mean", **kwargs
-    ) -> dict[str, pd.DataFrame]:
+        self, results: MeanStd, moment: Literal["mean", "std"] = "mean", name: str | None = None, **kwargs
+    ) -> dict[str, NDArray[np.number]] | NDArray[np.number] | None:
         """Hook that is called by the user-facing `get_factors` and `get_weights` methods.
 
         Subclasses may apply additional postprocessing to the estimated factor and weight values. Any additional arguments in the
@@ -212,10 +212,18 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         Args:
             results: The factors or weights.
             moment: Which moment the user requested.
+            name: Which name (group or view) to postprocess.
             kwargs: Additional arguments.
+
+        Returns:
+            If `name is None`, a dict with postprocessed results for all names this prior is responsible for. If `name` is a string
+            and this prior is responsible for it,, an array with postprocessed results for that name. Otherwise `None`.
         """
         results = getattr(results, moment)
-        return {name: results[name] for name in self._names}
+        if name is not None:
+            return results[name] if name in self._names else None
+        else:
+            return {name: results[name] for name in self._names}
 
     def on_train_start(
         self,

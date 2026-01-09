@@ -132,13 +132,36 @@ class SpikeSlab(Prior):
     def get_sparse_a̲x̲i̲s̲_probabilities(self) -> Mapping[str, pd.DataFrame]:
         return MappingProxyType(self._probabilities)
 
+    def _postprocess_name(
+        self,
+        results: MeanStd,
+        moment: Literal["mean", "std"],
+        name: str,
+        sparse_type: Literal["raw", "mix", "thresh"] = "mix",
+    ):
+        cresults = getattr(results, moment)[name]
+        if sparse_type == "mix":
+            if moment == "mean":
+                cresults = cresults * self._probabilities[name]
+            else:
+                p = self._probabilities[name]
+                a = self._precisions.mean[name][:, None]
+                cresults = np.sqrt(cresults**2 * p * (1 - p) + p * results.std[name] ** 2 + (1 - p) / a**2)
+        elif sparse_type == "thresh":
+            if moment == "mean":
+                cresults = cresults * (cresults >= 0.5)
+            else:
+                cresults = 1 / self._precisions.mean[name]
+        return cresults
+
     def postprocess_results(
         self,
         results: MeanStd,
         moment: Literal["mean", "std"],
+        name: str | None = None,
         sparse_type: Literal["raw", "mix", "thresh"] = "mix",
         **kwargs,
-    ) -> dict[str, pd.DataFrame]:
+    ) -> dict[str, NDArray[np.number]] | NDArray[np.number] | None:
         """Args.
 
         sparse_type: How to handle sparsity when using the spike and slab prior.
@@ -150,20 +173,13 @@ class SpikeSlab(Prior):
               sparsity probability. This is what MOFA does.
             - thresh: Set all values with a sparsity probablity > 0.5 to 0.
         """
-        ret = {}
-        for name in self._names:
-            cresults = getattr(results, moment)[name]
-            if sparse_type == "mix":
-                if moment == "mean":
-                    cresults = cresults * self._probabilities[name]
-                else:
-                    p = self._probabilities[name]
-                    a = self._precisions.mean[name][:, None]
-                    cresults = np.sqrt(cresults**2 * p * (1 - p) + p * results.std[name] ** 2 + (1 - p) / a**2)
-            elif sparse_type == "thresh":
-                if moment == "mean":
-                    cresults = cresults * (cresults >= 0.5)
-                else:
-                    cresults = 1 / self._precisions.mean[name]
-            ret[name] = cresults
-        return ret
+        if name is not None:
+            if name in self._names:
+                return self._postprocess_name(results, moment, name, sparse_type)
+            else:
+                return None
+        else:
+            ret = {}
+            for name in self._names:
+                ret[name] = self._postprocess_name(results, moment, name, sparse_type)
+            return ret

@@ -5,7 +5,8 @@ from scipy.special import expit, logit
 from .. import utils
 from ..datasets import MofaFlexDataset
 from .base import R2, Likelihood
-from .pyro import PyroBernoulli, PyroLikelihood
+from .pyro import Bernoulli as PyroBernoulli
+from .pyro import Likelihood as PyroLikelihood
 
 
 class Bernoulli(Likelihood):
@@ -16,7 +17,12 @@ class Bernoulli(Likelihood):
 
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
         super().__init__(view_name, data, nonnegative)
-        self._shift = data.apply_to_view(view_name, lambda adata, group_name: logit(utils.nanmean(adata.X, axis=0)))
+        self._shift = data.apply_to_view(
+            view_name,
+            lambda adata, group_name: align_local_array_to_global(  # noqa: F821
+                logit(utils.nanmean(adata.X, axis=0)), group_name, self._view_name, align_to="features"
+            ),
+        )
 
     def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
         return PyroBernoulli(
@@ -36,17 +42,23 @@ class Bernoulli(Likelihood):
     def _format_validate_exception(cls, view_name: str) -> str:
         return f"Bernoulli likelihood in view {view_name} must be used with binary data."
 
-    @classmethod
     def _r2_impl(
-        cls,
+        self,
         y_true: NDArray,
         y_pred: NDArray[np.floating],
-        dispersions: NDArray[np.floating],
-        sample_means: NDArray[np.floating],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
     ) -> R2:
-        ss_res = np.nansum(cls._dV_square(y_true, y_pred, -1, 1))
-        ss_tot = np.nansum(cls._dV_square(y_true, np.nanmean(y_true), -1, 1))
+        ss_res = np.nansum(self._dV_square(y_true, y_pred, -1, 1))
+        ss_tot = np.nansum(self._dV_square(y_true, np.nanmean(y_true), -1, 1))
         return R2(ss_res, ss_tot)
 
-    def transform_prediction(self, prediction: NDArray[np.floating], group_name: str):
-        return expit(prediction + self._shift[group_name])
+    def transform_prediction(
+        self,
+        prediction: NDArray[np.floating],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
+        return expit(prediction + self._shift[group_name][feature_idx])

@@ -1,7 +1,7 @@
 from typing import Literal, TypeAlias
 
-from .base import PyroLikelihood, PyroLikelihoodWithDispersion
-from .bernoulli import PyroBernoulli
-from .categorical import PyroCategorical
-from .negativebinomial import PyroNegativeBinomial
-from .normal import PyroNormal
+from .base import Likelihood, LikelihoodWithDispersion
+from .bernoulli import Bernoulli
+from .categorical import Categorical
+from .negativebinomial import NegativeBinomial
+from .normal import Normal

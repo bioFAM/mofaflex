@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 def _init_api():
     def make_wrapper(term: Term):  # required due to Python's late-binding closures
-        def wrapper(name, /, **kwargs):
+        def wrapper(name="_", /, **kwargs):
             from ..mofaflex import MOFAFLEX
 
             return MOFAFLEX(**{name: term(**kwargs)})

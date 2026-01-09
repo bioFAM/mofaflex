@@ -134,19 +134,28 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
 
     @abstractmethod
     def predict(
-        self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)
+        self,
+        group_name: str,
+        view_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
     ) -> NDArray[np.floating]:
         """Predict the value of the term for a given group and view.
 
         Args:
             group_name: The group.
             view_name: The view.
-            subset_idx: The subset of samples to predict for.
+            sample_idx: The subset of samples to predict for.
+            feature_idx: The subset of features to predict for.
         """
         pass
 
     def prediction_components(
-        self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)
+        self,
+        group_name: str,
+        view_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
     ) -> Iterable[tuple[str, NDArray[np.floating]]]:
         """Predict individual components of this term.
 
@@ -155,7 +164,8 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         Args:
             group_name: The group.
             view_name: The view.
-            subset_idx: The subset of samples to predict for.
+            sample_idx: The subset of samples to predict for.
+            feature_idx: The subset of features to predict for.
         """
         pass
 

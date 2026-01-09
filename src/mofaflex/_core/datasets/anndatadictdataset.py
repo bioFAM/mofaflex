@@ -307,19 +307,6 @@ class AnnDataDictDataset(MofaFlexDataset):
         out[map.d2g >= 0, ...] = arr[local_indexer(map), ...]
         return np.moveaxis(out, 0, axis)
 
-    def _align_data_array_to_global(
-        self,
-        arr: NDArray[T],
-        group_name: str,
-        view_name: str,
-        align_to: Literal["samples", "features"],
-        axis: int = 0,
-        fill_value: np.ScalarType = np.nan,
-    ):
-        return self._align_array_to_global(
-            arr, group_name, view_name, align_to, lambda map: map.d2g[map.d2g >= 0], axis, fill_value
-        )
-
     def align_local_array_to_global(
         self,
         arr: NDArray[T],

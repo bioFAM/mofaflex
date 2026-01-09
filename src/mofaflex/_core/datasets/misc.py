@@ -6,6 +6,8 @@ import torch
 from numpy.typing import NDArray
 from torch.utils.data import BatchSampler, Dataset, RandomSampler, Sampler, StackDataset
 
+from .utils import dataframe_to_numpy_dtypes
+
 
 class MofaFlexBatchSampler(Sampler[Mapping[str, Sequence[int]]]):
     """A sampler for dicts.
@@ -79,7 +81,7 @@ def merge_covariates(covariates: Mapping[str, Mapping[str, pd.DataFrame]]):
         else:
             cov = group_covariates.groupby("sample").mean()
         cov.rename_axis(index=None, inplace=True)
-        merged_covariates[group_name] = cov
+        merged_covariates[group_name] = dataframe_to_numpy_dtypes(cov)
     return merged_covariates
 
 
@@ -104,6 +106,8 @@ class CovariatesDataset(Dataset):
                     arr = arr.iloc[group_idx, :]
                     if arr.dtypes.iloc[0] == "category":
                         arr = np.stack(tuple(arr[col].cat.codes.to_numpy() for col in arr.columns), axis=1)
+                        if self._cast_to is not None:
+                            arr = arr.astype(self._cast_to, copy=False)
                         arr[arr < 0] = np.nan
                     else:
                         arr = arr.to_numpy()

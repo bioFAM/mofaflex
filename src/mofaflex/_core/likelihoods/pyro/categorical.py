@@ -1,13 +1,15 @@
+from collections.abc import Mapping
+
 import pyro
 import torch
 from pyro import distributions as dist
 
-from .base import PyroLikelihood
+from .base import Likelihood
 
 
-class PyroCategorical(PyroLikelihood):
-    def __init__(self, view_name: str, sample_dim: int, feature_dim: int):
-        super().__init__(view_name, sample_dim, feature_dim)
+class Categorical(Likelihood):
+    def __init__(self, view_name: str, sample_dim: int, feature_dim: int, nsamples: Mapping[str, int], nfeatures: int):
+        super().__init__(view_name, sample_dim, feature_dim, nsamples, nfeatures)
 
     def _model(
         self,

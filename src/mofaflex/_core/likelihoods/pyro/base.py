@@ -3,17 +3,18 @@ from collections.abc import Callable, Mapping
 from inspect import isabstract, signature
 from itertools import islice
 
-import numpy as np
 import pyro
 import torch
-from numpy.typing import NDArray
 from pyro import distributions as dist
 from pyro.nn import PyroModule, PyroParam, PyroSample, pyro_method
 
-from ...utils import MeanStd, _PyroMeta
+from ...utils import MeanStd, _PyroMeta, checked_baseclass
 
 
-class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
+@checked_baseclass(
+    required_init_args=("view_name", "sample_dim", "feature_dim", "nsamples", "nfeatures"), registry="dict"
+)
+class Likelihood(ABC, PyroModule, metaclass=_PyroMeta):
     """Base class for MOFA-FLEX likelihoods used in the Pyro model.
 
     Subclasses must implement `_model`, which returns a Pyro distribution object to be used as likelihood,
@@ -185,17 +186,7 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
         return PyroSample(dist)
 
 
-class PyroLikelihoodWithShiftMixin:
-    def __init__(self, *args, shift: Mapping[str, NDArray[np.floating]], **kwargs):
-        super().__init__(*args, **kwargs)
-        for group_name, gshift in shift.items():
-            self.register_buffer(f"_shift_{group_name}", torch.as_tensor(gshift))
-
-    def _get_shift(self, group_name: str):
-        return getattr(self, f"_shift_{group_name}")
-
-
-class PyroLikelihoodWithDispersion(PyroLikelihood):
+class LikelihoodWithDispersion(Likelihood):
     """Base class for Pyro likelihoods with a dispersion parameter."""
 
     def __init__(

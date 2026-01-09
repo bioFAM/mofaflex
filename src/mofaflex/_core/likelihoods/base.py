@@ -13,7 +13,7 @@ from scipy.sparse import issparse
 from ..datasets import MofaFlexDataset
 from ..settings import settings
 from ..utils import SaveStateMixin, checked_baseclass
-from .pyro import PyroLikelihood
+from .pyro import Likelihood as PyroLikelihood
 
 _logger = logging.getLogger(__name__)
 
@@ -170,27 +170,47 @@ class Likelihood(SaveStateMixin, ABC):
         pass
 
     @abstractmethod
-    def transform_prediction(self, prediction: NDArray[np.floating], group_name: str):
+    def transform_prediction(
+        self,
+        prediction: NDArray[np.floating],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
         """Transform the raw model prediction into something compatible with the data, a.k.a. inverse link function.
 
         Args:
             prediction: The model prediction.
             group_name: The group name.
+            sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
+            feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
         """
         pass
 
     def r2(
-        self, y_true: NDArray, y_pred: NDArray[np.floating], group_name: str, alignment_idx: NDArray[int]
+        self,
+        y_true: NDArray,
+        y_pred: NDArray[np.floating],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
     ) -> tuple[float, NDArray[np.floating]]:
         """Calculate R2 (fraction of explained variance) for a factor model.
 
         Args:
             y_true: The observed data.
             y_pred: The predicted data.
-            alignment_idx: Index to use for subsetting arrays aligned to global features in order to align them to local features.
             group_name: The group name.
+            sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
+            feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
         """
-        r2 = self._r2_impl(y_true, self.transform_prediction(y_pred, group_name), group_name, alignment_idx)
+        r2 = self._r2_impl(
+            y_true,
+            self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),
+            group_name,
+            sample_idx,
+            feature_idx,
+        )
         r2 = max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
         if r2 < settings.get("eps"):
             _logger.warning(

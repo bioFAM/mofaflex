@@ -2,7 +2,7 @@ import logging
 import os
 from abc import ABC
 from collections import namedtuple
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import suppress
 from inspect import isabstract, signature
 from io import BytesIO
@@ -100,7 +100,12 @@ def checked_baseclass(
                     subinit = subcls.__dict__.get("__init__", None)
 
                     def init(self, *args, **kwargs):
-                        if len(args) > len(init_sig.parameters) and subcls is not cls and args[0] == subcls.__name__:
+                        if (
+                            len(args) > 0
+                            and subcls is not cls
+                            and isinstance(args[0], str)
+                            and args[0] == subcls.__name__
+                        ):
                             args = args[1:]
                         if subinit is not None:
                             subinit(self, *args, **kwargs)
@@ -124,7 +129,7 @@ def checked_baseclass(
                     return super(cls, cls).__new__(ccls)
                 try:
                     subclsname = args[0]
-                    subcls = ccls._registry[ccls.name]
+                    subcls = ccls._registry[subclsname]
                     return subcls.__new__(subcls, *args[1:], **kwargs)
                 except KeyError as e:
                     raise NotImplementedError(f"Uknown {cls.__name__.lower()} {subclsname}.") from e
@@ -140,6 +145,21 @@ def checked_baseclass(
 
 
 class SaveStateMixin:
+    @classmethod
+    def _get_state_attrs(cls) -> Iterable[str]:
+        while cls is not None:
+            with suppress(AttributeError):
+                if isinstance(attrs := cls._state_attrs, str):
+                    yield attrs
+                else:
+                    yield from attrs
+            for base in cls.__bases__:
+                if issubclass(base, __class__):
+                    cls = base
+                    break
+            else:
+                cls = None
+
     def save(self) -> dict[str, Any]:
         """Called by the model to save its state to disk.
 
@@ -151,20 +171,11 @@ class SaveStateMixin:
         state = {}
         state_meanstd = {}
 
-        cls = self.__class__
-        while cls is not None:
-            with suppress(AttributeError):
-                for attrname in cls._state_attrs:
-                    if isinstance(attr := getattr(self, attrname), MeanStd):
-                        state_meanstd[attrname] = attr._asdict()
-                    else:
-                        state[attrname] = attr
-            for base in cls.__bases__:
-                if issubclass(base, __class__):
-                    cls = base
-                    break
+        for attrname in self._get_state_attrs():
+            if isinstance(attr := getattr(self, attrname), MeanStd):
+                state_meanstd[attrname] = attr._asdict()
             else:
-                cls = None
+                state[attrname] = attr
 
         state.update(self._save())
         return {"class": self.__class__.__name__, "state": state, "state_meanstd": state_meanstd}
@@ -201,11 +212,14 @@ class SaveStateMixin:
         elif isinstance(obj, torch.nn.Module):
             torch.nn.Module.__init__(obj)
 
-        for attrname, attr in state["state_meanstd"].items():
-            setattr(obj, attrname, MeanStd(**attr))
+        meanstdstate = state["state_meanstd"]
         substate = state["state"]
-        for attrname, attr in substate.items():
-            setattr(obj, attrname, attr)
+        for attrname in obj._get_state_attrs():
+            try:
+                setattr(obj, attrname, MeanStd(**meanstdstate[attrname]))
+            except KeyError:
+                with suppress(KeyError):
+                    setattr(obj, attrname, substate[attrname])
         obj._load(substate, n_samples, n_features, map_location=map_location, **kwargs)
         return obj
 

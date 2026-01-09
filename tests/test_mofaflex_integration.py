@@ -4,13 +4,11 @@ from contextlib import chdir
 from functools import reduce
 from pathlib import Path
 
-import anndata as ad
 import numpy as np
 import pytest
-from packaging.version import Version
 from scipy.sparse import SparseEfficiencyWarning, csc_array, csc_matrix, csr_array, csr_matrix, issparse
 
-from mofaflex import MOFAFLEX, DataOptions, ModelOptions, TrainingOptions, priors, settings
+from mofaflex import likelihoods, priors, settings, terms
 
 
 @pytest.fixture
@@ -44,75 +42,103 @@ def anndata_dict(random_adata, rng):
 
 
 @pytest.mark.parametrize(
-    "attrname,attrvalue",
+    "argfor,argname,argval",
     [
-        ("scale_per_group", False),
-        ("scale_per_group", True),
-        ("covariates_obs_key", None),
-        ("covariates_obs_key", "covar"),
-        ("covariates_obsm_key", None),
-        ("covariates_obsm_key", "covar"),
-        ("guiding_vars_obs_keys", ["gvar_normal", "gvar_bernoulli", "gvar_categorical"]),
-        ("use_obs", "union"),
-        ("use_obs", "intersection"),
-        ("use_var", "union"),
-        ("use_var", "intersection"),
-        ("remove_constant_features", True),
-        ("remove_constant_features", False),
-        ("weight_prior", "Normal"),
-        ("weight_prior", "Laplace"),
-        ("weight_prior", "Horseshoe"),
-        ("weight_prior", priors.InformedHorseshoe(annotations_varm_key="annot_df")),
-        ("weight_prior", "SpikeSlab"),
-        ("factor_prior", {"group_1": "Normal", "group_2": priors.Laplace()}),
-        ("factor_prior", {("group_1", "group_2"): "Laplace"}),
-        ("factor_prior", {("group_1", "group_2"): priors.Horseshoe()}),
-        ("factor_prior", "SpikeSlab"),
-        ("nonnegative_weights", False),
-        ("nonnegative_weights", True),
-        ("nonnegative_factors", False),
-        ("nonnegative_factors", True),
-        ("init_factors", "random"),
-        ("init_factors", "orthogonal"),
-        ("init_factors", "pca"),
-        ("save_path", Path("test.h5")),
-        ("save_path", "test.h5"),
+        ("likelihood_normal", "scale_per_group", False),
+        ("term_mofaflex", "guiding_vars_obs_keys", ["gvar_normal", "gvar_bernoulli", "gvar_categorical"]),
+        ("term_mofaflex", "weight_prior", "Normal"),
+        ("term_mofaflex", "weight_prior", "Laplace"),
+        ("term_mofaflex", "weight_prior", "Horseshoe"),
+        ("term_mofaflex", "weight_prior", priors.InformedHorseshoe(annotations_varm_key="annot_df")),
+        ("term_mofaflex", "weight_prior", "SpikeSlab"),
+        ("term_mofaflex", "factor_prior", {"group_1": "Normal", "group_2": priors.Laplace()}),
+        ("term_mofaflex", "factor_prior", {("group_1", "group_2"): "Laplace"}),
+        ("term_mofaflex", "factor_prior", {("group_1", "group_2"): priors.Horseshoe()}),
+        ("term_mofaflex", "factor_prior", "SpikeSlab"),
+        ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_obs_key="covar", kernel="Matern")),
+        ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_obs_key="covar", mefisto_kernel=False)),
+        (
+            "term_mofaflex",
+            "factor_prior",
+            priors.GaussianProcess(covariates_obsm_key="covar_array", mefisto_kernel=False),
+        ),
+        (
+            "term_mofaflex",
+            "factor_prior",
+            priors.GaussianProcess(covariates_obsm_key="covar_sparse", mefisto_kernel=False),
+        ),
+        (
+            "term_mofaflex",
+            "factor_prior",
+            priors.GaussianProcess(covariates_obs_key="covar", independent_lengthscales=True),
+        ),
+        ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_obs_key="covar", group_covar_rank=2)),
+        ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_obs_key="covar", warp=True)),
+        ("term_mofaflex", "nonnegative_weights", True),
+        ("term_mofaflex", "nonnegative_factors", True),
+        ("term_mofaflex", "init_factors", "orthogonal"),
+        ("term_mofaflex", "init_factors", "pca"),
+        ("fit", "use_obs", "intersection"),
+        ("fit", "use_var", "intersection"),
+        ("fit", "remove_constant_features", False),
+        ("fit", "save_path", Path("test.h5")),
+        ("fit", "save_path", "test.h5"),
     ],
 )
 @pytest.mark.parametrize("n_particles", [1, 5])
 @pytest.mark.parametrize("batch_size", [0, 257])
 @pytest.mark.parametrize("usedask", [False, True])
-@pytest.mark.xfail(
-    Version(ad.__version__) >= Version("0.12.0rc1") and Version(ad.__version__) < Version("0.12.0"),
-    reason="anndata bug: https://github.com/scverse/anndata/pull/1975",
-    strict=False,
-)
-def test_integration(anndata_dict, tmp_path, attrname, attrvalue, n_particles, batch_size, usedask):
-    opts = (
-        DataOptions(plot_data_overview=False),
-        ModelOptions(
-            n_factors=5,
-            guiding_vars_likelihoods={
-                "gvar_normal": "Normal",
-                "gvar_bernoulli": "Bernoulli",
-                "gvar_categorical": "Categorical",
-            },
-        ),
-        TrainingOptions(max_epochs=2, seed=42, save_path=False, batch_size=batch_size, n_particles=n_particles),
+def test_integration(anndata_dict, tmp_path, argfor, argname, argval, n_particles, batch_size, usedask, request):
+    likelihoods_arg = None
+    if argfor == "likelihood_normal":
+        likelihoods_arg = {
+            "view_normal": likelihoods.Normal(**{argname: argval}),
+            "view_negativebinomial": "NegativeBinomial",
+            "view_bernoulli": likelihoods.Bernoulli(),
+        }
+
+    termargs = {}
+    if argfor == "term_mofaflex":
+        termargs[argname] = argval
+    model = terms.MofaFlex(
+        n_factors=5,
+        guiding_vars_likelihoods={
+            "gvar_normal": "Normal",
+            "gvar_bernoulli": "Bernoulli",
+            "gvar_categorical": "Categorical",
+        },
+        **termargs,
     )
-    for opt in opts:
-        if hasattr(opt, attrname):
-            setattr(opt, attrname, attrvalue)
 
+    fitargs = {"save_path": False}
+    if argfor == "fit":
+        fitargs[argname] = argval
     with chdir(tmp_path), settings.override(use_dask=usedask):
-        model = MOFAFLEX(anndata_dict, *opts)
+        model.fit(
+            anndata_dict,
+            likelihoods=likelihoods_arg,
+            plot_data_overview=False,
+            max_epochs=2,
+            seed=42,
+            batch_size=batch_size,
+            n_particles=n_particles,
+            **fitargs,
+        )
 
-    if attrname == "weight_prior" and isinstance(attrvalue, priors.InformedHorseshoe):
-        assert (model.n_informed_factors > 0) | (model._n_guiding_vars > 0)
-    elif attrname == "guiding_vars_obs_keys":
-        assert model._n_guiding_vars == 3
+    if argname == "weight_prior" and isinstance(argval, priors.InformedHorseshoe):
+        assert model.n_informed_factors > 0
+        assert model.terms["_"].n_informed_factors > 0
+        assert model.n_informed_factors == model.terms["_"].n_informed_factors
+    elif argname == "guiding_vars_obs_keys":
+        assert model.n_guided_factors == model.terms["_"].n_guided_factors == 3
     else:
-        assert model.n_factors == model.n_total_factors == 5
+        assert (
+            model.n_factors
+            == model.n_total_factors
+            == model.terms["_"].n_factors
+            == model.terms["_"].n_total_factors
+            == 5
+        )
 
 
 @pytest.mark.parametrize("usedask", [False, True])
@@ -120,11 +146,9 @@ def test_integration_single_obs(anndata_dict, usedask):
     intersection = reduce(lambda x, y: x.intersection(y), (view.obs_names for view in anndata_dict["group_2"].values()))
     anndata_dict["group_2"]["view_bernoulli"] = anndata_dict["group_2"]["view_bernoulli"][intersection[0]]
     with settings.override(use_dask=usedask):
-        MOFAFLEX(
-            anndata_dict,
-            DataOptions(plot_data_overview=False, use_obs="intersection"),
-            ModelOptions(n_factors=5, factor_prior="SpikeSlab", weight_prior="SpikeSlab"),
-            TrainingOptions(max_epochs=2, seed=42, save_path=False),
+        model = terms.MofaFlex(n_factors=5, factor_prior=priors.SpikeSlab(), weight_prior="SpikeSlab")
+        model.fit(
+            anndata_dict, plot_data_overview=False, use_obs="intersection", max_epochs=2, seed=42, save_path=False
         )
 
 
@@ -135,54 +159,17 @@ def test_integration_single_var(anndata_dict, usedask):
     )
     anndata_dict["group_2"]["view_bernoulli"] = anndata_dict["group_2"]["view_bernoulli"][:, intersection[0]]
     with settings.override(use_dask=usedask):
-        MOFAFLEX(
-            anndata_dict,
-            DataOptions(plot_data_overview=False, use_var="intersection"),
-            ModelOptions(n_factors=5, factor_prior="SpikeSlab", weight_prior="SpikeSlab"),
-            TrainingOptions(max_epochs=2, seed=42, save_path=False),
+        model = terms.MofaFlex(
+            n_factors=5,
+            factor_prior="SpikeSlab",
+            weight_prior={("view_normal", "view_bernoulli", "view_negativebinomial"): priors.SpikeSlab()},
+        )
+        model.fit(
+            anndata_dict, plot_data_overview=False, use_var="intersection", max_epochs=2, seed=42, save_path=False
         )
 
 
-@pytest.mark.parametrize(
-    "attrname,attrvalue",
-    [
-        ("kernel", "Matern"),
-        ("mefisto_kernel", False),
-        ("independent_lengthscales", True),
-        ("group_covar_rank", 2),
-        ("warp_groups", ["group_1", "group_2"]),
-    ],
-)
-@pytest.mark.parametrize("n_particles", [1, 5])
-@pytest.mark.parametrize("batch_size", [0, 257])
 @pytest.mark.parametrize("usedask", [False, True])
-@pytest.mark.xfail(
-    Version(ad.__version__) >= Version("0.12.0rc1") and Version(ad.__version__) < Version("0.12.0"),
-    reason="anndata bug: https://github.com/scverse/anndata/pull/1975",
-    strict=False,
-)
-def test_integration_gp(anndata_dict, attrname, attrvalue, n_particles, batch_size, usedask, tmp_path):
-    opts = (
-        DataOptions(plot_data_overview=False),
-        ModelOptions(
-            n_factors=5,
-            factor_prior=priors.GaussianProcess(
-                covariates_obs_key="covar", **{attrname: attrvalue}, n_inducing=20, warp_interval=1
-            ),
-        ),
-        TrainingOptions(max_epochs=2, seed=42, batch_size=batch_size, n_particles=n_particles),
-    )
-
-    with chdir(tmp_path), settings.override(use_dask=usedask):
-        model = MOFAFLEX(anndata_dict, *opts)  # noqa: F841
-
-
-@pytest.mark.parametrize("usedask", [False, True])
-@pytest.mark.xfail(
-    Version(ad.__version__) >= Version("0.12.0rc1") and Version(ad.__version__) < Version("0.12.0"),
-    reason="anndata bug: https://github.com/scverse/anndata/pull/1975",
-    strict=False,
-)
 def test_imputation(rng, anndata_dict, usedask):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=SparseEfficiencyWarning)

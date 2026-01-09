@@ -22,8 +22,8 @@ from scipy.sparse import issparse
 from sklearn.decomposition import NMF, PCA
 
 from ..api import priors as apipriors
-from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset
-from ..likelihoods.pyro import PyroLikelihood
+from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset, merge_covariates
+from ..likelihoods.pyro import Likelihood
 from ..priors import API, APIType, FactorPriorType, Prior, WeightPriorType
 from ..utils import MeanStd, PyroModuleDict, PyroParameterDict, building_docs
 from .base import Term
@@ -103,6 +103,7 @@ class MofaFlex(Term):
         self._guiding_vars_scales = guiding_vars_scales
 
         self._init_factors = init_factors
+        self._init_loc = 0.0
         self._init_scale = init_scale
 
         self._factor_names = [f"Factor {k + 1}" for k in range(n_factors)]
@@ -306,45 +307,47 @@ class MofaFlex(Term):
                 self._guiding_vars_obs_keys = {
                     obs_key: dict.fromkeys(data.group_names, obs_key) for obs_key in self._guiding_vars_obs_keys
                 }
-            self._guiding_vars_names = self._guiding_vars_obs_keys.keys()
+            self._guiding_vars_names = list(self._guiding_vars_obs_keys.keys())
         else:
             self._guiding_vars_names = []
 
-        if self.n_guided_factors > 0:
-            if not isinstance(self._guiding_vars_scales, dict):
-                self._guiding_vars_scales = dict.fromkeys(self._guiding_vars_names, self._guiding_vars_scales)
+    def _init_guiding_vars(self, data: MofaFlexDataset):
+        if not isinstance(self._guiding_vars_scales, dict):
+            self._guiding_vars_scales = dict.fromkeys(self._guiding_vars_names, self._guiding_vars_scales)
 
-            total_n_features = 0.1 * data.n_features_total
-            self._guiding_vars_scales = {
-                name: scale * total_n_features for name, scale in self._guiding_vars_scales.items()
+        total_n_features = 0.1 * data.n_features_total
+        self._guiding_vars_scales = {
+            name: scale * total_n_features for name, scale in self._guiding_vars_scales.items()
+        }
+
+        self._pyro_guiding_vars_likelihoods = PyroModuleDict(
+            {
+                guiding_var_name: Likelihood(
+                    self._guiding_vars_likelihoods[guiding_var_name],
+                    view_name=guiding_var_name,
+                    sample_dim=self._sample_plate_dim,
+                    feature_dim=self._feature_plate_dim,
+                    nsamples=data.n_samples,
+                    nfeatures=1,
+                )
+                for guiding_var_name in self._guiding_vars_names
             }
+        )
 
-            self._pyro_guiding_vars_likelihoods = PyroModuleDict(
-                {
-                    guiding_var_name: PyroLikelihood(
-                        self._guiding_vars_likelihoods[guiding_var_name],
-                        view_name=guiding_var_name,
-                        sample_dim=self._sample_plate_dim,
-                        feature_dim=self._feature_plate_dim,
-                    )
-                    for guiding_var_name in self._guiding_vars_names
-                }
+        self._guiding_locs = PyroParameterDict()
+        self._guiding_scales = PyroParameterDict()
+
+        self._guiding_vars_weights_dims = {}
+        for guiding_var_name in self._guiding_vars_names:
+            self._guiding_vars_weights_dims[guiding_var_name] = weights_dim = max(
+                self._guiding_vars_n_categories[guiding_var_name], 1
             )
-
-            self._guiding_locs = PyroParameterDict()
-            self._guiding_scales = PyroParameterDict()
-
-            self._guiding_vars_weights_dims = {}
-            for guiding_var_name in self._guiding_vars_names:
-                self._guiding_vars_weights_dims[guiding_var_name] = weights_dim = max(
-                    self._guiding_vars_n_categories[guiding_var_name], 1
-                )
-                self._guiding_locs[guiding_var_name] = PyroParam(
-                    torch.full([weights_dim, 2]), constraint=constraints.real
-                )
-                self._guiding_scales[guiding_var_name] = PyroParam(
-                    torch.full([weights_dim, 2]), constraint=constraints.softplus_positive
-                )
+            self._guiding_locs[guiding_var_name] = PyroParam(
+                torch.full([weights_dim, 2], self._init_loc), constraint=constraints.real
+            )
+            self._guiding_scales[guiding_var_name] = PyroParam(
+                torch.full([weights_dim, 2], self._init_scale), constraint=constraints.softplus_positive
+            )
 
     _sample_plate_dim = -2
     _feature_plate_dim = -1
@@ -353,11 +356,11 @@ class MofaFlex(Term):
     def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
         self._init(data)
 
+        ret = defaultdict(dict)
         for axis, priors in ((0, self._factor_priors), (1, self._weight_priors)):
             for prior in priors:
                 self._factor_names = prior.adjust_factors(data, axis, self._factor_names)
 
-        ret = defaultdict(dict)
         for prior in self._factor_priors:
             if priordsets := prior.get_datasets(
                 data, 0, self._factor_plate_dim, self._sample_plate_dim, self.n_total_factors, data.n_samples
@@ -376,25 +379,24 @@ class MofaFlex(Term):
                     self._weight_dsets[dsetname].update(dset)
 
         if self.n_guided_factors > 0:
-            guiding_vars = {}
-            for guiding_var_name, obs_key in self._guiding_vars_obs_keys.items():
-                guiding_vars[guiding_var_name] = CovariatesDataset(data.get_covariates(0, obs_key=obs_key))
-            ret["guiding_vars"] = guiding_vars = StackDataset(**guiding_vars)
+            guiding_vars = {
+                guiding_var_name: merge_covariates(data.get_covariates(0, key=obs_key))
+                for guiding_var_name, obs_key in self._guiding_vars_obs_keys.items()
+            }
+            ret["guiding_vars"] = StackDataset(**{name: CovariatesDataset(dset) for name, dset in guiding_vars.items()})
 
+            self._guiding_vars_n_categories = {}
             for guiding_var_name, guiding_var_likelihood in self._guiding_vars_likelihoods.items():
                 if guiding_var_likelihood == "Categorical":
                     guiding_vars_categories = set()
                     # find number of unique categories across groups
                     for group_name in data.group_names:
-                        guiding_vars_categories.update(
-                            guiding_vars.datasets[guiding_var_name].covariates[group_name].iloc[:, 0].to_list()
-                        )
+                        guiding_vars_categories.update(guiding_vars[guiding_var_name][group_name].iloc[:, 0].to_list())
                     self._guiding_vars_n_categories[guiding_var_name] = len(guiding_vars_categories)
 
                 else:
                     # if not categorical, set to default
                     self._guiding_vars_n_categories[guiding_var_name] = 0
-
         return ret
 
     @staticmethod
@@ -473,6 +475,7 @@ class MofaFlex(Term):
 
     def on_train_start(self, data: MofaFlexDataset):
         if self.n_guided_factors > 0:
+            self._init_guiding_vars(data)
             self._factor_names = np.concatenate((self._factor_names, self._guiding_vars_names))
         else:
             self._factor_names = np.asarray(self._factor_names)
@@ -693,17 +696,30 @@ class MofaFlex(Term):
             for group_name, gfactors in self._nonnegative_factors.items()
         }
 
-    def predict(self, group_name: str, view_name: str, subsample_idx: NDArray[int] | slice = slice(None)):
-        return self._factors.mean[group_name][subsample_idx] @ self._weights.mean[view_name].T
+    def predict(
+        self,
+        group_name: str,
+        view_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
+        return (
+            self._get_postprocessed_factors("mean", group_name)[sample_idx]
+            @ self._get_postprocessed_weights("mean", view_name)[feature_idx].T
+        )
 
     def prediction_components(
-        self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)
+        self,
+        group_name: str,
+        view_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
     ) -> Iterable[tuple[str, NDArray[np.floating]]]:
         yield from (
             (
                 factor_name,
-                self._factors.mean[group_name][subset_idx, factor_idx, None]
-                @ self._weights.mean[view_name][None, :, factor_idx],
+                self._get_postprocessed_factors("mean", group_name)[sample_idx, factor_idx, None]
+                @ self._get_postprocessed_weights("mean", view_name)[None, feature_idx, factor_idx],
             )
             for factor_idx, factor_name in enumerate(self.factor_names)
         )
@@ -743,10 +759,18 @@ class MofaFlex(Term):
         self._prior_api_properties = {}
         self._init_api()
 
-    def _get_postprocessed_factors(self, moment: Literal["mean", "std"] = "mean", **kwargs) -> dict[str, np.ndarray]:
+    def _get_postprocessed_factors(
+        self, moment: Literal["mean", "std"] = "mean", group_name: str | None = None, **kwargs
+    ) -> dict[str, np.ndarray]:
         factors = {}
         for prior in self._factor_priors:
-            factors.update(prior.postprocess_results(self._factors, moment=moment, **kwargs))
+            if (
+                postprocessed := prior.postprocess_results(self._factors, moment=moment, name=group_name, **kwargs)
+            ) is not None:
+                if group_name is not None:
+                    return postprocessed
+                else:
+                    factors.update(postprocessed)
         return factors
 
     @Term._api
@@ -776,10 +800,18 @@ class MofaFlex(Term):
 
         return factors
 
-    def _get_postprocessed_weights(self, moment: Literal["mean", "std"] = "mean", **kwargs) -> dict[str, np.ndarray]:
+    def _get_postprocessed_weights(
+        self, moment: Literal["mean", "std"] = "mean", view_name: str | None = None, **kwargs
+    ) -> dict[str, np.ndarray]:
         weights = {}
         for prior in self._weight_priors:
-            weights.update(prior.postprocess_results(self._weights, moment=moment, **kwargs))
+            if (
+                postprocessed := prior.postprocess_results(self._weights, moment=moment, name=view_name, **kwargs)
+            ) is not None:
+                if view_name is not None:
+                    return postprocessed
+                else:
+                    weights.update(postprocessed)
         return weights
 
     @Term._api
@@ -789,7 +821,6 @@ class MofaFlex(Term):
         """Get the weight matrices W for each view.
 
         Args:
-            return_type: Format of the returned object.
             moment: Which moment of the posterior distribution to return.
             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
         """
@@ -935,7 +966,7 @@ def _init_api():
             params = [
                 param
                 for param in inspect.signature(postprocess_method).parameters.values()
-                if param.name not in {"self", "results", "moment", "kwargs"}
+                if param.name not in {"self", "results", "moment", "name", "kwargs"}
             ]
             if len(params) > 0:
                 getter_params[axis].extend(params)

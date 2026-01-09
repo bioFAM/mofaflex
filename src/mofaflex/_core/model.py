@@ -17,12 +17,12 @@ from .api.likelihoods import Likelihood as APILikelihood
 from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood, LikelihoodType
 from .terms import Term
-from .utils import PyroModuleDict
+from .utils import PyroModuleDict, SaveStateMixin
 
 _logger = logging.getLogger(__name__)
 
 
-class MofaFlexModel(PyroModule):
+class MofaFlexModel(SaveStateMixin, PyroModule):
     """The MOFA-FLEX model.
 
     The model consists of multiple additive terms and a likelihood. Each additive term is responsible for handling its own
@@ -109,7 +109,11 @@ class MofaFlexModel(PyroModule):
             )
 
     @property
-    def _group_names(self):
+    def terms(self) -> Mapping[str, Term]:
+        return self._terms
+
+    @property
+    def _group_names(self) -> Sequence[str]:
         return self._n_samples.keys()
 
     @property
@@ -285,35 +289,44 @@ class MofaFlexModel(PyroModule):
                 sample_idx = np.random.choice(view.n_obs, subsample, replace=False)
             else:
                 sample_idx = slice(None)
+            mapped_sample_idx = map_local_indices_to_global(sample_idx, group_name, view_name, align_to="samples")  # noqa: F821
             cdata = data.preprocessor(view.X[sample_idx, :], slice(None), slice(None), group_name, view_name)[0]
             if issparse(cdata):
                 cdata = cdata.toarray()
 
-            alignment_idx = map_local_indices_to_global(  # noqa: F821
+            mapped_feature_idx = map_local_indices_to_global(  # noqa: F821
                 slice(None), group_name, view_name, align_to="features"
             )
             try:
                 r2_full = self._likelihoods[view_name].r2(
                     y_true=cdata,
-                    y_pred=self.predict(group_name, view_name, sample_idx),
+                    y_pred=self.predict(group_name, view_name, mapped_sample_idx, mapped_feature_idx),
                     group_name=group_name,
-                    alignment_idx=alignment_idx,
+                    sample_idx=mapped_sample_idx,
+                    feature_idx=mapped_feature_idx,
                 )
                 r2s_per_term = {}
                 r2s_per_term_component = {}
                 for term_name, term in self._terms.items():
                     r2s_per_term[term_name] = self._likelihoods[view_name].r2(
                         y_true=cdata,
-                        y_pred=term.predict(group_name, view_name, sample_idx),
+                        y_pred=term.predict(group_name, view_name, mapped_sample_idx, mapped_feature_idx),
                         group_name=group_name,
-                        alignment_idx=alignment_idx,
+                        sample_idx=mapped_sample_idx,
+                        feature_idx=mapped_feature_idx,
                     )
 
-                    component_iter = term.prediction_components(group_name, view_name, sample_idx)
+                    component_iter = term.prediction_components(
+                        group_name, view_name, mapped_sample_idx, mapped_feature_idx
+                    )
                     if component_iter is not None:
                         r2s_per_term_component[term_name] = {
                             component_name: self._likelihoods[view_name].r2(
-                                y_true=cdata, y_pred=component, group_name=group_name, alignment_idx=alignment_idx
+                                y_true=cdata,
+                                y_pred=component,
+                                group_name=group_name,
+                                sample_idx=mapped_sample_idx,
+                                feature_idx=mapped_feature_idx,
                             )
                             for component_name, component in component_iter
                         }
@@ -355,24 +368,33 @@ class MofaFlexModel(PyroModule):
                 -components.groupby(["component"], sort=False)["R2"].mean().to_numpy()
             )
 
-    def predict(self, group_name: str, view_name: str, subset_idx: NDArray[int] | slice = slice(None)):
+    def predict(
+        self,
+        group_name: str,
+        view_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
         """Create a prediction for a given group and view.
 
         Args:
             group_name: The group.
             view_name: The view.
-            subset_idx: The subset of samples to predict for.
+            sample_idx: The subset of samples to predict for.
+            feature_idx: The subset of features to predict for.
         """
-        return reduce(operator.add, (term.predict(group_name, view_name, subset_idx) for term in self._terms.values()))
+        return reduce(
+            operator.add,
+            (term.predict(group_name, view_name, sample_idx, feature_idx) for term in self._terms.values()),
+        )
 
-    def save(self) -> dict[str, Any]:
+    def _save(self) -> dict[str, Any]:
         return {
             "terms": {name: term.save() for name, term in self._terms.items()},
             "likelihoods": {view_name: likelihood.save() for view_name, likelihood in self._likelihoods.items()},
         }
 
-    @classmethod
-    def load(self, state: dict[str, Any], n_samples: dict[str, int], n_features: dict[str, int], map_location=None):
+    def _load(self, state: dict[str, Any], n_samples: dict[str, int], n_features: dict[str, int], map_location=None):
         self._terms = PyroModuleDict(
             {name: Term.load(term, n_samples, n_features) for name, term in state["terms"].items()}
         )

@@ -6,10 +6,10 @@ import torch
 from numpy.typing import NDArray
 from pyro import distributions as dist
 
-from .base import PyroLikelihood, PyroLikelihoodWithShiftMixin
+from .base import Likelihood
 
 
-class PyroBernoulli(PyroLikelihoodWithShiftMixin, PyroLikelihood):
+class Bernoulli(Likelihood):
     def __init__(
         self,
         view_name: str,
@@ -17,9 +17,15 @@ class PyroBernoulli(PyroLikelihoodWithShiftMixin, PyroLikelihood):
         feature_dim: int,
         nsamples: Mapping[str, int],
         nfeatures: int,
-        shift: Mapping[str, NDArray[np.floating]],
+        *,
+        shift: Mapping[str, NDArray[np.floating]] | None = None,
     ):
-        super().__init__(view_name, sample_dim, feature_dim, nsamples, nfeatures, shift=shift)
+        super().__init__(view_name, sample_dim, feature_dim, nsamples, nfeatures)
+        self._shift = (
+            {group_name: torch.as_tensor(gshift) for group_name, gshift in shift.items()}
+            if shift is not None
+            else shift
+        )
 
     def _model(
         self,
@@ -30,7 +36,9 @@ class PyroBernoulli(PyroLikelihoodWithShiftMixin, PyroLikelihood):
         nonmissing_samples: torch.Tensor | slice,
         nonmissing_features: torch.Tensor | slice,
     ) -> pyro.distributions.Distribution:
-        return dist.Bernoulli(logits=estimate + self._get_shift(group_name))
+        if self._shift is not None:
+            estimate = estimate + self._shift[group_name][feature_plate.indices[nonmissing_features]]
+        return dist.Bernoulli(logits=estimate)
 
     def _guide(self, group_name: str, sample_plate: pyro.plate, feature_plate: pyro.plate):
         pass

@@ -103,7 +103,7 @@ class MOFAFLEX:
             return sdir
 
     def __getattr__(self, name):
-        if hasattr(self, "_wrapped_terms") and len(self._wrapped_terms) == 1:
+        if "_wrapped_terms" in self.__dict__ and len(self._wrapped_terms) == 1:
             return next(iter(self._wrapped_terms.values())).__getattr__(name, forward=False)
         else:
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'", name=name, obj=self)
@@ -179,7 +179,7 @@ class MOFAFLEX:
         return MappingProxyType(self._wrapped_terms)
 
     def _init_api(self):
-        self._wrapped_terms = {name: TermWrapper(self, term) for name, term in self._terms.items()}
+        self._wrapped_terms = {name: TermWrapper(self, term) for name, term in self._model.terms.items()}
 
     def fit(
         self,
@@ -297,21 +297,9 @@ class MOFAFLEX:
         if (termdsets := model.get_datasets(data)) is not None:
             datasets.update(termdsets)
 
-        # clean start
         pyro.enable_validation(True)
         pyro.clear_param_store()
 
-        optimizer = ClippedAdam(model.get_lr_func(self._train_opts.lr, lrd=lrd))
-        svi = SVI(
-            model=pyro.poutine.scale(model.model, scale=1.0 / self.n_samples_total),
-            guide=pyro.poutine.scale(model.guide, scale=1.0 / self.n_samples_total),
-            optim=optimizer,
-            loss=TraceMeanField_ELBO(
-                retain_graph=True, num_particles=self._train_opts.n_particles, vectorize_particles=True
-            ),
-        )
-
-        # Train
         singlebatch = self._train_opts.batch_size >= max(self.n_samples.values())
         collate_fn_map = {
             torch.Tensor: lambda x, **kwargs: x[0].to(self._train_opts.device, non_blocking=True),
@@ -342,6 +330,17 @@ class MOFAFLEX:
         )
         with self._train_opts.device:
             model.on_train_start(data)
+
+        # needs to be after on_train_start
+        optimizer = ClippedAdam(model.get_lr_func(self._train_opts.lr, lrd=lrd))
+        svi = SVI(
+            model=pyro.poutine.scale(model.model, scale=1.0 / self.n_samples_total),
+            guide=pyro.poutine.scale(model.guide, scale=1.0 / self.n_samples_total),
+            optim=optimizer,
+            loss=TraceMeanField_ELBO(
+                retain_graph=True, num_particles=self._train_opts.n_particles, vectorize_particles=True
+            ),
+        )
 
         with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
             for i in t:

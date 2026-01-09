@@ -6,7 +6,8 @@ from numpy.typing import NDArray
 from .. import utils
 from ..datasets import MofaFlexDataset
 from .base import R2, Likelihood
-from .pyro import PyroLikelihood, PyroNormal
+from .pyro import Likelihood as PyroLikelihood
+from .pyro import Normal as PyroNormal
 
 
 class Normal(Likelihood):
@@ -31,6 +32,10 @@ class Normal(Likelihood):
             self._scale = data.apply(
                 self._calc_scale_ungrouped, by_group=False, filter_views=view_name, groups=data.group_names
             )[view_name]
+        self._shift = {
+            group_name: data.align_local_array_to_global(shift, group_name, self._view_name, align_to="features")
+            for group_name, shift in self._shift.items()
+        }
 
         self._dispersion = None
 
@@ -70,8 +75,8 @@ class Normal(Likelihood):
             feature_dim,
             data.n_samples,
             data.n_features[self._view_name],
-            self._shift,
-            self._scale,
+            shift=self._shift,
+            scale=self._scale,
             init_scale=init_scale,
         )
 
@@ -83,15 +88,26 @@ class Normal(Likelihood):
         return True
 
     def _r2_impl(
-        self, y_true: NDArray, y_pred: NDArray[np.floating], group_name: str, alignment_idx: NDArray[int]
+        self,
+        y_true: NDArray,
+        y_pred: NDArray[np.floating],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
     ) -> R2:
         ss_res = np.nansum(np.square(y_true - y_pred))
-        ss_tot = np.nansum(np.square(y_true - self._shift[group_name]))
+        ss_tot = np.nansum(np.square(y_true - self._shift[group_name][feature_idx]))
         return R2(ss_res, ss_tot)
 
-    def transform_prediction(self, prediction: NDArray[np.floating], group_name: str):
+    def transform_prediction(
+        self,
+        prediction: NDArray[np.floating],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
         try:
             scale = self._scale[group_name]
-        except TypeError:
+        except IndexError:
             scale = self._scale
-        return prediction * scale + self._shift[group_name]
+        return prediction * scale + self._shift[group_name][feature_idx]

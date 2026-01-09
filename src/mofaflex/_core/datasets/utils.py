@@ -154,17 +154,9 @@ def select_anndata_layer(adata: AnnData, layer: str | None = None):
         )
 
 
-def align_dataframe(
-    df,
-    new_index,
-    fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]] = lambda _: pd.NA,
-):
-    df = df.convert_dtypes()
+def dataframe_to_numpy_dtypes(df: pd.DataFrame | Mapping[str, pd.Series]):
     new_cols = {}
-    for colname in df.columns:
-        col = df[colname]
-        new_cols[colname] = col.reindex(new_index, fill_value=fill_value(col.dtype))
-    for colname, col in new_cols.items():
+    for colname, col in df.items():
         with suppress(ValueError):
             match col.dtype:
                 case pd.BooleanDtype():
@@ -175,3 +167,16 @@ def align_dataframe(
                     col = col.astype(dtype)
         new_cols[colname] = col
     return pd.DataFrame(new_cols)
+
+
+def align_dataframe(
+    df,
+    new_index,
+    fill_value: Callable[[np.dtype | pd.api.extensions.ExtensionDtype], Union[*np.ScalarType]] = lambda _: pd.NA,
+):
+    df = df.convert_dtypes()
+    new_cols = {}
+    for colname in df.columns:
+        col = df[colname]
+        new_cols[colname] = col.reindex(new_index, fill_value=fill_value(col.dtype))
+    return dataframe_to_numpy_dtypes(new_cols)
