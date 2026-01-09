@@ -332,7 +332,7 @@ def nanmean(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
             ):
                 mean = _nanmean_cs_aligned(arr)
             else:
-                raise NotImplementedError(f"Unsupported sparse matrix type {type(arr)}.")
+                mean = nanmean(arr.tocsr(), axis, keepdims)
             if keepdims:
                 mean = np.expand_dims(mean, axis)
     else:
