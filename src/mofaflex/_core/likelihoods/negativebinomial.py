@@ -91,3 +91,14 @@ class NegativeBinomial(Likelihood):
         prediction = np.maximum(0, prediction)  # ReLU
         prediction *= self._sample_means[group_name][sample_idx]
         return prediction
+
+    def transform_data(
+        self,
+        data: NDArray[np.number],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
+        data = data / self._sample_means[group_name][sample_idx]
+        data -= self._shift[group_name][feature_idx]
+        return data

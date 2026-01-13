@@ -10,9 +10,7 @@ from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 import numpy as np
-import pandas as pd
 import torch
-from anndata import AnnData
 from numpy.typing import NDArray
 from pyro.nn import PyroModule
 from scipy.sparse import (
@@ -23,7 +21,6 @@ from scipy.sparse import (
     csr_array,
     csr_matrix,
     issparse,
-    lil_array,
     sparray,
     spmatrix,
 )
@@ -428,77 +425,3 @@ def _minmax(
     elif not keepdims and res.ndim == arr.ndim:
         res = res.squeeze(axis)
     return res
-
-
-def impute(
-    data: AnnData,
-    group_name,
-    view_name,
-    factors,
-    weights,
-    sample_names,
-    feature_names,
-    likelihood,
-    missingonly,
-    preprocessor,
-):
-    havemissing = data.n_obs < factors.shape[0] or data.n_vars < weights.shape[0]
-    if issparse(data.X):
-        have_missing_cells = np.isnan(data.X.data).sum() > 0
-    else:
-        have_missing_cells = np.isnan(data.X).sum() > 0
-    havemissing |= have_missing_cells
-
-    if missingonly and not havemissing:
-        return data
-
-    if not missingonly:
-        imputation = likelihood.transform_prediction(factors @ weights.T, preprocessor.sample_means)
-    else:
-        missing_obs = align_local_array_to_global(  # noqa F821
-            np.broadcast_to(False, (data.n_obs,)), group_name, view_name, fill_value=True, align_to="samples"
-        )
-        missing_var = align_local_array_to_global(  # noqa F821
-            np.broadcast_to(False, (data.n_vars)), group_name, view_name, fill_value=True, align_to="features"
-        )
-
-        preprocessed = preprocessor(data.X, slice(None), slice(None), group_name, view_name)[0]
-        if issparse(preprocessed):
-            imputation = lil_array((factors.shape[0], weights.shape[0]))
-        else:
-            imputation = np.empty((sample_names.size, feature_names.size), dtype=data.X.dtype)
-
-        obsidx = map_local_indices_to_global(np.arange(data.n_obs), group_name, view_name, align_to="samples")  # noqa F821
-        varidx = map_local_indices_to_global(np.arange(data.n_vars), group_name, view_name, align_to="features")  # noqa F821
-        imputation[np.ix_(obsidx, varidx)] = preprocessed
-
-        if issparse(data.X):
-            for row in np.nonzero(missing_obs)[0]:
-                imputation[row, :] = likelihood.transform_prediction(
-                    factors[row, :] @ weights.T, preprocessor.sample_means
-                )
-            imputation = imputation.T  # slow column slicing for lil arrays
-            for col in np.nonzero(missing_var)[0]:
-                imputation[col, :] = likelihood.transform_prediction(
-                    factors @ weights[col, :].T, preprocessor.sample_means
-                ).T
-            imputation = imputation.T
-        else:
-            imputation[missing_obs, :] = likelihood.transform_prediction(
-                factors[missing_obs, :] @ weights.T, preprocessor.sample_means
-            )
-            imputation[:, missing_var] = likelihood.transform_prediction(
-                factors @ weights[missing_var, :].T, preprocessor.sample_means
-            )
-
-        if have_missing_cells:
-            nanobs, nanvar = wherenan(data.X)
-            nanobs, nanvar = np.atleast_1d(obsidx[nanobs]), np.atleast_1d(varidx[nanvar])
-            imputation[nanobs, nanvar] = likelihood.transform_prediction(
-                (factors[nanobs, :] * weights[nanvar, :]).sum(axis=1), preprocessor.sample_means
-            )
-
-        if issparse(data.X):
-            imputation = imputation.tocsr()
-
-    return AnnData(X=imputation, obs=pd.DataFrame(index=sample_names), var=pd.DataFrame(index=feature_names))

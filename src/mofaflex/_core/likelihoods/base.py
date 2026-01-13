@@ -187,6 +187,23 @@ class Likelihood(SaveStateMixin, ABC):
         """
         pass
 
+    @abstractmethod
+    def transform_data(
+        self,
+        data: NDArray[np.number],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
+        """Transform the data into something compatible with the raw model prediction, a.k.a. link function.
+
+        Args:
+            data: The data.
+            group_name: The group name.
+            sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
+            feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
+        """
+
     def r2(
         self,
         y_true: NDArray,

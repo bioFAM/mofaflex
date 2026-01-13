@@ -176,7 +176,6 @@ def test_imputation(rng, anndata_dict, usedask):
 
         nanidx = {}
         for group_name, group in anndata_dict.items():
-            del group["view_negativebinomial"]
             cnanidx = {}
             for view_name, view in group.items():
                 n_nans = rng.choice(int(0.05 * view.n_obs * view.n_vars))
@@ -188,12 +187,8 @@ def test_imputation(rng, anndata_dict, usedask):
             nanidx[group_name] = cnanidx
 
     with settings.override(use_dask=usedask):
-        model = MOFAFLEX(
-            anndata_dict,
-            DataOptions(plot_data_overview=False),
-            ModelOptions(n_factors=5),
-            TrainingOptions(max_epochs=2, seed=42, save_path=False),
-        )
+        model = terms.MofaFlex(n_factors=5)
+        model.fit(anndata_dict, plot_data_overview=False, max_epochs=5, seed=42, save_path=False)
 
         imputed = model.impute_data(anndata_dict, missing_only=False)
 
@@ -202,7 +197,8 @@ def test_imputation(rng, anndata_dict, usedask):
             assert np.isnan(view.X if not issparse(view.X) else view.X.data).sum() == 0
 
     imputed = model.impute_data(anndata_dict, missing_only=True)
-    preprocessor = model._mofaflexdataset(anndata_dict).preprocessor
+    dataset = model._make_dataset(anndata_dict)
+    preprocessor = dataset.preprocessor
     for group_name, group in imputed.items():
         for view_name, view in group.items():
             assert np.isnan(view.X if not issparse(view.X) else view.X.data).sum() == 0
@@ -215,6 +211,11 @@ def test_imputation(rng, anndata_dict, usedask):
             if issparse(new_X):
                 new_X = new_X.toarray()
             nonnan = ~np.isnan(orig_X)
-            assert np.allclose(
-                preprocessor(orig_X, slice(None), slice(None), group_name, view_name)[0][nonnan], new_X[nonnan]
+            orig_X = preprocessor(orig_X, slice(None), slice(None), group_name, view_name)[0]
+            orig_X = model._model._likelihoods[view_name].transform_data(
+                orig_X,
+                group_name,
+                dataset.map_local_indices_to_global(slice(None), group_name, view_name, align_to="samples"),
+                dataset.map_local_indices_to_global(slice(None), group_name, view_name, align_to="features"),
             )
+            assert np.allclose(orig_X[nonnan], new_X[nonnan])

@@ -111,3 +111,16 @@ class Normal(Likelihood):
         except IndexError:
             scale = self._scale
         return prediction * scale + self._shift[group_name][feature_idx]
+
+    def transform_data(
+        self,
+        data: NDArray[np.floating],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
+        try:
+            scale = self._scale[group_name]
+        except IndexError:
+            scale = self._scale
+        return data - self._shift[group_name][feature_idx] / scale

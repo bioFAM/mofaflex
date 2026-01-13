@@ -29,7 +29,7 @@ from .likelihoods import LikelihoodType
 from .model import MofaFlexModel
 from .terms import Term, TermWrapper
 from .training import EarlyStopper
-from .utils import filter_constant_features, impute, sample_all_data_as_one_batch
+from .utils import filter_constant_features, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
@@ -433,29 +433,20 @@ class MOFAFLEX:
     ) -> dict[dict[str, AnnData]]:
         """Impute values in the training data using the trained factorization.
 
+        The data will be transformed into a space compatible with model predictions. Usually that involves shifting and/or
+        scaling, e.g. Gaussian data will be mean-centered and scaled to unit variance. This also implies that only dense
+        matrices can be returned. Be aware that this can result in high memory consumption.
+
         Args:
             data: The data the model was trained on.
             missing_only: Only impute missing values in the data.
 
         Returns:
             Nested dictionary of AnnData objects with either fully imputed data or with only the missing values filled in.
-            In both cases, the returned data will be preprocessed. In the case of Gaussian distributed data, that involves
-            centering and scaling.
         """
         data = self._make_dataset(data)
         data.reindex_features(self.feature_names)
-
-        return data.apply(
-            impute,
-            view_kwargs={
-                "weights": self._weights.mean,
-                "feature_names": self.feature_names,
-                "likelihood": self._model_opts.likelihoods,
-            },
-            group_kwargs={"factors": self._factors.mean, "sample_names": self.sample_names},
-            missingonly=missing_only,
-            preprocessor=data.preprocessor,
-        )
+        return self._model.impute(data, missing_only)
 
     def _save(self, path: str | Path):
         state = {

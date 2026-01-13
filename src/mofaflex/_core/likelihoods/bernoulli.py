@@ -4,6 +4,7 @@ from scipy.special import expit, logit
 
 from .. import utils
 from ..datasets import MofaFlexDataset
+from ..settings import settings
 from .base import R2, Likelihood
 from .pyro import Bernoulli as PyroBernoulli
 from .pyro import Likelihood as PyroLikelihood
@@ -62,3 +63,12 @@ class Bernoulli(Likelihood):
         feature_idx: NDArray[int] | slice = slice(None),
     ):
         return expit(prediction + self._shift[group_name][feature_idx])
+
+    def transform_data(
+        self,
+        data: NDArray[np.number],
+        group_name: str,
+        sample_idx: NDArray[int] | slice = slice(None),
+        feature_idx: NDArray[int] | slice = slice(None),
+    ):
+        return logit(np.clip(data, settings.eps, 1 - settings.eps)) - self._shift[group_name][feature_idx]

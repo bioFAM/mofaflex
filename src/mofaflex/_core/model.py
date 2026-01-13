@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pyro
 import torch
+from anndata import AnnData
 from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 from scipy.sparse import issparse
@@ -17,7 +18,7 @@ from .api.likelihoods import Likelihood as APILikelihood
 from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood, LikelihoodType
 from .terms import Term
-from .utils import PyroModuleDict, SaveStateMixin
+from .utils import PyroModuleDict, SaveStateMixin, wherenan
 
 _logger = logging.getLogger(__name__)
 
@@ -333,7 +334,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
                 return r2_full, r2s_per_term, r2s_per_term_component
             except NotImplementedError:
                 _logger.warning(
-                    f"R2 calculation for {self._model_opts.likelihoods[view_name]} likelihood has not yet been implemented. Skipping view {view_name} for group {group_name}."
+                    f"R2 calculation for {self._likelihoods[view_name]} likelihood has not yet been implemented. Skipping view {view_name} for group {group_name}."
                 )
 
         r2s = data.apply(r2_wrapper)
@@ -386,6 +387,71 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         return reduce(
             operator.add,
             (term.predict(group_name, view_name, sample_idx, feature_idx) for term in self._terms.values()),
+        )
+
+    def _impute(
+        self, data: AnnData, group_name, view_name, sample_names, feature_names, likelihood, missingonly, preprocessor
+    ):
+        havemissing = data.n_obs < self._n_samples[group_name] or data.n_vars < self._n_features[view_name]
+        if issparse(data.X):
+            have_missing_cells = np.isnan(data.X.data).sum() > 0
+        else:
+            have_missing_cells = np.isnan(data.X).sum() > 0
+        havemissing |= have_missing_cells
+
+        if missingonly and not havemissing:
+            return data
+
+        if not missingonly:
+            imputation = self.predict(group_name, view_name)
+        else:
+            missing_obs = align_local_array_to_global(  # noqa F821
+                np.broadcast_to(False, (data.n_obs,)), group_name, view_name, fill_value=True, align_to="samples"
+            )
+            missing_var = align_local_array_to_global(  # noqa F821
+                np.broadcast_to(False, (data.n_vars)), group_name, view_name, fill_value=True, align_to="features"
+            )
+
+            preprocessed = preprocessor(data.X, slice(None), slice(None), group_name, view_name)[0]
+            if issparse(preprocessed):
+                preprocessed = preprocessed.toarray()
+
+            obsidx = map_local_indices_to_global(np.arange(data.n_obs), group_name, view_name, align_to="samples")  # noqa: F821
+            varidx = map_local_indices_to_global(np.arange(data.n_vars), group_name, view_name, align_to="features")  # noqa: F821
+            imputation = np.empty((sample_names.size, feature_names.size), dtype=data.X.dtype)
+            imputation[np.ix_(obsidx, varidx)] = likelihood.transform_data(preprocessed, group_name, obsidx, varidx)
+
+            imputation[missing_obs, :] = self.predict(group_name, view_name, sample_idx=missing_obs)
+            imputation[:, missing_var] = self.predict(group_name, view_name, feature_idx=missing_var)
+
+            if have_missing_cells:
+                nanobs, nanvar = wherenan(data.X)
+                nanobs, nanvar = np.atleast_1d(obsidx[nanobs]), np.atleast_1d(varidx[nanvar])
+                for nobs, nvar in zip(nanobs, nanvar, strict=True):
+                    imputation[nobs, nvar] = self.predict(
+                        group_name, view_name, np.atleast_1d(nobs), np.atleast_1d(nvar)
+                    ).squeeze()
+
+        return AnnData(X=imputation, obs=pd.DataFrame(index=sample_names), var=pd.DataFrame(index=feature_names))
+
+    def impute(self, data: MofaFlexDataset, missing_only=False) -> dict[dict[str, AnnData]]:
+        """Impute values in the training data using the trained factorization.
+
+        Args:
+            data: The data the model was trained on.
+            missing_only: Only impute missing values in the data.
+
+        Returns:
+            Nested dictionary of AnnData objects with either fully imputed data or with only the missing values filled in.
+            In both cases, the returned data will be preprocessed. In the case of Gaussian distributed data, that involves
+            centering and scaling.
+        """
+        return data.apply(
+            self._impute,
+            view_kwargs={"feature_names": data.feature_names, "likelihood": self._likelihoods},
+            group_kwargs={"sample_names": data.sample_names},
+            missingonly=missing_only,
+            preprocessor=data.preprocessor,
         )
 
     def _save(self) -> dict[str, Any]:
