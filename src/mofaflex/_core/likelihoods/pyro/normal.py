@@ -36,11 +36,11 @@ class Normal(LikelihoodWithDispersion):
         )
         if scale is not None:
             try:
-                self._normalscale = {group_name: torch.as_tensor(gscale) for group_name, gscale in scale.items()}
+                self.__scale = {group_name: torch.as_tensor(gscale) for group_name, gscale in scale.items()}
             except AttributeError:
-                self._normalscale = torch.as_tensor(scale)
+                self.__scale = torch.as_tensor(scale)
         else:
-            self._normalscale = None
+            self.__scale = None
 
     @pyro_method
     def _model(
@@ -55,13 +55,10 @@ class Normal(LikelihoodWithDispersion):
         dispersion = self._model_dispersion(
             estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
         )
-        if self._shift is not None and self._scale is not None:
+        if self._shift is not None and self.__scale is not None:
             try:
-                scale = self._scale[group_name]
+                scale = self.__scale[group_name]
             except IndexError:
-                scale = self._scale
-            estimate = (
-                estimate * scale[feature_plate.indices[nonmissing_features]]
-                + self._shift[group_name][feature_plate.indices[nonmissing_features]]
-            )
+                scale = self.__scale
+            estimate = estimate * scale + self._shift[group_name][feature_plate.indices[nonmissing_features]]
         return dist.Normal(estimate, dispersion + settings.get("eps"))
