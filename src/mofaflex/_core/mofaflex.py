@@ -29,7 +29,7 @@ from .likelihoods import LikelihoodType
 from .model import MofaFlexModel
 from .terms import Term, TermWrapper
 from .training import EarlyStopper
-from .utils import filter_constant_features, sample_all_data_as_one_batch
+from .utils import default_torch_device, filter_constant_features, sample_all_data_as_one_batch
 
 _logger = logging.getLogger(__name__)
 
@@ -97,13 +97,13 @@ class MOFAFLEX:
 
     def __dir__(self):
         sdir = super().__dir__()
-        if hasattr(self, "_wrapped_terms") and len(self._wrapped_terms) == 1:
+        if hasattr(self, "_wrapped_terms") and self.n_terms == 1:
             return chain(sdir, next(iter(self._wrapped_terms.values())).__dir__(forward=False))
         else:
             return sdir
 
     def __getattr__(self, name):
-        if "_wrapped_terms" in self.__dict__ and len(self._wrapped_terms) == 1:
+        if "_wrapped_terms" in self.__dict__ and self.n_terms == 1:
             return next(iter(self._wrapped_terms.values())).__getattr__(name, forward=False)
         else:
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'", name=name, obj=self)
@@ -177,6 +177,11 @@ class MOFAFLEX:
     def terms(self) -> Mapping[str, Term]:
         """The additive terms."""
         return MappingProxyType(self._wrapped_terms)
+
+    @property
+    def n_terms(self) -> int:
+        """Number of additive terms."""
+        return len(self.terms)
 
     def _init_api(self):
         self._wrapped_terms = {name: TermWrapper(self, term) for name, term in self._model.terms.items()}
@@ -279,7 +284,7 @@ class MOFAFLEX:
         if self._train_opts.seed is None:
             self._train_opts.seed = int(time.strftime("%y%m%d%H%M"))
 
-        self._train_opts.device = self._setup_device(self._train_opts.device)
+        self._train_opts.device = default_torch_device(self._train_opts.device)
         if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= self.n_samples_total):
             self._train_opts.batch_size = self.n_samples_total
 
@@ -386,24 +391,37 @@ class MOFAFLEX:
             Path(self._train_opts.save_path).parent.mkdir(parents=True, exist_ok=True)
             self._save(self._train_opts.save_path)
 
-    def get_r2(self, total: bool = False, ordered: bool = False) -> pd.DataFrame | dict[str, pd.DataFrame]:
+    def get_r2(
+        self, type: Literal["total", "byterm", "term"] | None = None, ordered: bool = False, term: str | None = None
+    ) -> pd.DataFrame:
         """Get the fraction of explained variance for each view and group.
 
         Args:
-            total: If `True`, returns a DataFrame with fraction of explained variance for the full
-                model for each group (columns) and view (rows). Otherwise returns a dict with group
-                names as keys containing DataFrames with the fraction of explained variance for each
-                view (columns) and factor(rows).
-            ordered: Whether to return the factors ordered by explained variance (highest to lowest).
-                Has no effect if `total == True`.
+            type: How fine-grained the fraction of explained variance should be split up.
+
+                - `total`: Returns the total fraction of explained variance.
+                - `byterm`: Returns the fraction of explained variance for each additive term.
+                - `term`: Returns the fraction of explained variance for each component (e.g. factor) of the given term.
+
+                Defaults to `term` if the model has only one additive term, `byterm` otherwise.
+            ordered: Whether to sort the returned dataframes by explained variance (highest to lowest, per group and view).
+                Has no effect for `type="total"`.
+            term: The name of the additive term for `type="term"`. Can be `None` if the model has only one term.
         """
-        if total:
-            return self._df_r2_full
-        else:
-            return {
-                group_name: df.set_index(self.factor_names).iloc[self.factor_order if ordered else slice(None), :]
-                for group_name, df in self._df_r2_factors.items()
-            }
+        if type is None:
+            if self.n_terms == 1:
+                type = "term"
+            else:
+                type = "byterm"
+
+        if type == "term":
+            if term is None:
+                if self.n_terms > 1:
+                    raise ValueError("Name of term required for 'type=term'.")
+                else:
+                    term = next(iter(self._wrapped_terms.keys()))
+
+        return self._model.get_r2(type, ordered, term)
 
     def get_dispersion(self, moment: Literal["mean", "std"] = "mean") -> dict[str, pd.Series]:
         """Get the dispersion vectors for each view.
@@ -415,18 +433,6 @@ class MOFAFLEX:
             view_name: pd.Series(view_dispersion, index=self.feature_names[view_name])
             for view_name, view_dispersion in getattr(self._dispersions, moment).items()
         }
-
-    def _setup_device(self, device):
-        device = torch.device(device)
-        tens = torch.tensor(())
-        try:
-            tens.to(device)
-        except (RuntimeError, AssertionError):
-            default_device = tens.device
-            _logger.warning(f"Device {str(device)} is not available. Using default device: {default_device}")
-            device = default_device
-
-        return device
 
     def impute_data(
         self, data: MuData | Mapping[str, Mapping[str, AnnData]], missing_only=False

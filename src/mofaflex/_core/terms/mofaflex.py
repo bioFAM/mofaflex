@@ -25,7 +25,7 @@ from ..api import priors as apipriors
 from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset, merge_covariates
 from ..likelihoods.pyro import Likelihood
 from ..priors import API, APIType, FactorPriorType, Prior, WeightPriorType
-from ..utils import MeanStd, PyroModuleDict, PyroParameterDict, building_docs
+from ..utils import MeanStd, PyroModuleDict, PyroParameterDict, building_docs, default_torch_device
 from .base import Term
 
 _logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ class MofaFlex(Term):
 
     def _wrap_api_method(self, axis: Literal[0, 1], prior: Prior, api: API):
         def wrapper_func(self, *args, **kwargs):
-            with torch.device(self._train_opts.device):
+            with torch.device(self._device):
                 ret = getattr(prior, api.name)
                 if api.type == APIType.method:
                     ret = ret(*args, **kwargs)
@@ -546,6 +546,7 @@ class MofaFlex(Term):
                 data, self._factor_names, data.feature_names, self._weights, self._nonnegative_weights, batch_size
             )
 
+        self._device = default_torch_device()
         self._init_api()
 
     def _get_plates(self):
@@ -752,6 +753,7 @@ class MofaFlex(Term):
         )
 
         self._prior_api_properties = {}
+        self._device = map_location
         self._init_api()
 
     def _get_postprocessed_factors(

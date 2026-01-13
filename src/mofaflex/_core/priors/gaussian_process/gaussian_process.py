@@ -252,7 +252,7 @@ class GaussianProcess(Prior):
         """Covariates for each group."""
         return (
             MappingProxyType(self._orig_covariates)
-            if self._orig_covariates is not None
+            if hasattr(self, "_orig_covariates")
             else MappingProxyType(self._covariates)
         )
 
@@ -260,7 +260,7 @@ class GaussianProcess(Prior):
     @property
     def warped_covariates(self) -> Mapping[str, NDArray[np.float32]] | None:
         """Time-warped covariates for each group, if dynamic time warping was enabled."""
-        return MappingProxyType(self._covariates) if self._orig_covariates is not None else None
+        return MappingProxyType(self._covariates) if hasattr(self, "_orig_covariates") else None
 
     @Prior._api
     @property

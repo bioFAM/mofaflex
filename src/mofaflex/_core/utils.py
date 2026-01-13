@@ -416,3 +416,19 @@ def _minmax(
     elif not keepdims and res.ndim == arr.ndim:
         res = res.squeeze(axis)
     return res
+
+
+def default_torch_device(device=None):
+    tens = torch.tensor(())
+    if device is None:
+        return tens.device
+
+    device = torch.device(device)
+    try:
+        tens.to(device)
+    except (RuntimeError, AssertionError):
+        default_device = tens.device
+        _logger.warning(f"Device {str(device)} is not available. Using default device: {default_device}")
+        device = default_device
+
+    return device

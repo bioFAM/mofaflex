@@ -3,7 +3,7 @@ import operator
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from functools import reduce
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 
 import numpy as np
 import pandas as pd
@@ -34,6 +34,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         likelihoods: The likelhood for each view (if a mapping) or for all views otherwise.
     """
 
+    _state_attrs = ("_r2_full", "_r2_terms", "_r2_term_components", "_term_order")
     _sample_plate_dim = -2
     _feature_plate_dim = -1
 
@@ -365,8 +366,49 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
 
         for term_name, components in self._r2_term_components.items():
             self._terms[term_name].component_order = np.argsort(
-                -components.groupby(["component"], sort=False)["R2"].mean().to_numpy()
+                -components.groupby("component", sort=False)["R2"].mean().to_numpy()
             )
+
+        self._term_order = np.argsort(-self._r2_terms.groupby("term", sort=False)["R2"].mean().to_numpy())
+
+    def get_r2(
+        self, type: Literal["total", "byterm", "term"] = "byterm", ordered: bool = False, term: str | None = None
+    ) -> pd.DataFrame:
+        """Get the fraction of explained variance for each view and group.
+
+        Args:
+            type: How fine-grained the fraction of explained variance should be split up.
+
+                - `total`: Returns the total fraction of explained variance.
+                - `byterm`: Returns the fraction of explained variance for each additive term.
+                - `term`: Returns the fraction of explained variance for each component (e.g. factor) of the given term.
+            ordered: Whether to sort the returned dataframe by explained variance (highest to lowest, per group and view).
+                Has no effect for `type="total"`.
+            term: The name of the additive term if `type="term"`.
+        """
+        if type == "term":
+            if term is None:
+                raise ValueError("Name of term required for 'type=term'.")
+            ret = self._r2_term_components[term]
+            if ordered:
+                ret = (
+                    ret.groupby(["group", "view"], sort=False, as_index=False, group_keys=False)
+                    .apply(lambda df: df.iloc[self._terms[term].component_order, :])
+                    .reset_index(drop=True)
+                )
+            return ret
+        elif type == "total":
+            return self._df_r2_full
+        elif type == "byterm":
+            return (
+                self._r2_terms
+                if not ordered
+                else self._r2_terms.groupby(["group", "view"], sort=False, as_index=False, group_keys=False)
+                .apply(lambda df: df.iloc[self._term_order, :])
+                .reset_index(drop=True)
+            )
+        else:
+            raise ValueError(f"Unknown type argument '{type}'")
 
     def predict(
         self,
