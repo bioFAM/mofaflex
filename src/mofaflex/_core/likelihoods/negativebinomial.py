@@ -16,18 +16,20 @@ class NegativeBinomial(Likelihood):
 
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
         super().__init__(view_name, data, nonnegative)
+        sample_means = data.apply_to_view(
+            view_name, lambda adata, group_name: utils.nanmean(adata.X, axis=1, keepdims=True)
+        )
+        statfun = utils.nanmean if not nonnegative else utils.nanmin
         self._shift = data.apply_to_view(
             view_name,
             lambda adata, group_name: align_local_array_to_global(  # noqa: F821
-                utils.nanmean(adata.X, axis=0), group_name, self._view_name, align_to="features"
+                statfun(adata.X / sample_means[group_name], axis=0), group_name, self._view_name, align_to="features"
             ),
         )
-        self._sample_means = data.apply_to_view(
-            view_name,
-            lambda adata, group_name: align_local_array_to_global(  # noqa: F821
-                utils.nanmean(adata.X, axis=1), group_name, self._view_name, align_to="samples"
-            ),
-        )
+        self._sample_means = {
+            group_name: data.align_local_array_to_global(gmeans, group_name, self._view_name, align_to="samples")
+            for group_name, gmeans in sample_means.items()
+        }
         self._dispersion = None
 
     def _get_pyro_likelihood(
@@ -87,5 +89,5 @@ class NegativeBinomial(Likelihood):
     ):
         prediction = prediction + self._shift[group_name][feature_idx]
         prediction = np.maximum(0, prediction)  # ReLU
-        prediction *= self._sample_means[group_name][sample_idx, None]
+        prediction *= self._sample_means[group_name][sample_idx]
         return prediction

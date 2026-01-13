@@ -158,7 +158,7 @@ class TestNegativeBinomial:
                 else:
                     assert np.allclose(
                         (
-                            view / likelihoods[view_name]._sample_means[group_name][..., None]
+                            view / likelihoods[view_name]._sample_means[group_name]
                             - likelihoods[view_name]._shift[group_name]
                         ).mean(axis=0),
                         0,
