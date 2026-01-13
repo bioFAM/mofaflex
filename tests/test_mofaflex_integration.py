@@ -83,6 +83,7 @@ def anndata_dict(random_adata, rng):
         ("fit", "remove_constant_features", False),
         ("fit", "save_path", Path("test.h5")),
         ("fit", "save_path", "test.h5"),
+        ("fit", "save_path", False),
     ],
 )
 @pytest.mark.parametrize("n_particles", [1, 5])
@@ -110,7 +111,7 @@ def test_integration(anndata_dict, tmp_path, argfor, argname, argval, n_particle
         **termargs,
     )
 
-    fitargs = {"save_path": False}
+    fitargs = {}
     if argfor == "fit":
         fitargs[argname] = argval
     with chdir(tmp_path), settings.override(use_dask=usedask):

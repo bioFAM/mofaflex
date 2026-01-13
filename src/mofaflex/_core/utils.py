@@ -169,10 +169,11 @@ class SaveStateMixin:
         state_meanstd = {}
 
         for attrname in self._get_state_attrs():
-            if isinstance(attr := getattr(self, attrname), MeanStd):
-                state_meanstd[attrname] = attr._asdict()
-            else:
-                state[attrname] = attr
+            with suppress(AttributeError):
+                if isinstance(attr := getattr(self, attrname), MeanStd):
+                    state_meanstd[attrname] = attr._asdict()
+                else:
+                    state[attrname] = attr
 
         state.update(self._save())
         return {"class": self.__class__.__name__, "state": state, "state_meanstd": state_meanstd}
