@@ -731,28 +731,23 @@ class MofaFlex(Term):
         }
 
     def _load(
-        self, state: dict[str, Any], n_samples: dict[str, int], n_features: dict[str, int], map_location=None, **kwargs
+        self,
+        state: Mapping[str, Any],
+        sample_names: Mapping[str, NDArray[str]],
+        feature_names: Mapping[str, NDArray[str]],
+        n_samples: Mapping[str, int],
+        n_features: Mapping[str, int],
+        map_location=None,
+        **kwargs,
     ):
+        self._sample_names = sample_names
+        self._feature_names = feature_names
         self._factor_priors = PyroModuleList(
-            Prior.load(
-                pstate,
-                n_samples=n_samples,
-                n_features=n_features,
-                map_location=map_location,
-                n_factors=self.n_total_factors,
-                n_nonfactors=n_samples,
-            )
+            Prior.load(pstate, map_location=map_location, n_factors=self.n_total_factors, n_nonfactors=n_samples)
             for pstate in state["factor_priors"].values()
         )
         self._weight_priors = PyroModuleList(
-            Prior.load(
-                pstate,
-                n_samples=n_samples,
-                n_features=n_features,
-                map_location=map_location,
-                n_factors=self.n_total_factors,
-                n_nonfactors=n_features,
-            )
+            Prior.load(pstate, map_location=map_location, n_factors=self.n_total_factors, n_nonfactors=n_features)
             for pstate in state["weight_priors"].values()
         )
 

@@ -2,7 +2,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from types import MappingProxyType
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -313,14 +313,7 @@ class GaussianProcess(Prior):
         return state
 
     def _load(
-        self,
-        state: dict,
-        n_samples: dict[str, int],
-        n_features: dict[str, int],
-        *,
-        n_factors: int,
-        n_nonfactors: Mapping[str, int],
-        map_location=None,
+        self, state: Mapping[str, Any], *, n_factors: int, n_nonfactors: Mapping[str, int], map_location=None, **kwargs
     ):
         self._gps = MeanStd(**state["gps"])
         self._init_gp(n_factors)

@@ -488,7 +488,14 @@ class MOFAFLEX:
         model._data_opts = _DataOptions(**state["data_opts"])
         model._train_opts = _TrainingOptions(**state["train_opts"])
 
-        model._model = MofaFlexModel.load(state["model"], model.n_samples, model.n_features, map_location=map_location)
+        model._model = MofaFlexModel.load(
+            state["model"],
+            map_location=map_location,
+            sample_names=model.sample_names,
+            feature_names=model.feature_names,
+            n_samples=model.n_samples,
+            n_features=model.n_features,
+        )
         model._init_api()
 
         return model

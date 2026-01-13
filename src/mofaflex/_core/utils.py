@@ -2,7 +2,7 @@ import logging
 import os
 from abc import ABC
 from collections import namedtuple
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 from inspect import isabstract, signature
 from io import BytesIO
@@ -183,9 +183,7 @@ class SaveStateMixin:
         return {}
 
     @classmethod
-    def load(
-        cls, state: dict[str, Any], n_samples: dict[str, int], n_features: dict[str, int], map_location=None, **kwargs
-    ):
+    def load(cls, state: Mapping[str, Any], map_location=None, **kwargs):
         """Called by the model to restore its state from disk.
 
         If a subclass has a class attribute `state_attrs`, which is a sequence of strings, each element of this list is used
@@ -218,18 +216,10 @@ class SaveStateMixin:
             except KeyError:
                 with suppress(KeyError):
                     setattr(obj, attrname, substate[attrname])
-        obj._load(substate, n_samples, n_features, map_location=map_location, **kwargs)
+        obj._load(substate, map_location=map_location, **kwargs)
         return obj
 
-    def _load(
-        self,
-        state: dict[str, Any],
-        n_samples: dict[str, int],
-        n_features: dict[str, int],
-        *,
-        map_location=None,
-        **kwargs,
-    ):
+    def _load(self, state: Mapping[str, Any], *, map_location=None, **kwargs):
         """Hook to load a prior's state from disk.
 
         Args:

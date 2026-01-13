@@ -275,7 +275,6 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
 
         Args:
             data: The dataset used during training.
-            sample_names:
             batch_size: The batch size used during training.
         """
         for term in self._terms.values():
@@ -460,11 +459,31 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
             "likelihoods": {view_name: likelihood.save() for view_name, likelihood in self._likelihoods.items()},
         }
 
-    def _load(self, state: dict[str, Any], n_samples: dict[str, int], n_features: dict[str, int], map_location=None):
+    def _load(
+        self,
+        state: dict[str, Any],
+        sample_names: Mapping[str, NDArray[str]],
+        feature_names: Mapping[str, NDArray[str]],
+        n_samples: Mapping[str, int],
+        n_features: Mapping[str, int],
+        map_location=None,
+        **kwargs,
+    ):
         self._terms = PyroModuleDict(
-            {name: Term.load(term, n_samples, n_features) for name, term in state["terms"].items()}
+            {
+                name: Term.load(
+                    term,
+                    sample_names=sample_names,
+                    feature_names=feature_names,
+                    n_samples=n_samples,
+                    n_features=n_features,
+                    map_location=map_location,
+                    **kwargs,
+                )
+                for name, term in state["terms"].items()
+            }
         )
         self._likelihoods = {
-            view_name: Likelihood.load(likelihood, n_samples, n_features)
+            view_name: Likelihood.load(likelihood, map_location=map_location)
             for view_name, likelihood in state["likelihoods"].items()
         }
