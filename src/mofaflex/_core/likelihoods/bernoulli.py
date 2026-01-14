@@ -52,7 +52,7 @@ class Bernoulli(Likelihood):
         feature_idx: NDArray[int] | slice = slice(None),
     ) -> R2:
         ss_res = np.nansum(self._dV_square(y_true, y_pred, -1, 1))
-        ss_tot = np.nansum(self._dV_square(y_true, np.nanmean(y_true), -1, 1))
+        ss_tot = np.nansum(self._dV_square(y_true, expit(self._shift[group_name][feature_idx]), -1, 1))
         return R2(ss_res, ss_tot)
 
     def transform_prediction(

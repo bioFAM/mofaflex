@@ -403,7 +403,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
                 )
             return ret
         elif type == "total":
-            return self._df_r2_full
+            return self._r2_full
         elif type == "byterm":
             return (
                 self._r2_terms
