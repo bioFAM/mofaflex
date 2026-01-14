@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING, Literal
 
@@ -41,13 +42,40 @@ _no_axis_ticks_x = {"axis_ticks_length_major_x": 0, "axis_ticks_length_minor_x":
 _no_axis_ticks_y = {"axis_ticks_length_major_y": 0, "axis_ticks_length_minor_y": 0}
 
 
+def _get_term(model: MOFAFLEX, term: str | None = None):
+    if term is None:
+        if model.n_terms > 1:
+            raise ValueError("'term' cannot be 'None' if the model has multiple additive terms.")
+        else:
+            term = next(iter(model.terms.keys()))
+    return model.terms[term]
+
+
+def _covariate_df(data, key):
+    cov = data.get_covariates(axis=0, key=key)
+    for group_name, group in cov.items():
+        have_covariate = False
+        for view in group.values():
+            with suppress(KeyError):
+                cov[group_name] = view[key]
+                have_covariate = True
+                break
+        if not have_covariate:  # can't use else here in case group is empty
+            raise ValueError(f"Covariate '{key}' not found in the data for group {group_name}.")
+    if len(cov) == 0:
+        raise ValueError(f"Covariate '{key}' not found in the data.")
+    return cov
+
+
 def factors_scatter(
     model: MOFAFLEX,
     x: int | str,
     y: int | str,
+    term: str | None = None,
     groups: str | Sequence[str] | None = None,
     color: str | None = None,
     shape: str | None = None,
+    data: MuData | dict[str, dict[str, AnnData]] | None = None,
     size: float = 2,
     alpha: float = 1,
     figsize: tuple[float, float] | None = None,
@@ -60,15 +88,20 @@ def factors_scatter(
         model: A MOFA-FLEX model.
         x: The factor to plot on the x-axis.
         y: The factor to plot on the y-axis.
+        term: The name of the additive term to get the factors from. Can be `None` if the model contains
+            only one additive term.
         groups: The groups to plot. If `None`, all groups are shown.
         color: The covariate name to color by.
         shape: The covariate name to shape by.
+        data: The data that the model was trained on. Only required if `color is not None` or `shape is not None`.
         size: Size of the data points.
         alpha: Transparency of the data points.
         figsize: Figure size in inches.
         nrow: Number of rows in the faceted plot. If None, plotnine will determine automatically.
         ncol: Number of columns in the faceted plot. If None, plotnine will determine automatically.
     """
+    term = _get_term(model, term)
+
     if isinstance(groups, str):
         groups = [groups]
     elif groups is None:
@@ -77,26 +110,31 @@ def factors_scatter(
         figsize = (5 * len(groups), 5)
 
     if isinstance(x, int):
-        if x < 1 or x > model.n_factors:
-            raise ValueError("Factor x must be in range of the number of factors.")
+        if x < 1 or x > term.n_factors:
+            raise ValueError(f"Factor 'x' must be between 1 and {term.n_factors}.")
         else:
-            x = model.factor_names[x - 1]
+            x = term.factor_names[x - 1]
     if isinstance(y, int):
-        if y < 1 or y > model.n_factors:
-            raise ValueError("Factor y must be in range of the number of factors.")
+        if y < 1 or y > term.n_factors:
+            raise ValueError(f"Factor 'y' must be between 1 and {term.n_factors}.")
         else:
-            y = model.factor_names[y - 1]
+            y = term.factor_names[y - 1]
 
-    facs = model.get_factors(return_type="anndata")
-    df_factors = []
-    for group in groups:
-        df_factors.append(pd.concat([facs[group].to_df(), facs[group].obs], axis=1).assign(group=group))
-    df_factors = pd.concat(df_factors, axis=0)
+    if (color is not None or shape is not None) and data is None:
+        raise ValueError("'data' cannot be 'None' if 'color' or 'shape' are given.")
+    elif data is not None:
+        data = model._make_dataset(data)
 
-    if color is not None and color not in df_factors.columns:
-        raise ValueError(f"Color variable {color} not found in the data.")
-    if shape is not None and shape not in df_factors.columns:
-        raise ValueError(f"Shape variable {shape} not found in the data.")
+    df_factors = pd.concat(term.get_factors(), axis=0)
+
+    toconcat = []
+    if color is not None:
+        toconcat.append(pd.concat(_covariate_df(data, color), axis=0))
+    if shape is not None:
+        toconcat.append(pd.concat(_covariate_df(data, shape), axis=0))
+    if len(toconcat) > 0:
+        df_factors = pd.concat((df_factors, *toconcat), axis=1)
+    df_factors.reset_index(names=["group", "sample"], inplace=True)
 
     aes_kwargs = {}
     if color is not None:
@@ -119,10 +157,12 @@ def factors_scatter(
 def covariates_factor_scatter(
     model: MOFAFLEX,
     factor: int | str,
+    term: str | None = None,
     groups: str | Sequence[str] | None = None,
     covariate_dims: int | str | Sequence[int] | Sequence[str] | None = None,
     color: int | str | None = None,
     shape: str | None = None,
+    data: MuData | dict[str, dict[str, AnnData]] | None = None,
     size: float = 1,
     figsize: tuple[float, float] = (6, 6),
 ) -> p9.ggplot:
@@ -131,20 +171,25 @@ def covariates_factor_scatter(
     Args:
         model: A MOFA-FLEX model.
         factor: The factor to plot.
+        term: The name of the additive term to get the factors from. Can be `None` if the model contains
+            only one additive term.
         groups: The groups to plot. If `None`, all groups with covariates are shown.
         covariate_dims: The dimensions of the covariates to plot against. If a list of length 1, plot covariate
             on the x-axis and factor on the y-axis. If a list of length 2, plot the first covariate on the x-axis,
             the second covariate on the y-axis, and factor as color. If None, use all dimensions.
         color: The factor or covariate to color by. Only used when one covariate dimension is plotted.
         shape: The covariate name to shape by.
+        data: The data that the model was trained on. Only required if `color is not None` or `shape is not None`.
         size: Size of the data points.
         figsize: Figure size in inches.
     """
+    term = _get_term(model, term)
+
     if isinstance(factor, int):
-        if factor not in range(1, model.n_factors + 1):
-            raise ValueError(f"Factors must be between 1 and {model.n_factors}.")
+        if factor not in range(1, term.n_factors + 1):
+            raise ValueError(f"Factor must be between 1 and {term.n_factors}.")
         else:
-            factor = model.factor_names[factor - 1]
+            factor = term.factor_names[factor - 1]
 
     if isinstance(groups, str):
         groups = [groups]
@@ -153,20 +198,8 @@ def covariates_factor_scatter(
     if figsize is None:
         figsize = (5 * len(groups), 5)
 
-    facs = model.get_factors(return_type="anndata")
-    df_factors = []
-    df_covariates = []
-    for group in groups:
-        df_factors.append(pd.concat([facs[group].to_df(), facs[group].obs], axis=1).assign(group=group))
-
-        covnames = (
-            model.covariates_names[group]
-            if group in model.covariates_names
-            else [f"Covariate {i}" for i in range(model.covariates[group].shape[1])]
-        )
-        df_covariates.append(pd.DataFrame(model.covariates[group], index=df_factors[-1].index, columns=covnames))
-    df_factors = pd.concat(df_factors, axis=0)
-    df_covariates = pd.concat(df_covariates, axis=0)
+    df_factors = pd.concat(term.get_factors(), axis=0)
+    df_covariates = pd.concat(term.covariates, axis=0)
 
     if isinstance(covariate_dims, int | str):
         covariate_dims = [covariate_dims]
@@ -181,15 +214,21 @@ def covariates_factor_scatter(
     elif len(covariate_dims) not in (1, 2):
         raise ValueError("Can only plot 1 or 2 covariate dimensions.")
 
+    if (color is not None or shape is not None) and data is None:
+        raise ValueError("'data' cannot be 'None' if 'color' or 'shape' are given.")
+    elif data is not None:
+        data = model._make_dataset(data)
+
+    toconcat = []
     if color is not None:
         if isinstance(color, int):
             color = model.factor_names[color]
-        if color not in df_factors.columns:
-            raise ValueError(f"Color variable {color} not found in the data.")
+        elif color not in df_factors.columns:
+            toconcat.append(pd.concat(_covariate_df(data, color), axis=0))
     if shape is not None and shape not in df_factors.columns:
-        raise ValueError(f"Shape variable {shape} not found in the data.")
+        toconcat.append(pd.concat(_covariate_df(data, shape), axis=0))
 
-    df = pd.concat([df_factors, df_covariates], axis=1)
+    df = pd.concat([df_factors, df_covariates, *toconcat], axis=1).reset_index(names=["group", "sample"])
 
     aes_kwargs = {}
     if len(covariate_dims) == 1:
@@ -366,23 +405,14 @@ def variance_explained(
     else:
         raise ValueError("`group_by` argument must be either 'group' or 'view'.")
 
-    df_r2 = model.get_r2(ordered=True)
-
-    combined_df = []
     if figsize is None:
         figsize = (len(model.group_names) * 3, 5)
 
-    for group_name, df in df_r2.items():
-        r2_df = df.reset_index(names="factor").melt("factor", var_name="view", value_name="var_exp")
-        r2_df["group"] = group_name
-
-        combined_df.append(r2_df)
-    combined_df = pd.concat(combined_df, ignore_index=True).assign(
-        factor=lambda x: pd.Categorical(x.factor, categories=x.factor.unique())
+    df_r2 = model.get_r2("term", ordered=True).assign(
+        factor=lambda x: pd.Categorical(x.component, categories=x.component.unique())
     )
-
-    combined_heatmap = (
-        p9.ggplot(combined_df, p9.aes(x=x, y="factor", fill="var_exp"))
+    heatmap = (
+        p9.ggplot(df_r2, p9.aes(x=x, y="factor", fill="R2"))
         + p9.geom_tile()
         + p9.scale_fill_distiller(palette="OrRd", limits=(0, None), expand=(0, 0, 1.1, 0), name="Variance\nexplained")
         + p9.scale_x_discrete(expand=(0, 0))
@@ -394,7 +424,7 @@ def variance_explained(
         + p9.facet_wrap(group_by)
     )
 
-    return combined_heatmap
+    return heatmap
 
 
 def factor_significance(
@@ -437,46 +467,52 @@ def factor_significance(
     if figsize is None:
         figsize = (6 * len(views), 4 * len(groups))
 
-    pcgse_results = {
-        view_name: pcgse_results[view_name].loc[
-            (pcgse_results[view_name]["factor"] == pcgse_results[view_name]["annotation"]), :
-        ]
-        for view_name in views
-    }
-    r2 = model.get_r2()
-    annotations = model.get_annotations()
+    pcgse_results = (
+        pd.concat(
+            {
+                view_name: pcgse_results[view_name].loc[
+                    (pcgse_results[view_name]["factor"] == pcgse_results[view_name]["annotation"]), :
+                ]
+                for view_name in views
+            },
+            axis=0,
+        )
+        .reset_index(level=0, names="view")
+        .reset_index(drop=True)
+    )
+    r2 = model.get_r2("term")
+    annotations = pd.concat(
+        {view_name: vannot.sum(axis=0) for view_name, vannot in model.get_annotations().items()}, axis=0
+    ).rename_axis(index=("view", "annotation"))
     factor_order = model.factor_names[model.factor_order]
 
-    combined_df = []
-    for group in groups:
-        r2_df = r2[group]
-        for view_name, view_pcgse in pcgse_results.items():
-            view_pcgse = (
-                view_pcgse.loc[view_pcgse.groupby("factor")["padj"].idxmin()]
-                .set_index("annotation", drop=False)
-                .assign(r2=r2_df[[view_name]])
-            )
-            view_pcgse.loc[view_pcgse["padj"] > alpha, "sign"] = pd.NA
-
-            view_pcgse["annotation_size"] = annotations[view_name].sum(axis=0)
-            view_pcgse["factor"] = view_pcgse["factor"] + view_pcgse["sign"].map(
-                {"pos": " (+)", "neg": " (-)", pd.NA: ""}
-            )
-            view_pcgse["view"] = view_name
-            view_pcgse["group"] = group
-
-            view_factor_order = factor_order[np.isin(factor_order, view_pcgse.index)]
-            view_pcgse = view_pcgse.loc[
-                view_factor_order[slice(n_factors) if n_factors is not None else slice(None)], :
-            ]
-            combined_df.append(view_pcgse)
-
-    combined_df = pd.concat(combined_df, ignore_index=True).assign(
-        factor=lambda x: pd.Categorical(x.factor, categories=x.factor.unique())
+    combined_df = (
+        pcgse_results.loc[pcgse_results.groupby(["view", "annotation"])["padj"].idxmin()]
+        .merge(r2, left_on=["view", "factor"], right_on=["view", "component"])
+        .set_index(["view", "annotation"])
+        .drop(columns="component")
+        .assign(
+            sign=lambda x: np.where(x["padj"] > alpha, pd.NA, x["sign"]),
+            factor=lambda x: x["factor"] + x["sign"].map({"pos": " (+)", "neg": " (-)", pd.NA: ""}),
+            annotation_size=annotations,
+        )
+        .reset_index(level=0)
+        .groupby("view")
+        .apply(
+            lambda df: df.loc[
+                factor_order[np.isin(factor_order, df.index)][
+                    slice(n_factors) if n_factors is not None else slice(None)
+                ],
+                :,
+            ],
+            include_groups=False,
+        )
+        .assign(factor=lambda x: pd.Categorical(x["factor"], categories=x["factor"].unique()))
+        .reset_index()
     )
 
     combined_scatter = (
-        p9.ggplot(combined_df, p9.aes(x="r2", y="factor", fill="-np.log10(padj)", size="annotation_size"))
+        p9.ggplot(combined_df, p9.aes(x="R2", y="factor", fill="-np.log10(padj)", size="annotation_size"))
         + p9.geom_point()
         + p9.scale_fill_distiller(palette="OrRd", limits=(0, 10), oob=bounds.squish)
         + p9.labs(x="$R^2$", y="Factor", fill="$-\\log_{10}(\\text{FDR})$", size="No. features\nin annotation")

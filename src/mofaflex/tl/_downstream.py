@@ -51,7 +51,7 @@ def test_annotation_significance(
             term = next(iter(model.terms.keys()))
 
     if data is not None and not isinstance(data, MofaFlexDataset):
-        data = model._mofaflexdataset(data)
+        data = model._make_dataset(data)
     annotations = {
         view_name: annot.loc[features, :].astype(bool)
         for view_name, annot in annotations.items()

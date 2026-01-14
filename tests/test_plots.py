@@ -142,9 +142,9 @@ def test_weights_annotations(mousebrain_model):
 
 
 @plotnine_comparison(baseline_images=["factors_scatter", "factors_scatter-color"])
-def test_factors_scatter(mousebrain_model):
+def test_factors_scatter(mousebrain_model, mousebrain_data):
     return mfl.pl.factors_scatter(mousebrain_model, 1, "Astrocytes"), mfl.pl.factors_scatter(
-        mousebrain_model, 1, "Astrocytes", color="log1p_total_counts"
+        mousebrain_model, 1, "Astrocytes", color="log1p_total_counts", data=mousebrain_data
     )
 
 
@@ -157,12 +157,16 @@ def test_factors_scatter(mousebrain_model):
         "covariates_factor_scatter_cov1-cov0",
     ]
 )
-def test_covariates_factor_scatter(mousebrain_model):
+def test_covariates_factor_scatter(mousebrain_model, mousebrain_data):
     return (
         mfl.pl.covariates_factor_scatter(mousebrain_model, 1),
         mfl.pl.covariates_factor_scatter(mousebrain_model, "Astrocytes"),
-        mfl.pl.covariates_factor_scatter(mousebrain_model, 1, covariate_dims=0, color="Astrocytes"),
-        mfl.pl.covariates_factor_scatter(mousebrain_model, 1, covariate_dims=0, color="log1p_total_counts"),
+        mfl.pl.covariates_factor_scatter(
+            mousebrain_model, 1, covariate_dims=0, color="Astrocytes", data=mousebrain_data
+        ),
+        mfl.pl.covariates_factor_scatter(
+            mousebrain_model, 1, covariate_dims=0, color="log1p_total_counts", data=mousebrain_data
+        ),
         mfl.pl.covariates_factor_scatter(mousebrain_model, 1, covariate_dims=(1, 0)),
     )
 

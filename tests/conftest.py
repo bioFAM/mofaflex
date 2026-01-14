@@ -1,11 +1,11 @@
 import warnings
 from pathlib import Path
 
+import anndata as ad
 import mudata as md
 import numpy as np
 import pandas as pd
 import pytest
-from anndata import AnnData
 from scipy.sparse import csr_array
 
 import mofaflex as mfl
@@ -38,7 +38,7 @@ def create_adata():
             var_names = [f"var{i}" for i in range(X.shape[1])]
         if obs_names is None:
             obs_names = [f"obs{i}" for i in range(X.shape[0])]
-        return AnnData(X, var=pd.DataFrame(index=var_names), obs=pd.DataFrame(index=obs_names))
+        return ad.AnnData(X, var=pd.DataFrame(index=var_names), obs=pd.DataFrame(index=obs_names))
 
     return _adata
 
@@ -46,7 +46,7 @@ def create_adata():
 @pytest.fixture(scope="module")
 def random_adata(rng, random_array):
     def _adata(likelihood, nobs, nvar, var_names=None, obs_names=None):
-        adata = AnnData(
+        adata = ad.AnnData(
             X=random_array(likelihood, (nobs, nvar)).astype(np.float32),
             layers={"layer1": random_array(likelihood, (nobs, nvar)).astype(np.float32)},
             obs=pd.DataFrame(
@@ -91,3 +91,8 @@ def cll_model():
 @pytest.fixture(scope="session")
 def mousebrain_model():
     return mfl.MOFAFLEX.load(Path(__file__).parent / "data" / "mousebrain_model.h5", map_location="cpu")
+
+
+@pytest.fixture(scope="session")
+def mousebrain_data():
+    return {"group_1": {"view_1": ad.read_h5ad(Path(__file__).parent / "data" / "mouse_brain.h5ad")}}

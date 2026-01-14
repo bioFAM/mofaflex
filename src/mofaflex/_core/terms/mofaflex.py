@@ -772,30 +772,16 @@ class MofaFlex(Term):
 
     @Term._api
     def get_factors(  # noqa: D417
-        self,
-        moment: Literal["mean", "std"] = "mean",
-        ordered: bool = False,
-        return_type: Literal["pandas", "anndata"] = "pandas",
-        **kwargs,
+        self, moment: Literal["mean", "std"] = "mean", ordered: bool = False, **kwargs
     ) -> dict[str, pd.DataFrame | AnnData]:
         """Get the factor matrices Z for each group.
 
         Args:
             moment: Which moment of the posterior distribution to return.
             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
-            return_type: Format of the returned object.
         """
         factors = self._get_postprocessed_factors(moment, **kwargs)
-        factors = self._results_to_df(factors, axis=0, ordered=ordered)
-
-        if return_type == "anndata":
-            for group_name, group_factors in factors.items():
-                group_adata = AnnData(group_factors)
-                group_adata.obs = pd.concat(self._metadata[group_name].values(), axis=1)
-                group_adata.obs = group_adata.obs.loc[:, ~group_adata.obs.columns.duplicated()]
-                factors[group_name] = group_adata
-
-        return factors
+        return self._results_to_df(factors, axis=0, ordered=ordered)
 
     def _get_postprocessed_weights(
         self, moment: Literal["mean", "std"] = "mean", view_name: str | None = None, **kwargs
@@ -822,9 +808,7 @@ class MofaFlex(Term):
             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
         """
         weights = self._get_postprocessed_weights(moment, **kwargs)
-        weights = self._results_to_df(weights, axis=1, ordered=ordered)
-
-        return weights
+        return self._results_to_df(weights, axis=1, ordered=ordered)
 
 
 # init API for docs
