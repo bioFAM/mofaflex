@@ -77,7 +77,7 @@ def checked_baseclass(
                 ):
                     if required_arg != param.name:
                         raise TypeError(
-                            f"Constructor of class {subcls} is missing the {required_arg} argument at position {i + 1}."
+                            f"Constructor of class {subcls} is missing the '{required_arg}' argument at position {i + 1}."
                         )
                 for required_arg in required_init_kwargs:
                     if required_arg not in init_sig.parameters:

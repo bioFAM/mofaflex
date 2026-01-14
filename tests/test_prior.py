@@ -7,13 +7,12 @@ from mofaflex._core.utils import MeanStd
 class DummyPrior(Prior):
     _factors = True
     _weights = False
-    _state_attrs = ("_prop",)
-    _state_attrs_meanstd = ("_meanstdprop",)
+    _state_attrs = ("_prop", "_meanstdprop")
 
     subset_prop = slice(5, 10)
 
-    def __init__(self, axis, names, **kwargs):
-        super().__init__(axis, names)
+    def __init__(self, names, **kwargs):
+        super().__init__(names)
         self._prop = 6.6743e-11
         self._meanstdprop = MeanStd({"test": 2.7182818284}, {"test": 1.6180339887})
         self._customsave = 1.602176634e-19
@@ -45,16 +44,19 @@ class DummyPrior(Prior):
     def method_factors_subset(self):
         return 1.380649e-23
 
+    def posterior(self):
+        pass
+
     def _save(self):
         return {"customsave": self._customsave}
 
-    def _load(self, state, n_factors, n_nonfactors, map_location):
+    def _load(self, state, map_location):
         self._customsave = state["customsave"]
 
 
 @pytest.fixture
 def dummyprior():
-    return DummyPrior(0, None)
+    return DummyPrior(None)
 
 
 def test_api():
@@ -93,14 +95,8 @@ def test_api():
 
 def test_saveload(dummyprior):
     state = dummyprior.save()
-    loaded = DummyPrior.load(state, 3, 5)
+    loaded = DummyPrior.load(state)
 
     assert dummyprior._prop == loaded._prop
     assert dummyprior._meanstdprop == loaded._meanstdprop
     assert dummyprior._customsave == loaded._customsave
-
-
-def test_wrong_axis():
-    with pytest.raises(NotImplementedError) as excinfo:
-        DummyPrior(1, None)
-    assert str(excinfo.value) == "The prior DummyPrior cannot be used for weights."
