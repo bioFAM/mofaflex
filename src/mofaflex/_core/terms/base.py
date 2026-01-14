@@ -79,17 +79,19 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
                 setattr(owner, name, self._func)
 
             def _setter(self, func):
-                return self._func.setter(func)
+                self._func.setter(func)
+                return self
 
             def _deleter(self, func):
-                return self._func.deleter(func)
+                self._func.deleter(func)
+                return self
 
         if isinstance(obj, Callable | property) and not isinstance(obj, __class__) and not isinstance(obj, type):
             return __api(obj)
         elif isinstance(attr, MethodType):
             return __api(attr)
         elif attr is None:
-            raise ValueError("need attr if invoked on a Term instance")
+            raise ValueError("Need attr if invoked on a Term instance.")
         _add_api(obj, attr)
         return obj
 

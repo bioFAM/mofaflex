@@ -1,5 +1,6 @@
 # integration tests: only testing if the code runs without errors
 import warnings
+from collections.abc import Mapping, Sequence
 from contextlib import chdir
 from functools import reduce
 from pathlib import Path
@@ -8,7 +9,27 @@ import numpy as np
 import pytest
 from scipy.sparse import SparseEfficiencyWarning, csc_array, csc_matrix, csr_array, csr_matrix, issparse
 
-from mofaflex import likelihoods, priors, settings, terms
+from mofaflex import MOFAFLEX, likelihoods, priors, settings, terms
+
+
+def compare_nested(data1, data2):
+    if isinstance(data1, Mapping) and isinstance(data2, Mapping):
+        if data1.keys() != data2.keys():
+            return False
+        return all(compare_nested(data1[k], data2[k]) for k in data1.keys())
+    elif (
+        isinstance(data1, Sequence | set)
+        and not isinstance(data1, str | bytes)
+        and isinstance(data2, Sequence | set)
+        and not isinstance(data2, str | bytes)
+    ):
+        if len(data1) != len(data2):
+            return False
+        return all(compare_nested(d1, d2) for d1, d2 in zip(data1, data2, strict=False))
+    elif isinstance(data1, np.ndarray) and isinstance(data2, np.ndarray):
+        return np.all(data1 == data2)
+    else:
+        return data1 == data2
 
 
 @pytest.fixture
@@ -140,6 +161,26 @@ def test_integration(anndata_dict, tmp_path, argfor, argname, argval, n_particle
             == model.terms["_"].n_total_factors
             == 5
         )
+
+    if fitargs.get("save_path") is not False:
+        loaded_model = MOFAFLEX.load(path=next(iter(tmp_path.glob("*.h5"))))
+
+        for attr in (
+            "group_names",
+            "n_groups",
+            "view_names",
+            "n_views",
+            "feature_names",
+            "n_features",
+            "sample_names",
+            "n_samples",
+            "n_samples_total",
+            "n_factors",
+            "n_total_factors",
+            "factor_order",
+            "factor_names",
+        ):
+            assert compare_nested(getattr(model, attr), getattr(loaded_model, attr)), attr
 
 
 @pytest.mark.parametrize("usedask", [False, True])

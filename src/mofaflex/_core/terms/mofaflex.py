@@ -252,7 +252,7 @@ class MofaFlex(Term):
     @property
     def factor_order(self) -> NDArray[int]:
         """Ordering of factors by explained variance (highest to lowest)."""
-        return self._factor_order
+        return self.component_order
 
     @factor_order.setter
     def factor_order(self, order: NDArray[int]):
