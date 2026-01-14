@@ -17,6 +17,7 @@ from scipy.sparse import issparse
 from .api.likelihoods import Likelihood as APILikelihood
 from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood, LikelihoodType
+from .settings import settings
 from .terms import Term
 from .utils import PyroModuleDict, SaveStateMixin, wherenan
 
@@ -331,6 +332,10 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
                             )
                             for component_name, component in component_iter
                         }
+                if r2_full < settings.eps:
+                    _logger.warning(
+                        f"R2 for view {view_name} is 0. Adjust model parameters and/or increase the number of training epochs."
+                    )
                 return r2_full, r2s_per_term, r2s_per_term_component
             except NotImplementedError:
                 _logger.warning(

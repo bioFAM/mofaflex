@@ -11,7 +11,6 @@ from numpy.typing import NDArray
 from scipy.sparse import issparse
 
 from ..datasets import MofaFlexDataset
-from ..settings import settings
 from ..utils import SaveStateMixin, checked_baseclass
 from .pyro import Likelihood as PyroLikelihood
 
@@ -228,12 +227,7 @@ class Likelihood(SaveStateMixin, ABC):
             sample_idx,
             feature_idx,
         )
-        r2 = max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
-        if r2 < settings.get("eps"):
-            _logger.warning(
-                f"R2 for view {self._view_name} is 0. Increase the number of factors and/or the number of training epochs."
-            )
-        return r2
+        return max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
 
     @classmethod
     def known_likelihoods(cls) -> Mapping[str, type["Likelihood"]]:
