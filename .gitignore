@@ -37,3 +37,9 @@ __pycache__/
 *.hdf5
 *.h5
 *.svg
+
+result_images/
+fitted_mofa/
+venv/
+venv10/
+venv11/
