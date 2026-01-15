@@ -3,6 +3,7 @@ from collections.abc import Callable, Mapping
 from inspect import isabstract, signature
 from itertools import islice
 
+import numpy as np
 import pyro
 import torch
 from pyro import distributions as dist
@@ -197,14 +198,14 @@ class LikelihoodWithDispersion(Likelihood):
         nsamples: dict[str, int],
         nfeatures: int,
         *,
-        init_loc: float = 0.0,
+        init_loc: float = 1.0,
         init_scale: float = 0.1,
         **kwargs,
     ):
         super().__init__(view_name, sample_dim, feature_dim, nsamples, nfeatures, **kwargs)
 
         shape = self._nfeatures, *((1,) * (abs(self._feature_dim) - 1))
-        self._loc = PyroParam(torch.full(size=shape, fill_value=init_loc))
+        self._loc = PyroParam(torch.full(size=shape, fill_value=np.log(init_loc) - 0.5 * init_scale**2))
         self._scale = PyroParam(
             torch.full(size=shape, fill_value=init_scale), constraint=dist.constraints.softplus_positive
         )

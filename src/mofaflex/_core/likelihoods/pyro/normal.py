@@ -22,25 +22,28 @@ class Normal(LikelihoodWithDispersion):
         *,
         shift: Mapping[str, NDArray[np.floating]] | None = None,
         scale: np.floating | Mapping[str, np.floating] | None = None,
-        init_loc: float = 0.0,
+        init_loc: float = 1.0,
         init_scale: float = 0.1,
     ):
+        if scale is not None:
+            try:
+                init_loc = np.mean(list(scale.values()))
+                scale = {group_name: torch.as_tensor(gscale) for group_name, gscale in scale.items()}
+            except AttributeError:
+                init_loc = scale
+                scale = torch.as_tensor(scale)
+        else:
+            scale = None
+
         super().__init__(
             view_name, sample_dim, feature_dim, nsamples, nfeatures, init_loc=init_loc, init_scale=init_scale
         )
-
         self._shift = (
             {group_name: torch.as_tensor(gshift) for group_name, gshift in shift.items()}
             if shift is not None
             else shift
         )
-        if scale is not None:
-            try:
-                self.__scale = {group_name: torch.as_tensor(gscale) for group_name, gscale in scale.items()}
-            except AttributeError:
-                self.__scale = torch.as_tensor(scale)
-        else:
-            self.__scale = None
+        self.__scale = scale
 
     @pyro_method
     def _model(
