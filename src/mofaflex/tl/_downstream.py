@@ -9,14 +9,14 @@ from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
 from .._core import MOFAFLEX, MofaFlexDataset, pcgse_test
+from .._core.api import types
 
 _logger = logging.getLogger(__name__)
 
 
 def test_annotation_significance(
-    model: MOFAFLEX,
+    model: types.MofaFlex | MOFAFLEX,
     annotations: dict[str, pd.DataFrame],
-    term: str | None = None,
     data: MuData | dict[str, dict[str, AnnData]] | MofaFlexDataset | None = None,
     corr_adjust: bool = True,
     p_adj_method: str = "fdr_bh",
@@ -28,9 +28,7 @@ def test_annotation_significance(
     This is an implementation of PCGSE :cite:p:`pmid26300978`.
 
     Args:
-        model: The MOFA-FLEX model.
-        term: The name of the additive term to get the factors from. Can be `None` if the model contains
-            only one additive term.
+        model: The term to plot the factor correlation for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
         annotations: Boolean dataframe with feature sets in each row for each view.
         data: The data that the model was trained on. Only required if `corr_adjust=True`.
         corr_adjust: Whether to adjust for correlations between features.
@@ -44,11 +42,6 @@ def test_annotation_significance(
     """
     if corr_adjust and data is None:
         raise ValueError("`data` cannot be `None` if `corr_adjust=True`.")
-    if term is None:
-        if model.n_terms > 1:
-            raise ValueError("`term` cannot be `None` if the model has multiple additive terms.")
-        else:
-            term = next(iter(model.terms.keys()))
 
     if data is not None and not isinstance(data, MofaFlexDataset):
         data = model._make_dataset(data)
@@ -59,7 +52,10 @@ def test_annotation_significance(
         and (features := annot.index.intersection(model.feature_names[view_name])).size > 0
     }
 
-    term = model._model.terms[term]
+    if isinstance(model, MOFAFLEX):
+        term = next(iter(model._model.terms.values()))
+    else:
+        term = model._term
 
     if len(annotations) > 0:
         return pcgse_test(
