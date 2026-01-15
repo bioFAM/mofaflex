@@ -221,7 +221,7 @@ class InformedHorseshoe(Horseshoe):
         for name in self._names:
             prior_scale = prior_scales[name]
             if factor_dim < nonfactor_dim and prior_scale.shape[0] != n_factors:
-                prior_scale = prior_scale.T
+                prior_scales[name] = prior_scale.T
 
         return {"hs_prior_scales": prior_scales}
 
