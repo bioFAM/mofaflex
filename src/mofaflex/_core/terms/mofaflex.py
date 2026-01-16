@@ -185,7 +185,7 @@ class MofaFlex(Term):
                     if api.type == APIType.property and not api.has_factors:
                         self._prior_api_properties[name] = _PriorApiProperty(gpriors, api.name)
                         continue
-                    if len(priors) > 1:
+                    if len(gpriors) > 1:
                         wrapped = self._wrap_list_of_wrapped_methods(
                             self._wrap_api_method(axis, prior, api) for prior in gpriors
                         )

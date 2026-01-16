@@ -188,7 +188,7 @@ class InformedHorseshoe(Horseshoe):
     ) -> dict[str, dict[str, np.ndarray]]:
         prior_scales = {
             name: np.clip(
-                self._annotations.get(name, np.broadcast_to(0, (self._n_informed_factors, n_nonfactors[name]))).astype(
+                self._annotations.get(name, np.broadcast_to(0, (n_nonfactors[name], self._n_informed_factors))).astype(
                     np.float32
                 )
                 + (1 - self._annotation_confidence),

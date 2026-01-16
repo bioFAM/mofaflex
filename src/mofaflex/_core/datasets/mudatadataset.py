@@ -406,8 +406,8 @@ class MuDataDataset(MofaFlexDataset):
                 if ckey and cmkey:
                     raise ValueError(f"Provide either key or mkey for {outer_msg} {outer_key}, not both.")
 
+                ccov = None
                 if ckey is not None:
-                    ccov = None
                     if ckey in getattr(mod, attr).columns:
                         ccov = align_dataframe(getattr(mod, attr)[[ckey]], getattr(subdata, attrnames))
                     elif ckey in getattr(subdata, attr).columns:
