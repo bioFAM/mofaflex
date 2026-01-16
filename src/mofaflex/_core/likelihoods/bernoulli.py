@@ -1,4 +1,5 @@
 import numpy as np
+from anndata import AnnData
 from numpy.typing import NDArray
 from scipy.special import expit, logit
 
@@ -16,12 +17,18 @@ class Bernoulli(Likelihood):
     _priority = 10
     _state_attrs = ("_shift",)
 
+    @staticmethod
+    def _calc_shift(adata: AnnData):
+        shift = logit(utils.nanmean(adata.X, axis=0))
+        shift[~np.isfinite(shift)] = 0
+        return shift
+
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
         super().__init__(view_name, data, nonnegative)
         self._shift = data.apply_to_view(
             view_name,
             lambda adata, group_name: align_local_array_to_global(  # noqa: F821
-                logit(utils.nanmean(adata.X, axis=0)), group_name, self._view_name, align_to="features"
+                self._calc_shift(adata), group_name, self._view_name, align_to="features"
             ),
         )
 

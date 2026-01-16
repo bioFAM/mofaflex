@@ -75,7 +75,7 @@ class NegativeBinomial(Likelihood):
         ss_res = np.nansum(self._dV_square(y_true, y_pred, self._dispersion.mean[feature_idx], 1))
 
         truemean = self._shift[group_name][feature_idx]
-        nu2 = (np.nanvar(y_true) - truemean) / truemean**2  # method of moments estimator
+        nu2 = (np.nanvar(y_true, axis=0) - truemean) / truemean**2  # method of moments estimator
         ss_tot = np.nansum(self._dV_square(y_true, truemean, nu2, 1))
 
         return R2(ss_res, ss_tot)
