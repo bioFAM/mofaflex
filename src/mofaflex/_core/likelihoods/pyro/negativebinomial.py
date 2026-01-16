@@ -23,7 +23,7 @@ class NegativeBinomial(LikelihoodWithDispersion):
         sample_means: Mapping[str, NDArray[np.floating]],
         *,
         shift: Mapping[str, NDArray[np.floating]] | None = None,
-        init_loc: float = 0.0,
+        init_loc: float = np.e,
         init_scale: float = 0.1,
     ):
         super().__init__(

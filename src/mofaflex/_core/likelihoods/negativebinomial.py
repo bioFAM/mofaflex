@@ -38,7 +38,7 @@ class NegativeBinomial(Likelihood):
         sample_dim: int,
         feature_dim: int,
         *,
-        init_loc: float = 0.0,
+        init_loc: float = np.e,
         init_scale: float = 0.1,
     ) -> PyroLikelihood:
         return PyroNegativeBinomial(

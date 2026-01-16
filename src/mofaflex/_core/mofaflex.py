@@ -347,7 +347,7 @@ class MOFAFLEX:
             ),
         )
 
-        with tqdm(range(self._train_opts.max_epochs), unit="epochs", dynamic_ncols=True) as t:
+        with tqdm(range(self._train_opts.max_epochs), unit="epoch", dynamic_ncols=True) as t:
             for i in t:
                 with self._train_opts.device, torch.inference_mode():
                     model.on_train_epoch_start(i)
