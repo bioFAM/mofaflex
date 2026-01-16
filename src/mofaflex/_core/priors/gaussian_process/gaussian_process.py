@@ -160,8 +160,7 @@ class GaussianProcess(Prior):
 
         self._sizes = [n_nonfactors[g] for g in self._names]
         self._nonfactor_dim = nonfactor_dim
-        for i, g in enumerate(self._names):
-            self.register_buffer(f"_idx_{g}", torch.as_tensor(i))
+        self._idx = {name: torch.as_tensor(i) for i, name in enumerate(self._names)}
 
         ndims = abs(min(factor_dim, nonfactor_dim))
         shape = [1] * ndims
@@ -320,9 +319,6 @@ class GaussianProcess(Prior):
         with suppress(KeyError):
             self._gp.load_state_dict(unpickle_torch_state(state["gp_state"], map_location=map_location))
 
-    def _get_idx(self, group_name: str):
-        return getattr(self, f"_idx_{group_name}")
-
     def _get_nonfactor_plate(self, nonfactor_plates: Mapping[str, pyro.plate]) -> pyro.plate:
         """Make combined sample plate."""
         offset = 0
@@ -346,7 +342,7 @@ class GaussianProcess(Prior):
     ) -> dict[str, torch.Tensor]:
         gnames = list(filter(lambda x: x in gp_covariates, self._names))
         covars = torch.cat(tuple(gp_covariates[g] for g in gnames), dim=0)
-        idx = torch.cat(tuple(self._get_idx(g).expand(gp_covariates[g].shape[0]) for g in gnames), dim=0)
+        idx = torch.cat(tuple(self._idx[g].expand(gp_covariates[g].shape[0]) for g in gnames), dim=0)
         f_dist = self._gp.pyro_model((idx[..., None], covars), name_prefix="gp")
 
         nonfactor_plate = self._get_nonfactor_plate(nonfactor_plates)
@@ -383,7 +379,7 @@ class GaussianProcess(Prior):
     ) -> dict[str, torch.Tensor]:
         gnames = list(filter(lambda x: x in gp_covariates, self._names))
         covars = torch.cat(tuple(gp_covariates[g] for g in gnames), dim=0)
-        idx = torch.cat(tuple(self._get_idx(g).expand(gp_covariates[g].shape[0]) for g in gnames), dim=0)
+        idx = torch.cat(tuple(self._idx[g].expand(gp_covariates[g].shape[0]) for g in gnames), dim=0)
         f_dist = self._gp.pyro_guide((idx[..., None], covars), name_prefix="gp")
 
         nonfactor_plate = self._get_nonfactor_plate(nonfactor_plates)
