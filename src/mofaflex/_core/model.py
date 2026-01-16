@@ -1,7 +1,7 @@
 import logging
 import operator
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from functools import reduce
 from typing import Any, Literal, get_args
 
@@ -224,7 +224,15 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
                     group_name, sample_plates[group_name], feature_plates[view_name]
                 )
 
-    def get_lr_func(self, base_lr: float, **kwargs):
+    def get_lr_func(self, base_lr: float, **kwargs) -> Callable[[str], Mapping[str, Any]]:
+        """Get a learning rate function that can be passed to a Pyro optimizer.
+
+        This is useful if some parameters need a different learning rate than the rest.
+
+        Args:
+            base_lr: The base learning rate.
+            **kwargs: Additional arguments to the optimizer.
+        """
         modifiers = {}
         for term_name, term in self._terms.items():
             modifiers.update({f"_terms.{term_name}.{pname}": mod for pname, mod in term.learning_rate_multipliers})
