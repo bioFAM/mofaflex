@@ -1,7 +1,9 @@
 import logging
 import time
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, fields
+from functools import wraps
 from itertools import chain
 from pathlib import Path
 from types import MappingProxyType
@@ -118,62 +120,98 @@ class MOFAFLEX:
             subset_var=self._data_opts.subset_var,
         )
 
+    def _check_trained(func=None, *, is_trained=True):
+        def wrapperwrapper(func):
+            @wraps(func)
+            def wrapper(self, *args, **kwargs):
+                if not getattr(self, "_no_check_trained_", False):
+                    if is_trained and not hasattr(self, "_model"):
+                        raise RuntimeError("The model is not yet trained.")
+                    elif not is_trained and hasattr(self, "_model"):
+                        raise RuntimeError("The model is already trained.")
+                return func(self, *args, **kwargs)
+
+            return wrapper
+
+        if func is None:
+            return lambda func: wrapperwrapper(func)
+        else:
+            return wrapperwrapper(func)
+
+    @contextmanager
+    def _no_check_trained(self):
+        self._no_check_trained_ = True
+        yield
+        self._no_check_trained_ = False
+
     @property
+    @_check_trained
     def group_names(self) -> npt.NDArray[str]:
         """Group names."""
         return self._group_names
 
     @property
+    @_check_trained
     def n_groups(self) -> int:
         """Number of groups."""
         return len(self.group_names)
 
     @property
+    @_check_trained
     def view_names(self) -> npt.NDArray[str]:
         """View names."""
         return self._view_names
 
     @property
+    @_check_trained
     def n_views(self) -> int:
         """Number of views."""
         return len(self.view_names)
 
     @property
+    @_check_trained
     def feature_names(self) -> Mapping[str, npt.NDArray[str]]:
         """Feature names for each view."""
         return MappingProxyType(self._feature_names)
 
     @property
+    @_check_trained
     def n_features(self) -> dict[str, int]:
         """Number of features in each view."""
         return {k: len(v) for k, v in self.feature_names.items()}
 
     @property
+    @_check_trained
     def n_features_total(self) -> int:
         """Total number of features."""
         return sum(self.n_features.values())
 
     @property
+    @_check_trained
     def sample_names(self) -> Mapping[str, npt.NDArray[str]]:
         """Sample names for each group."""
         return MappingProxyType(self._sample_names)
 
     @property
+    @_check_trained
     def n_samples(self) -> dict[str, int]:
         """Number of samples in each group."""
         return {k: len(v) for k, v in self.sample_names.items()}
 
     @property
+    @_check_trained
     def n_samples_total(self) -> int:
         """Total number of samples."""
         return sum(self.n_samples.values())
 
     @property
+    @_check_trained
     def training_loss(self) -> npt.NDArray[np.float32]:
         """Total loss (negative ELBO) for each training epoch."""
         return self._train_loss_elbo
 
     @property
+    @_check_trained
     def terms(self) -> Mapping[str, Term]:
         """The additive terms."""
         return MappingProxyType(self._wrapped_terms)
@@ -181,11 +219,15 @@ class MOFAFLEX:
     @property
     def n_terms(self) -> int:
         """Number of additive terms."""
-        return len(self.terms)
+        try:
+            return len(self._wrapped_terms)
+        except AttributeError:
+            return len(self._terms)
 
     def _init_api(self):
         self._wrapped_terms = {name: TermWrapper(self, term) for name, term in self._model.terms.items()}
 
+    @_check_trained(is_trained=False)
     def fit(
         self,
         data: MuData | Mapping[str, Mapping[str, AnnData]],
@@ -285,67 +327,68 @@ class MOFAFLEX:
             self._train_opts.seed = int(time.strftime("%y%m%d%H%M"))
 
         self._train_opts.device = default_torch_device(self._train_opts.device)
-        if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= self.n_samples_total):
-            self._train_opts.batch_size = self.n_samples_total
+        with self._no_check_trained():
+            if self._train_opts.batch_size is None or not (0 < self._train_opts.batch_size <= self.n_samples_total):
+                self._train_opts.batch_size = self.n_samples_total
 
-        if plot_data_overview:
-            pl.overview(data).show()
+            if plot_data_overview:
+                pl.overview(data).show()
 
-        pyro.set_rng_seed(self._train_opts.seed)
-        model = MofaFlexModel(terms=self._terms, likelihoods=likelihoods).to(self._train_opts.device)
+            pyro.set_rng_seed(self._train_opts.seed)
+            model = MofaFlexModel(terms=self._terms, likelihoods=likelihoods).to(self._train_opts.device)
 
-        n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
-        gamma = 0.1
-        lrd = gamma ** (1 / n_iterations)
+            n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
+            gamma = 0.1
+            lrd = gamma ** (1 / n_iterations)
 
-        datasets = {"data": data}
-        if (termdsets := model.get_datasets(data)) is not None:
-            datasets.update(termdsets)
+            datasets = {"data": data}
+            if (termdsets := model.get_datasets(data)) is not None:
+                datasets.update(termdsets)
 
-        pyro.enable_validation(True)
-        pyro.clear_param_store()
+            pyro.enable_validation(True)
+            pyro.clear_param_store()
 
-        singlebatch = self._train_opts.batch_size >= max(self.n_samples.values())
-        collate_fn_map = {
-            torch.Tensor: lambda x, **kwargs: x[0].to(self._train_opts.device, non_blocking=True),
-            slice: lambda x, **kwargs: x[0],
-        }
-        dataset = StackDataset(**datasets)
-        if singlebatch:
-            batch = collate(
-                (default_convert(dataset.__getitems__(sample_all_data_as_one_batch(data))),),
-                collate_fn_map=collate_fn_map,
+            singlebatch = self._train_opts.batch_size >= max(self.n_samples.values())
+            collate_fn_map = {
+                torch.Tensor: lambda x, **kwargs: x[0].to(self._train_opts.device, non_blocking=True),
+                slice: lambda x, **kwargs: x[0],
+            }
+            dataset = StackDataset(**datasets)
+            if singlebatch:
+                batch = collate(
+                    (default_convert(dataset.__getitems__(sample_all_data_as_one_batch(data))),),
+                    collate_fn_map=collate_fn_map,
+                )
+                batchdata = batch.pop("data")
+            else:
+                loader = DataLoader(
+                    dataset,
+                    batch_sampler=MofaFlexBatchSampler(
+                        data.n_samples, self._train_opts.batch_size, False, generator=torch.default_generator
+                    ),
+                    collate_fn=default_convert,
+                    num_workers=self._train_opts.num_workers,
+                    pin_memory=self._train_opts.pin_memory,
+                    persistent_workers=self._train_opts.num_workers > 0,
+                )
+
+            train_loss_elbo = []
+            earlystopper = EarlyStopper(
+                mode="min", min_delta=0.1, patience=self._train_opts.early_stopper_patience, percentage=True
             )
-            batchdata = batch.pop("data")
-        else:
-            loader = DataLoader(
-                dataset,
-                batch_sampler=MofaFlexBatchSampler(
-                    data.n_samples, self._train_opts.batch_size, False, generator=torch.default_generator
+            with self._train_opts.device:
+                model.on_train_start(data)
+
+            # needs to be after on_train_start
+            optimizer = ClippedAdam(model.get_lr_func(self._train_opts.lr, lrd=lrd))
+            svi = SVI(
+                model=pyro.poutine.scale(model.model, scale=1.0 / self.n_samples_total),
+                guide=pyro.poutine.scale(model.guide, scale=1.0 / self.n_samples_total),
+                optim=optimizer,
+                loss=TraceMeanField_ELBO(
+                    retain_graph=True, num_particles=self._train_opts.n_particles, vectorize_particles=True
                 ),
-                collate_fn=default_convert,
-                num_workers=self._train_opts.num_workers,
-                pin_memory=self._train_opts.pin_memory,
-                persistent_workers=self._train_opts.num_workers > 0,
             )
-
-        train_loss_elbo = []
-        earlystopper = EarlyStopper(
-            mode="min", min_delta=0.1, patience=self._train_opts.early_stopper_patience, percentage=True
-        )
-        with self._train_opts.device:
-            model.on_train_start(data)
-
-        # needs to be after on_train_start
-        optimizer = ClippedAdam(model.get_lr_func(self._train_opts.lr, lrd=lrd))
-        svi = SVI(
-            model=pyro.poutine.scale(model.model, scale=1.0 / self.n_samples_total),
-            guide=pyro.poutine.scale(model.guide, scale=1.0 / self.n_samples_total),
-            optim=optimizer,
-            loss=TraceMeanField_ELBO(
-                retain_graph=True, num_particles=self._train_opts.n_particles, vectorize_particles=True
-            ),
-        )
 
         with tqdm(range(self._train_opts.max_epochs), unit="epoch", dynamic_ncols=True) as t:
             for i in t:
@@ -391,6 +434,7 @@ class MOFAFLEX:
             Path(self._train_opts.save_path).parent.mkdir(parents=True, exist_ok=True)
             self._save(self._train_opts.save_path)
 
+    @_check_trained
     def get_r2(
         self, type: Literal["total", "byterm", "term"] | None = None, ordered: bool = False, term: str | None = None
     ) -> pd.DataFrame:
@@ -423,6 +467,7 @@ class MOFAFLEX:
 
         return self._model.get_r2(type, ordered, term)
 
+    @_check_trained
     def get_dispersion(self, moment: Literal["mean", "std"] = "mean") -> dict[str, pd.Series]:
         """Get the dispersion vectors for each view.
 
@@ -434,6 +479,7 @@ class MOFAFLEX:
             for view_name, view_dispersion in getattr(self._dispersions, moment).items()
         }
 
+    @_check_trained
     def impute_data(
         self, data: MuData | Mapping[str, Mapping[str, AnnData]], missing_only=False
     ) -> dict[dict[str, AnnData]]:
@@ -494,14 +540,15 @@ class MOFAFLEX:
         model._data_opts = _DataOptions(**state["data_opts"])
         model._train_opts = _TrainingOptions(**state["train_opts"])
 
-        model._model = MofaFlexModel.load(
-            state["model"],
-            map_location=map_location,
-            sample_names=model.sample_names,
-            feature_names=model.feature_names,
-            n_samples=model.n_samples,
-            n_features=model.n_features,
-        )
+        with model._no_check_trained():
+            model._model = MofaFlexModel.load(
+                state["model"],
+                map_location=map_location,
+                sample_names=model.sample_names,
+                feature_names=model.feature_names,
+                n_samples=model.n_samples,
+                n_features=model.n_features,
+            )
         model._init_api()
 
         return model

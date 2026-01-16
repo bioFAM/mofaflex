@@ -62,6 +62,30 @@ def anndata_dict(random_adata, rng):
     return adata_dict
 
 
+@pytest.fixture(scope="module")
+def model_api_trained_only():
+    return (
+        "group_names",
+        "n_groups",
+        "view_names",
+        "n_views",
+        "feature_names",
+        "n_features",
+        "n_features_total",
+        "sample_names",
+        "n_samples",
+        "n_samples_total",
+        "training_loss",
+        "terms",
+        "get_r2",
+    )
+
+
+@pytest.fixture(scope="module")
+def model_api_untrained_only():
+    return ("fit",)
+
+
 @pytest.mark.parametrize(
     "argfor,argname,argval",
     [
@@ -110,7 +134,18 @@ def anndata_dict(random_adata, rng):
 @pytest.mark.parametrize("n_particles", [1, 5])
 @pytest.mark.parametrize("batch_size", [0, 257])
 @pytest.mark.parametrize("usedask", [False, True])
-def test_integration(anndata_dict, tmp_path, argfor, argname, argval, n_particles, batch_size, usedask, request):
+def test_integration(
+    anndata_dict,
+    tmp_path,
+    argfor,
+    argname,
+    argval,
+    n_particles,
+    batch_size,
+    usedask,
+    model_api_trained_only,
+    model_api_untrained_only,
+):
     likelihoods_arg = None
     if argfor == "likelihood_normal":
         likelihoods_arg = {
@@ -131,6 +166,9 @@ def test_integration(anndata_dict, tmp_path, argfor, argname, argval, n_particle
         },
         **termargs,
     )
+    for api in model_api_trained_only:
+        with pytest.raises(RuntimeError, match="not yet trained"):
+            getattr(model, api)()
 
     fitargs = {}
     if argfor == "fit":
@@ -146,6 +184,14 @@ def test_integration(anndata_dict, tmp_path, argfor, argname, argval, n_particle
             n_particles=n_particles,
             **fitargs,
         )
+
+    for api in model_api_untrained_only:
+        with pytest.raises(RuntimeError, match="already trained"):
+            getattr(model, api)()
+    for api in model_api_trained_only:
+        attr = getattr(model, api)
+        if callable(attr):
+            attr()
 
     if argname == "weight_prior" and isinstance(argval, priors.InformedHorseshoe):
         assert model.n_informed_factors > 0
@@ -230,6 +276,8 @@ def test_imputation(rng, anndata_dict, usedask):
 
     with settings.override(use_dask=usedask):
         model = terms.MofaFlex(n_factors=5)
+        with pytest.raises(RuntimeError, match="not yet trained"):
+            model.impute_data()
         model.fit(anndata_dict, plot_data_overview=False, max_epochs=5, seed=42, save_path=False)
 
         imputed = model.impute_data(anndata_dict, missing_only=False)
