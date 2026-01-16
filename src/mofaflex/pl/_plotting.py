@@ -151,6 +151,7 @@ def covariates_factor_scatter(
     shape: str | None = None,
     data: MuData | dict[str, dict[str, AnnData]] | None = None,
     size: float = 1,
+    alpha: float = 1,
     figsize: tuple[float, float] = (6, 6),
 ) -> p9.ggplot:
     """Plot a factor against one or two covariate dimensions.
@@ -166,6 +167,7 @@ def covariates_factor_scatter(
         shape: The covariate name to shape by.
         data: The data that the model was trained on. Only required if `color is not None` or `shape is not None`.
         size: Size of the data points.
+        alpha: Transparency of the data points.
         figsize: Figure size in inches.
     """
     if isinstance(factor, int):
@@ -230,7 +232,7 @@ def covariates_factor_scatter(
 
     plot = (
         p9.ggplot(df, p9.aes(x=x, y=y, **aes_kwargs))
-        + p9.geom_point(size=size)
+        + p9.geom_point(size=size, alpha=alpha, stroke=0)
         + p9.facet_wrap("group")
         + p9.theme(figure_size=figsize)
     )

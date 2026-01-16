@@ -159,15 +159,15 @@ def test_factors_scatter(mousebrain_model, mousebrain_data):
 )
 def test_covariates_factor_scatter(mousebrain_model, mousebrain_data):
     return (
-        mfl.pl.covariates_factor_scatter(mousebrain_model, 1),
-        mfl.pl.covariates_factor_scatter(mousebrain_model, "Astrocytes"),
+        mfl.pl.covariates_factor_scatter(mousebrain_model, 1, size=2),
+        mfl.pl.covariates_factor_scatter(mousebrain_model, "Astrocytes", size=2),
         mfl.pl.covariates_factor_scatter(
-            mousebrain_model, 1, covariate_dims=0, color="Astrocytes", data=mousebrain_data
+            mousebrain_model, 1, covariate_dims=0, color="Astrocytes", data=mousebrain_data, size=2
         ),
         mfl.pl.covariates_factor_scatter(
-            mousebrain_model, 1, covariate_dims=0, color="log1p_total_counts", data=mousebrain_data
+            mousebrain_model, 1, covariate_dims=0, color="log1p_total_counts", data=mousebrain_data, size=2
         ),
-        mfl.pl.covariates_factor_scatter(mousebrain_model, 1, covariate_dims=(1, 0)),
+        mfl.pl.covariates_factor_scatter(mousebrain_model, 1, covariate_dims=(1, 0), size=2),
     )
 
 
