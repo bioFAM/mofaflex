@@ -78,6 +78,7 @@ def model_api_trained_only():
         "training_loss",
         "terms",
         "get_r2",
+        "get_dispersion",
     )
 
 

@@ -124,3 +124,7 @@ class Normal(Likelihood):
         except IndexError:
             scale = self._scale
         return data - self._shift[group_name][feature_idx] / scale
+
+    @property
+    def dispersion(self):
+        return self._dispersion

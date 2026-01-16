@@ -102,3 +102,7 @@ class NegativeBinomial(Likelihood):
         data = data / self._sample_means[group_name][sample_idx]
         data -= self._shift[group_name][feature_idx]
         return data
+
+    @property
+    def dispersion(self):
+        return self._dispersion

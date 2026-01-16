@@ -474,10 +474,7 @@ class MOFAFLEX:
         Args:
             moment: Which moment of the posterior distribution to return.
         """
-        return {
-            view_name: pd.Series(view_dispersion, index=self.feature_names[view_name])
-            for view_name, view_dispersion in getattr(self._dispersions, moment).items()
-        }
+        return self._model.get_dispersion(self.feature_names, moment)
 
     @_check_trained
     def impute_data(

@@ -233,3 +233,8 @@ class Likelihood(SaveStateMixin, ABC):
     def known_likelihoods(cls) -> Mapping[str, type["Likelihood"]]:
         """Get all known likelihoods."""
         return MappingProxyType(__class__._registry)
+
+    @property
+    def dispersion(self):
+        """Get the estimated dispersion."""
+        pass
