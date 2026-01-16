@@ -184,7 +184,9 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     def component_order(self, order: NDArray[int]):
         pass
 
-    def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset] | None:
+    def get_datasets(
+        self, data: MofaFlexDataset, sample_plate_dim: int, feature_plate_dim: int
+    ) -> dict[str, CovariatesDataset] | None:
         """Hook that is called prior to training.
 
         If a prior requires any additional covariates during training, it should return a dict of datasets. The keys of
@@ -192,11 +194,19 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
 
         Args:
             data: The dataset.
+            sample_plate_dim: The sample dimension.
+            feature_plate_dim: The feature dimension.
         """
         pass
 
-    def on_train_start(self, data: MofaFlexDataset):
-        """Hook that is called immediately prior to training."""
+    def on_train_start(self, data: MofaFlexDataset, sample_plate_dim: int, feature_plate_dim: int):
+        """Hook that is called immediately prior to training.
+
+        Args:
+            data: The dataset.
+            sample_plate_dim: The sample dimension.
+            feature_plate_dim: The feature dimension.
+        """
         pass
 
     def on_train_epoch_start(self, epoch: int):

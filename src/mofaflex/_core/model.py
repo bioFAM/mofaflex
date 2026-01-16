@@ -201,7 +201,8 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         dsets = {
             termname: StackDataset(**dsets)
             for termname, term in self._terms.items()
-            if (dsets := term.get_datasets(data)) is not None and len(dsets)
+            if (dsets := term.get_datasets(data, self._sample_plate_dim, self._feature_plate_dim)) is not None
+            and len(dsets)
         }
 
         self._init(data)
@@ -236,7 +237,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
     def on_train_start(self, data: MofaFlexDataset):
         """Hook that is called immediately prior to training."""
         for term in self._terms.values():
-            term.on_train_start(data)
+            term.on_train_start(data, self._sample_plate_dim, self._feature_plate_dim)
 
         self._pyro_likelihoods = PyroModuleDict(
             {

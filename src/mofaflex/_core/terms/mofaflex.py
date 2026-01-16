@@ -350,11 +350,12 @@ class MofaFlex(Term):
                 torch.full([weights_dim, 2], self._init_scale), constraint=constraints.softplus_positive
             )
 
-    _sample_plate_dim = -2
-    _feature_plate_dim = -1
-    _factor_plate_dim = -3
-
-    def get_datasets(self, data: MofaFlexDataset) -> dict[str, CovariatesDataset]:
+    def get_datasets(
+        self, data: MofaFlexDataset, sample_plate_dim: int, feature_plate_dim: int
+    ) -> dict[str, CovariatesDataset]:
+        self._sample_plate_dim = sample_plate_dim
+        self._feature_plate_dim = feature_plate_dim
+        self._factor_plate_dim = min(sample_plate_dim, feature_plate_dim) - 1
         self._init(data)
 
         ret = defaultdict(dict)
@@ -364,7 +365,7 @@ class MofaFlex(Term):
 
         for prior in self._factor_priors:
             if priordsets := prior.get_datasets(
-                data, 0, self._factor_plate_dim, self._sample_plate_dim, self.n_total_factors, data.n_samples
+                data, 0, self._factor_plate_dim, sample_plate_dim, self.n_total_factors, data.n_samples
             ):
                 for dsetname, dset in priordsets.items():
                     ret[dsetname].update(dset)  # handle multiple priors of the same class with different settings
@@ -374,7 +375,7 @@ class MofaFlex(Term):
         self._weight_dsets = defaultdict(dict)
         for prior in self._weight_priors:
             if priordsets := prior.get_datasets(
-                data, 1, self._factor_plate_dim, self._feature_plate_dim, self.n_total_factors, data.n_features
+                data, 1, self._factor_plate_dim, feature_plate_dim, self.n_total_factors, data.n_features
             ):
                 for dsetname, dset in priordsets.items():
                     self._weight_dsets[dsetname].update(dset)
@@ -474,7 +475,7 @@ class MofaFlex(Term):
 
         return init_tensor
 
-    def on_train_start(self, data: MofaFlexDataset):
+    def on_train_start(self, data: MofaFlexDataset, sample_plate_dim: int, feature_plate_dim: int):
         if self.n_guided_factors > 0:
             self._init_guiding_vars(data)
             self._factor_names = np.concatenate((self._factor_names, self._guiding_vars_names))
@@ -494,14 +495,10 @@ class MofaFlex(Term):
 
         for prior in self._factor_priors:
             prior.on_train_start(
-                self._factor_plate_dim,
-                self._sample_plate_dim,
-                self.n_total_factors,
-                data.n_samples,
-                factors_init_tensor,
+                self._factor_plate_dim, sample_plate_dim, self.n_total_factors, data.n_samples, factors_init_tensor
             )
         for prior in self._weight_priors:
-            prior.on_train_start(self._factor_plate_dim, self._feature_plate_dim, self.n_total_factors, data.n_features)
+            prior.on_train_start(self._factor_plate_dim, feature_plate_dim, self.n_total_factors, data.n_features)
 
         for dsets in self._weight_dsets.values():
             for view_name, dset in dsets.items():
