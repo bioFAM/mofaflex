@@ -57,7 +57,7 @@ optional-dependencies.doc = [
   "myst-nb>=1.1",
   "pandas",
   "setuptools",                      # Until pybtex >0.24.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
-  "sphinx>=8.1",
+  "sphinx>=8.1,<9",                  # https://github.com/executablebooks/sphinx-tabs/issues/209
   "sphinx-autodoc-typehints",
   "sphinx-automodapi",
   "sphinx-book-theme>=1",
