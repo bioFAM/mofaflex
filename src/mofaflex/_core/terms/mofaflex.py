@@ -125,6 +125,7 @@ class MofaFlex(Term):
                 factor_order = self.factor_order[factors_subset]
                 factor_order = np.argsort(np.argsort(factor_order))
                 res = res[:, factor_order]
+                factor_names = factor_names[factor_order]
             ret[name] = pd.DataFrame(
                 res, index=self._sample_names[name] if axis == 0 else self._feature_names[name], columns=factor_names
             )
@@ -414,12 +415,12 @@ class MofaFlex(Term):
                 imp = SimpleImputer(missing_values=np.nan, strategy="mean")
                 arr = imp.fit_transform(arr)
             else:
-                raise ValueError("Data has missing values. Please impute missings or set `impute_missings=True`.")
+                raise ValueError("Data has missing values. Please impute missings or set 'impute_missings=True'.")
         return initializer.fit_transform(arr)
 
     def _initialize_factors(self, data, impute_missings=True):
         init_tensor = defaultdict(dict)
-        _logger.info(f"Initializing factors using `{self._init_factors}` method...")
+        _logger.info(f"Initializing factors using '{self._init_factors}' method...")
 
         if not isinstance(self._init_factors, str):
             for group_name, n in data.n_samples.items():
@@ -453,7 +454,7 @@ class MofaFlex(Term):
                     init_tensor[group_name]["loc"] = init
             case _:
                 raise ValueError(
-                    f"Initialization method `{self._init_factors}` not found. Please choose from `random`, `orthogonal`, `PCA`, or `NMF`."
+                    f"Initialization method '{self._init_factors}' not found. Please choose from 'random', 'orthogonal', 'PCA', or 'NMF'."
                 )
 
         for group_name, n in data.n_samples.items():
