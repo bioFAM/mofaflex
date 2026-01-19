@@ -26,10 +26,15 @@ class _class_and_instancemethod:
 
 @checked_baseclass(registry="dict")
 class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
-    """Base class for MOFA-FLEX additive terms.
+    r"""Base class for MOFA-FLEX additive terms.
 
-    Subclasses must implement `model`, `guide`, and `nonnegative`. Method or properties that should be exposed
-    to the end user must be marked with `@Term._api`.
+    A Term represents one additive contribution to the generative model, i.e. a component of the form:
+
+    .. math::
+        Y = \Sum_t \text{Term}_t
+
+    Subclasses must implement a Pyro model and guide in the `model` and `guide` methods, respectively, as well as
+    the `nonnegative` method. Method or properties that should be exposed to the end user must be marked with `@Term._api`.
     """
 
     _apilist = []
@@ -107,6 +112,9 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     ):
         """Pyro model for the term.
 
+        This method should define all latent variables associated with the term. It should contribute additively to
+        the model's overall observation model. Importantly, it must not assume it is the only term.
+
         Args:
             sample_plates: Pyro plates for the samples.
             feature_plates: Pyro plates for the features.
@@ -122,6 +130,8 @@ class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     @abstractmethod
     def guide(self, nonmissing_samples, nonmissing_features, **kwargs):
         """Pyro guide for the term.
+
+        This method defines the variational distribution for all latent variables associated with the term.
 
         Args:
             sample_plates: Pyro plates for the samples.
