@@ -983,7 +983,9 @@ class MOFAFLEX:
         refgroup = self._gp_opts.warp_reference_group
         reffactormeans = factormeans[refgroup].mean(axis=0)
         refidx = warp_groups_order[refgroup]
-        for g in self._gp_opts.warp_groups[1:]:
+        for g in self._gp_opts.warp_groups:
+            if g == refgroup:
+                continue
             idx = warp_groups_order[g]
             alignment = dtw(
                 reffactormeans[refidx],

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning][].
 ### Added
 - `tl.factor_correlation` to calculate the correlation between factors
 
+### Fixed
+- Gaussian processes with dynamic time warping and a custom reference group now actually
+  use the the set reference group instead of the first warped group as reference.
+
 ### Changed
 - `pl.factor` now also accepts factor names for the `factor` argument.
 
