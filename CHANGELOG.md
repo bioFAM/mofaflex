@@ -10,16 +10,22 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.2.0] (Unreleased)
 
+### Added
+- Support for multiple additive terms.
+
 ### Changed
-- the `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does
+- The `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does.
+- The API has received an overhaul. Make sure to re-familiarize yourself with the tutorials.
+- R2 estimation for non-Gaussian likelihoods should be more robust.
+- The on-disk format for trained model has changed. Files created with mofaflex 0.1 cannot be read by 0.2 and vice versa.
 
 ### Removed
-- The MOFA compatibility mode for saving a trained model
+- The MOFA compatibility mode for saving a trained model.
 
 ## [0.1.1] (Unreleased)
 
 ### Added
-- `tl.factor_correlation` to calculate the correlation between factors
+- `tl.factor_correlation` to calculate the correlation between factors.
 
 ### Changed
 - `pl.factor` now also accepts factor names for the `factor` argument.
@@ -29,7 +35,7 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.0]
 
-- Initial release
+- Initial release.
 
 [0.2.0]: https://github.com/bioFAM/mofaflex/releases/tag/v0.2.0
 [0.1.1]: https://github.com/bioFAM/mofaflex/releases/tag/v0.1.1
