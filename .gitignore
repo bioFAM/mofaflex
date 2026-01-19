@@ -9,10 +9,6 @@ buck-out/
 /.idea/
 /.vscode/
 
-# IDEs
-/.idea/
-/.vscode/
-
 # Compiled files
 .venv/
 __pycache__/

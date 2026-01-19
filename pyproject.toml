@@ -46,38 +46,37 @@ dependencies = [
   "torch",
   "tqdm",
 ]
-optional-dependencies.dev = [
-  "pre-commit",
-  "twine>=4.0.2",
-]
-optional-dependencies.doc = [
-  "docutils>=0.8,!=0.18.*,!=0.19.*",
-  "ipykernel",
-  "ipython",
-  "myst-nb>=1.1",
-  "pandas",
-  "setuptools",                      # Until pybtex >0.24.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
-  "sphinx>=8.1,<9",                  # https://github.com/executablebooks/sphinx-tabs/issues/209
-  "sphinx-autodoc-typehints",
-  "sphinx-automodapi",
-  "sphinx-book-theme>=1",
-  "sphinx-copybutton",
-  "sphinx-tabs",
-  "sphinxcontrib-bibtex>=1",
-  "sphinxext-opengraph",
-]
 optional-dependencies.lazy = [
   "dask[array,dataframe]!=2025.5", # https://github.com/dask/dask/issues/11958
-]
-optional-dependencies.test = [
-  "coverage>=7.10",
-  "mofaflex[lazy]",
-  "pytest",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://mofaflex.readthedocs.io/"
 urls.Home-page = "https://github.com/bioFAM/mofaflex"
 urls.Source = "https://github.com/bioFAM/mofaflex"
+
+[dependency-groups]
+dev = [
+  "pre-commit",
+  "twine>=4.0.2",
+]
+test = [
+  "coverage>=7.10",
+  "mofaflex[lazy]",
+  "pytest",
+]
+doc = [
+  "ipykernel",
+  "ipython",
+  "myst-nb>=1.1",
+  "sphinx>=8.1,<9",           # https://github.com/executablebooks/sphinx-tabs/issues/209
+  "sphinx-autodoc-typehints",
+  "sphinx-book-theme>=1",
+  "sphinx-copybutton",
+  "sphinx-tabs",
+  "sphinxcontrib-bibtex>=1",
+  "sphinxcontrib-katex",
+  "sphinxext-opengraph",
+]
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/mofaflex/_version.py"
@@ -101,15 +100,15 @@ scripts.clean = "git clean -fdX -- {args:docs}"
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
 deps = [ "stable" ]
-python = [ "3.11", "3.13" ]
+python = [ "3.11", "3.14" ]
 
 # Test the newest supported Python version also with pre-release deps
 [[tool.hatch.envs.hatch-test.matrix]]
 deps = [ "pre" ]
-python = [ "3.13" ]
+python = [ "3.14" ]
 
 [tool.hatch.envs.hatch-test]
-features = [ "dev", "test" ]
+dependency-groups = [ "dev", "test" ]
 
 [tool.hatch.envs.hatch-test.overrides]
 # If the matrix variable `deps` is set to "pre",
@@ -163,9 +162,9 @@ lint.per-file-ignores."docs/notebooks/*" = [ "D", "F403", "F405" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "google"
 
-[tool.pytest.ini_options]
+[tool.pytest]
+strict = true
 testpaths = [ "tests" ]
-xfail_strict = true
 addopts = [
   "--import-mode=importlib", # allow using test files with same name
 ]

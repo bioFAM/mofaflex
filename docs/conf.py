@@ -5,11 +5,14 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 # -- Path setup --------------------------------------------------------------
+import shutil
 import sys
 import os
 from datetime import datetime
 from importlib.metadata import metadata
 from pathlib import Path
+
+from sphinxcontrib import katex
 
 os.environ["MOFAFLEX_DOCS"] = "1"
 
@@ -58,9 +61,9 @@ extensions = [
     "sphinx_automodapi.automodapi",
     "sphinx.ext.napoleon",
     "sphinxcontrib.bibtex",
+    "sphinxcontrib.katex",
     "sphinx_autodoc_typehints",
     "sphinx_tabs.tabs",
-    "sphinx.ext.mathjax",
     "IPython.sphinxext.ipython_console_highlighting",
     "sphinxext.opengraph",
     *[p.stem for p in (HERE / "extensions").glob("*.py")],
@@ -86,7 +89,8 @@ typehints_defaults = "braces"
 source_suffix = {".rst": "restructuredtext", ".ipynb": "myst-nb", ".myst": "myst-nb"}
 
 intersphinx_mapping = {
-    "python": ("https://docs.python.org/3", None),
+    # TODO: replace `3.13` with `3` once ReadTheDocs supports building with Python 3.14
+    "python": ("https://docs.python.org/3.13", None),
     "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
     "mudata": ("https://mudata.readthedocs.io/en/stable/", None),
     "scanpy": ("https://scanpy.readthedocs.io/en/stable/", None),
@@ -122,6 +126,7 @@ html_theme_options = {
 }
 
 pygments_style = "default"
+katex_prerender = shutil.which(katex.NODEJS_BINARY) is not None
 
 nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
