@@ -29,7 +29,7 @@ Please refer to the [documentation][]. In particular, the
 ## Installation
 
 You need to have Python 3.11 or newer installed on your system. If you don't have
-Python installed, we recommend installing [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html).
+Python installed, we recommend installing [uv][].
 
 There are several alternative options to install MOFA-FLEX:
 
@@ -74,6 +74,7 @@ If you use MOFA-FLEX in your work, please cite
 ```
 </details>
 
+[uv]: https://github.com/astral-sh/uv
 [issue tracker]: https://github.com/bioFAM/mofaflex/issues
 [tests]: https://github.com/bioFAM/mofaflex/actions/workflows/test.yaml
 [codecov]: https://codecov.io/gh/bioFAM/mofaflex

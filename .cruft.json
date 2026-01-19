@@ -4,7 +4,7 @@
   "checkout": "v0.7.0",
   "context": {
     "cookiecutter": {
-      "project_name": "prismo",
+      "project_name": "mofaflex",
       "package_name": "mofaflex",
       "project_description": "MOFA-FLEX",
       "author_full_name": "ABC",
