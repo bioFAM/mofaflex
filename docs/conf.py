@@ -5,14 +5,11 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 # -- Path setup --------------------------------------------------------------
-import shutil
 import sys
 import os
 from datetime import datetime
 from importlib.metadata import metadata
 from pathlib import Path
-
-from sphinxcontrib import katex
 
 os.environ["MOFAFLEX_DOCS"] = "1"
 
@@ -58,7 +55,6 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
     "sphinx.ext.autosummary",
-    "sphinx_automodapi.automodapi",
     "sphinx.ext.napoleon",
     "sphinxcontrib.bibtex",
     "sphinx_autodoc_typehints",
@@ -126,7 +122,6 @@ html_theme_options = {
 }
 
 pygments_style = "default"
-katex_prerender = shutil.which(katex.NODEJS_BINARY) is not None
 
 nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
