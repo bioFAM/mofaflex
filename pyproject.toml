@@ -74,7 +74,6 @@ doc = [
   "sphinx-copybutton",
   "sphinx-tabs",
   "sphinxcontrib-bibtex>=1",
-  "sphinxcontrib-katex",
   "sphinxext-opengraph",
 ]
 
