@@ -72,10 +72,8 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     _state_attrs = "_names"
 
     def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-
         if not isabstract(cls) and cls.__name__[0] != "_":
-            if not cls._factors_allowed and not cls._weights_allowed:
+            if not cls.factors_allowed() and not cls.weights_allowed():
                 raise TypeError(f"Class `{cls.__name__}` cannot be used for factors or weights.")
 
     def __init__(self, names: str | Sequence[str]):
@@ -163,6 +161,17 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     def api_properties(cls) -> Iterable[API]:
         """The user-facing properties of this prior."""
         return (api for api in cls._apilist if api.type == APIType.property)
+
+    def _reshape_tensor_to_batch(
+        self, tens: torch.Tensor, name: str, factor_plate: pyro.plate, nonfactor_plate: pyro.plate
+    ):
+        shape = self._shapes[name]
+        if tens.shape[0] < nonfactor_plate.size:
+            shape = list(shape)
+            shape[nonfactor_plate.dim] = tens.shape[0]
+        if factor_plate.dim < nonfactor_plate.dim:
+            tens = tens.T
+        return tens.reshape(shape)
 
     def get_datasets(
         self,

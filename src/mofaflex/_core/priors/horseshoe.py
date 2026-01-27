@@ -1,4 +1,3 @@
-import logging
 import operator
 from collections.abc import Mapping, Sequence
 from functools import reduce
@@ -18,8 +17,6 @@ from ..datasets import MofaFlexDataset
 from ..pcgse import pcgse_test
 from ..utils import MeanStd, PyroParameterDict
 from .base import Prior
-
-_logger = logging.getLogger(__name__)
 
 
 class Horseshoe(Prior):
@@ -82,7 +79,7 @@ class Horseshoe(Prior):
             self._locs[name] = PyroParam(loc)
             self._scales[name] = PyroParam(scale, constraint=constraints.softplus_positive)
 
-    def _get_prior_scale(self, name: str, **kwargs):
+    def _get_prior_scale(self, name: str, factor_plate: pyro.plate, nonfactor_plate: pyro.plate, **kwargs):
         return None
 
     def _model(
@@ -99,7 +96,9 @@ class Horseshoe(Prior):
                         f"{id}_caux_z_{name}", dist.InverseGamma(torch.full((1,), 0.5), torch.full((1,), 0.5))
                     )
                     c = torch.sqrt(caux)
-                    if (prior_scale := self._get_prior_scale(name, **kwargs)) is not None:
+                    if (
+                        prior_scale := self._get_prior_scale(name, factor_plate, nonfactor_plate, **kwargs)
+                    ) is not None:
                         c = c * prior_scale
                     local_scale = (c * local_scale) / torch.sqrt(c**2 + local_scale**2)
                 return pyro.sample(f"{id}_z_{name}", dist.Normal(torch.zeros((1,)), local_scale))
@@ -184,9 +183,16 @@ class InformedHorseshoe(Horseshoe):
         new_shape[factor_dim] = -1
         self._uninformed_scale = torch.as_tensor(self._uninformed_scale).reshape(new_shape)
 
-    def _get_prior_scale(self, name: str, hs_prior_scales: dict[str, torch.Tensor], **kwargs):
+    def _get_prior_scale(
+        self,
+        name: str,
+        factor_plate: pyro.plate,
+        nonfactor_plate: pyro.plate,
+        hs_prior_scales: Mapping[str, torch.Tensor],
+        **kwargs,
+    ):
         try:
-            return hs_prior_scales[name].reshape(self._shapes[name])
+            return self._reshape_tensor_to_batch(hs_prior_scales[name], name, factor_plate, nonfactor_plate)
         except KeyError:
             return self._uninformed_scale
 
@@ -231,11 +237,6 @@ class InformedHorseshoe(Horseshoe):
                     np.broadcast_to(one, n_factors - self._informed_factors_start_idx - self._n_informed_factors),
                 )
             )
-
-        if factor_dim < nonfactor_dim:
-            for name, prior_scale in prior_scales.items():
-                if prior_scale.shape[0] != n_factors:
-                    prior_scales[name] = prior_scale.T
 
         return {"hs_prior_scales": prior_scales}
 

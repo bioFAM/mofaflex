@@ -3,6 +3,7 @@ import logging
 import operator
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import suppress
 from functools import reduce, update_wrapper
 from itertools import chain
 from typing import Any, Literal, NamedTuple
@@ -533,7 +534,8 @@ class MofaFlex(Term):
                     if nonnegative[name]:
                         res.mean[name] = self._pos_transform(res.mean[name])
                     res.mean[name] = res.mean[name].cpu().numpy().T
-                    res.std[name] = res.std[name].cpu().numpy().T
+                    with suppress(KeyError):
+                        res.std[name] = res.std[name].cpu().numpy().T
                 setattr(self, attrname, res)
 
         for prior in self._factor_priors:

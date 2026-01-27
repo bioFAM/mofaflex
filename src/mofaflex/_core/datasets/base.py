@@ -176,6 +176,12 @@ class MofaFlexDataset(Dataset, ABC):
         """Feature names for each view."""
         pass
 
+    def get_names(self, axis: Literal[0, 1, "samples", "features"]) -> dict[str, NDArray[str]]:
+        if axis in (0, "samples"):
+            return self.sample_names
+        else:
+            return self.feature_names
+
     def __len__(self):
         """Length of this dataset."""
         return max(self.n_samples.values())

@@ -1,6 +1,7 @@
 from typing import Literal, TypeAlias
 
 from .base import API, APIType, Prior
+from .constant import Constant
 from .gaussian_process import GaussianProcess
 from .horseshoe import InformedHorseshoe
 from .simple_location_scale import *  # noqa F403

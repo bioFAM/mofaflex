@@ -63,13 +63,11 @@ def checked_baseclass(
 
     def decorate(cls: type):
         subinitcls = cls.__dict__.get("__init_subclass__", None)
-        if subinitcls is not None:
-            subinitcls = subinitcls.__get__(cls, cls)
 
         def init_subclass(subcls, **kwargs):
             super(cls).__init_subclass__(**kwargs)
             if subinitcls is not None:
-                subinitcls(**kwargs)
+                subinitcls.__get__(subcls, subcls)(**kwargs)
             if not isabstract(subcls) and subcls.__name__[0] != "_":
                 init_sig = signature(subcls.__init__)
                 for i, (required_arg, param) in enumerate(

@@ -262,6 +262,42 @@ def test_integration_single_var(anndata_dict, usedask):
         )
 
 
+@pytest.mark.parametrize("n_particles", [1, 5])
+@pytest.mark.parametrize("batch_size", [0, 257])
+def test_integration_constantprior(anndata_dict, tmp_path, n_particles, batch_size):
+    model = terms.MofaFlex(n_factors=5)
+    model.fit(
+        anndata_dict,
+        plot_data_overview=False,
+        max_epochs=2,
+        seed=42,
+        batch_size=batch_size,
+        n_particles=n_particles,
+        save_path=False,
+    )
+
+    factors = model.get_factors()
+    weights = model.get_weights()
+    with chdir(tmp_path):
+        model2 = terms.MofaFlex(
+            n_factors=5, factor_prior=priors.Constant(factors), weight_prior=priors.Constant(weights)
+        )
+        model2.fit(
+            anndata_dict,
+            plot_data_overview=False,
+            max_epochs=2,
+            seed=42,
+            batch_size=batch_size,
+            n_particles=n_particles,
+        )
+    factors2 = model2.get_factors()
+    weights2 = model2.get_weights()
+    for group_name, group_factors in factors.items():
+        assert np.all(group_factors == factors2[group_name])
+    for view_name, view_weights in weights.items():
+        assert np.all(view_weights == weights2[view_name])
+
+
 @pytest.mark.parametrize("usedask", [False, True])
 def test_imputation(rng, anndata_dict, usedask):
     with warnings.catch_warnings():
