@@ -230,7 +230,7 @@ class MOFAFLEX:
     @_check_trained(is_trained=False)
     def fit(
         self,
-        data: MuData | Mapping[str, Mapping[str, AnnData]],
+        data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData,
         *,
         likelihoods: Mapping[str, LikelihoodType | APILikelihood] | LikelihoodType | APILikelihood | None = None,
         group_by: str | Sequence[str] | None = None,
@@ -262,8 +262,8 @@ class MOFAFLEX:
 
             likelihoods: Data likelihoods for each view (if dict) or for all views (if str or Likelihood).
                 Inferred automatically if None.
-            group_by: Columns of `.obs` in :class:`MuData<mudata.MuData>` objects to group data by. Ignored if the input
-                data is not a :class:`MuData<mudata.MuData>` object.
+            group_by: Columns of `.obs` in :class:`MuData<mudata.MuData>` or :class:`AnnData<anndata.AnnData>` objects to group
+                data by. Ignored if the input data is not a :class:`MuData<mudata.MuData>` or :class:`AnnData<anndata.AnnData>` object.
             layer: Which layer to use. If `None`, the `.X` element will be used. If `str`, the same layer will be used for
                 all groups and views. If a dict of strings, the keys must correspond to view names and the values to layers.
                 If a nested dict, different layers can be used for each combination of group and view. The last format is
@@ -478,7 +478,7 @@ class MOFAFLEX:
 
     @_check_trained
     def impute_data(
-        self, data: MuData | Mapping[str, Mapping[str, AnnData]], missing_only=False
+        self, data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData, missing_only=False
     ) -> dict[dict[str, AnnData]]:
         """Impute values in the training data using the trained factorization.
 

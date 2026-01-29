@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning][].
 ### Added
 - Support for multiple additive terms.
 - Constant pseudo-prior. When used for weights, this can be used to project new data into an already existing latent space.
+- Single AnnData objects can now be used as input data. MOFA-FLEX will assume exactly one view for this type of input.
 
 ### Changed
 - The `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does.

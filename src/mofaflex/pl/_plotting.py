@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING, Literal
@@ -66,7 +66,7 @@ def factors_scatter(
     groups: str | Sequence[str] | None = None,
     color: str | None = None,
     shape: str | None = None,
-    data: MuData | dict[str, dict[str, AnnData]] | None = None,
+    data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData | None = None,
     size: float = 2,
     alpha: float = 1,
     figsize: tuple[float, float] | None = None,
@@ -149,7 +149,7 @@ def covariates_factor_scatter(
     covariate_dims: int | str | Sequence[int] | Sequence[str] | None = None,
     color: int | str | None = None,
     shape: str | None = None,
-    data: MuData | dict[str, dict[str, AnnData]] | None = None,
+    data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData | None = None,
     size: float = 1,
     alpha: float = 1,
     figsize: tuple[float, float] = (6, 6),
@@ -306,8 +306,8 @@ def factor_correlation(model: types.MofaFlex | MOFAFLEX, figsize: tuple[float, f
 
 
 def overview(
-    data: dict[str, dict[str, AnnData]] | MuData | MofaFlexDataset,
-    group_by: str | list[str] | None = None,
+    data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData | MofaFlexDataset,
+    group_by: str | Sequence[str] | None = None,
     missingcolor: str = "#214D83",
     nonmissingcolor: str = "#8AB6D4",
     figsize: tuple[float, float] = (15, 5),
@@ -319,8 +319,8 @@ def overview(
     Args:
         data: A nested dictionary where the first level keys are group names,
             and the second level keys are view names. The values are AnnData objects.
-        group_by: Columns of `.obs` in :class:`MuData<mudata.MuData>` objects to group data by.
-            Ignored if the input data is not a :class:`MuData<mudata.MuData>` object.
+        group_by: Columns of `.obs` in :class:`MuData<mudata.MuData>` or :class:`AnnData<anndata.AnnData>` objects to group data by.
+            Ignored if the input data is not a :class:`MuData<mudata.MuData>` or :class:`AnnData<anndata.AnnData>` object.
         missingcolor: The color to use for missing data.
         nonmissingcolor: The color to use for non-missing data.
         figsize: Figure size in inches.

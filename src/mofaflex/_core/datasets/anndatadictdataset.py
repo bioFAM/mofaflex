@@ -369,7 +369,7 @@ class AnnDataDictDataset(MofaFlexDataset):
                 if sparse.issparse(view.X):
                     viewmissing = view.X.copy()
                     viewmissing.data = np.isnan(viewmissing.data)
-                    viewmissing = ~(np.asarray(viewmissing.sum(axis=1)).squeeze() == 0)
+                    viewmissing = np.asarray(viewmissing.sum(axis=1)).squeeze() == viewmissing.shape[1]
                 else:
                     viewmissing = np.isnan(view.X).all(axis=1)
                 viewmissing = self.align_local_array_to_global(
@@ -460,18 +460,17 @@ class AnnDataDictDataset(MofaFlexDataset):
         if not havedask and settings.use_dask:
             warn_dask(_logger)
 
-        view = self._data[group_name].get(view_name)
-        if view is not None:
-            gobsmap = self._obsmap[group_name]
-            gvarmap = self._varmap[group_name]
-            vobsmap = gobsmap.get(view_name)
-            vvarmap = gvarmap.get(view_name)
-            if vobsmap is not None or vvarmap is not None:
-                if havedask and settings.use_dask:
-                    view = anndata_to_dask(view)
-                obsidx = slice(None) if vobsmap is None else vobsmap.g2d >= 0
-                varidx = slice(None) if vvarmap is None else vvarmap.g2d >= 0
-                view = view[obsidx, varidx]
+        view = self._data[group_name][view_name]
+        gobsmap = self._obsmap[group_name]
+        gvarmap = self._varmap[group_name]
+        vobsmap = gobsmap.get(view_name)
+        vvarmap = gvarmap.get(view_name)
+        if vobsmap is not None or vvarmap is not None:
+            if havedask and settings.use_dask:
+                view = anndata_to_dask(view)
+            obsidx = slice(None) if vobsmap is None else vobsmap.g2d >= 0
+            varidx = slice(None) if vvarmap is None else vvarmap.g2d >= 0
+            view = view[obsidx, varidx]
 
         return view
 
@@ -481,9 +480,8 @@ class AnnDataDictDataset(MofaFlexDataset):
         ret = {}
         for group_name in self.group_names:
             view = self._view_for_apply(group_name, view_name)
-            if view is not None:
-                cret = func(view, group_name, **kwargs, **gkwargs[group_name])
-                ret[group_name] = apply_to_nested(cret, from_dask)
+            cret = func(view, group_name, **kwargs, **gkwargs[group_name])
+            ret[group_name] = apply_to_nested(cret, from_dask)
         return ret
 
     def _apply_to_group(
@@ -492,16 +490,15 @@ class AnnDataDictDataset(MofaFlexDataset):
         ret = {}
         for view_name in self.view_names:
             view = self._view_for_apply(group_name, view_name)
-            if view is not None:
-                cret = func(view, view_name, **kwargs, **vkwargs[view_name])
-                ret[group_name] = apply_to_nested(cret, from_dask)
+            cret = func(view, view_name, **kwargs, **vkwargs[view_name])
+            ret[group_name] = apply_to_nested(cret, from_dask)
         return ret
 
     def _apply_by_group_view(
         self,
         func: ApplyCallable[T],
         group_names: Sequence[str],
-        view_names: Sequence[str] | None,
+        view_names: Sequence[str],
         gvkwargs: Mapping[str, Mapping[str, Mapping[str, Any]]],
         **kwargs,
     ) -> dict[str, dict[str, T]]:
@@ -513,9 +510,8 @@ class AnnDataDictDataset(MofaFlexDataset):
             cret = {}
             for view_name in view_names:
                 view = self._view_for_apply(group_name, view_name)
-                if view is not None:
-                    ccret = func(view, group_name, view_name, **kwargs, **gvkwargs[group_name][view_name])
-                    cret[view_name] = apply_to_nested(ccret, from_dask)
+                ccret = func(view, group_name, view_name, **kwargs, **gvkwargs[group_name][view_name])
+                cret[view_name] = apply_to_nested(ccret, from_dask)
             ret[group_name] = cret
         return ret
 

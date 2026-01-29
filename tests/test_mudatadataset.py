@@ -364,7 +364,6 @@ def test_get_covariates_from_key(mdata, dataset, subset_var, axis):
             names = getattr(dataset, dsetnamesattr)[dict_key[0]]
             if modname != "view_2":
                 view = subdata.mod[modname][:, get_varnames(subdata, modname, subset_var)]
-                covar = getattr(view, attr)["covar"].to_numpy()
                 globalidx = np.isin(names, getattr(view, namesattr))
                 localidx = getattr(view, namesattr).get_indexer(names)
                 localidx = localidx[localidx >= 0]
@@ -400,10 +399,6 @@ def test_get_covariates_from_keym(mdata, dataset, subset_var, axis, mkey, type):
             ccovars = covars[dict_key[0]][dict_key[1]]
             if modname != "view_2":
                 view = subdata.mod[modname]
-                covar = getattr(view, attrm)[mkey]
-                if type == "df":
-                    assert np.all(ccovars.columns == getattr(view, attrm)[mkey].columns)
-                    covar = covar.to_numpy()
 
                 globalidx = np.isin(names, getattr(view, namesattr))
                 localidx = getattr(view, namesattr).get_indexer(names)

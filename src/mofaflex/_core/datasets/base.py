@@ -498,6 +498,8 @@ class MofaFlexDataset(Dataset, ABC):
         Returns:
             dict with the return value of `func` for each group.
         """
+        if view_name not in self.view_names:
+            raise ValueError(f"Unknown view {view_name}.")
         if group_kwargs is None:
             group_kwargs = {}
 
@@ -535,6 +537,8 @@ class MofaFlexDataset(Dataset, ABC):
         Returns:
             dict with the return value of `func` for each view.
         """
+        if group_name not in self.group_names:
+            raise ValueError(f"Unknown group {group_name}.")
         if view_kwargs is None:
             view_kwargs = {}
 
