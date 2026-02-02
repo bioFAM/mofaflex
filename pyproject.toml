@@ -11,9 +11,9 @@ maintainers = [
   { name = "Ilia Kats", email = "i.kats@dkfz.de" },
 ]
 authors = [
-  { name = "Ilia Kats", email = "i.kats@dkfz.de" },
   { name = "Arber Qoku", email = "arber.qoku@dkfz.de" },
   { name = "Florin Walter", email = "florin.walter@dkfz.de" },
+  { name = "Ilia Kats", email = "i.kats@dkfz.de" },
   { name = "Martin Rohbeck", email = "martin.rohbeck@dkfz.de" },
 ]
 requires-python = ">=3.11"
@@ -80,12 +80,6 @@ doc = [
 [tool.hatch.build.hooks.vcs]
 version-file = "src/mofaflex/_version.py"
 
-[tool.hatch.version]
-source = "vcs"
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
 [tool.hatch.envs.default]
 installer = "uv"
 dependency-groups = [ "dev" ]
@@ -95,6 +89,9 @@ dependency-groups = [ "doc" ]
 scripts.build = "sphinx-build -M html docs docs/_build {args}"
 scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
 scripts.clean = "git clean -fdX -- {args:docs}"
+
+[tool.hatch.envs.hatch-test]
+dependency-groups = [ "dev", "test" ]
 
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
@@ -106,15 +103,18 @@ python = [ "3.11", "3.14" ]
 deps = [ "pre" ]
 python = [ "3.14" ]
 
-[tool.hatch.envs.hatch-test]
-dependency-groups = [ "dev", "test" ]
-
 [tool.hatch.envs.hatch-test.overrides]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
 matrix.deps.env-vars = [
   { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.ruff]
 line-length = 120
