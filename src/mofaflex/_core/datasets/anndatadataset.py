@@ -251,7 +251,9 @@ class AnnDataDataset(MofaFlexDataset):
             if ckey is None and cmkey is None:
                 continue
             if ckey and cmkey:
-                raise ValueError(f"Provide either key or mkey for {outer_msg} {outer_key}, not both.")
+                raise ValueError(
+                    f"Provide either key or mkey for {outer_msg} {outer_key}, got key='{ckey}', mkey='{cmkey}'."
+                )
 
             if ckey is not None:
                 if ckey in getattr(subdata, attr).columns:

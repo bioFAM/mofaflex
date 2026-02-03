@@ -423,7 +423,9 @@ class AnnDataDictDataset(MofaFlexDataset):
                 if ckey is None and cmkey is None:
                     continue
                 if ckey and cmkey:
-                    raise ValueError(f"Provide either key or mkey for {outer_msg} {outer_key}, not both.")
+                    raise ValueError(
+                        f"Provide either key or mkey for {outer_msg} {outer_key}, got key='{ckey}', mkey='{cmkey}'."
+                    )
 
                 if ckey is not None and ckey in getattr(view, attr).columns:
                     covariates[outer_key][inner_key] = align_dataframe(
