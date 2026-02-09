@@ -281,8 +281,9 @@ class DataGenerator:
 
             fraction_active_features = {
                 "Gamma": (
-                    lambda shape, scale, n_features=n_features: (rng.gamma(shape, scale, self.n_factors) + 20)
-                    / n_features
+                    lambda shape, scale, n_features=n_features: (
+                        (rng.gamma(shape, scale, self.n_factors) + 20) / n_features
+                    )
                 ),
                 "Uniform": lambda low, high, n_features=n_features: rng.uniform(low, high, self.n_factors),
             }[self.factor_size_dist](self.factor_size_params[m][0], self.factor_size_params[m][1])
