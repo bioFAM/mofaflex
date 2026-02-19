@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import pandas as pd
 import plotnine as p9
+from plotnine import composition
 from anndata import AnnData
 from mizani import bounds
 from mizani.palettes import brewer_pal
@@ -1073,7 +1074,7 @@ def _prepare_weights_df(
                     x.factor, categories=model.factor_names
                 ).remove_unused_categories(),  # need categorical for proper ordering of factors in the plot, need to remove unused categories due to https://github.com/has2k1/plotnine/issues/930
                 inferred=lambda x: ~x.annotation & x.weightabs > 0,
-            )
+            ).assign(inferred=lambda x: pd.Categorical(x.inferred))
         )
 
     df = pd.concat(df, axis=0, ignore_index=False)
@@ -1085,6 +1086,30 @@ _weights_inferred_color_scale = p9.scale_color_manual(
 )
 
 
+class _TopWeightsWrap(p9.composition.Wrap):
+    # For top_weights, we want to simulate facet_wrap as much as possible. That entails
+    # using plot_caption for the single X axis label. But plot_caption is a different
+    # themeable and there is no way to link two themeables together, so we overwrite
+    # the property at the point when the theme is used for drawing. Note that we can't
+    # simply use size=theme_get().getp(("axis_title_x", "size")) in top_weights itself
+    # since the user may modify the plot's theme after calling top_weights.'
+    @property
+    def theme(self):
+        th = super().theme
+        th.themeables["plot_caption"] = th.themeables["axis_title_x"]
+        return th
+
+    @theme.setter
+    def theme(self, value):
+        super(self.__class__, self.__class__).theme.fset(self, value)
+
+    def __add__(self, rhs):
+        if not isinstance(rhs, (p9.ggplot, p9.composition.Compose)):
+            return super().__add__(rhs)
+
+        return self.__class__([*self, rhs]) + self.layout + self.annotation
+
+
 def top_weights(
     model: types.terms.MofaFlex | MOFAFLEX,
     n_features: int = 10,
@@ -1093,7 +1118,7 @@ def top_weights(
     figsize: tuple[int, int] = (5, 5),
     nrow: int | None = None,
     ncol: int | None = None,
-) -> p9.ggplot:
+) -> p9.composition.Compose:
     """Plot the top weights for a given factor and view.
 
     Args:
@@ -1119,26 +1144,32 @@ def top_weights(
         and (df.groupby("factor", observed=True)["feature"].aggregate(lambda x: x.duplicated().sum()) > 0).any()
     ):
         df = df.assign(feature=lambda x: x.feature.str + "_" + x.view.str)
-    df = df.assign(feature=lambda x: pd.Categorical(x.feature, categories=x.feature.unique()))
 
     aes_kwargs = {}
     if have_annot:
         aes_kwargs["color"] = "inferred"
 
-    plot = (
-        p9.ggplot(df, p9.aes("weightabs", "feature", xend=0, yend="feature", shape="weightsgn", **aes_kwargs))
-        + p9.geom_segment()
-        + p9.geom_point(size=5, stroke=0)
-        + p9.scale_shape_manual(values=("$\\oplus$", "$\\ominus$"), breaks=(True, False), guide=None)
-        + _weights_inferred_color_scale
-        + p9.scale_x_continuous(expand=(0, 0, 0.05, 0))
-        + p9.labs(x="| Weight |", y="", color="")
-        + p9.theme(figure_size=figsize, **_no_axis_ticks_y)
+    plots = []
+    for _, subdf in df.groupby("factor", observed=True):
+        subdf = subdf.assign(feature=lambda x: pd.Categorical(x.feature, categories=x.feature.unique()))
+        plots.append(
+            p9.ggplot(subdf, p9.aes("weightabs", "feature", xend=0, yend="feature", shape="weightsgn", **aes_kwargs))
+            + p9.geom_segment()
+            + p9.geom_point(size=5, stroke=0)
+            + p9.scale_shape_manual(values=("$\\oplus$", "$\\ominus$"), breaks=(True, False), guide=None)
+            + _weights_inferred_color_scale
+            + p9.scale_x_continuous(expand=(0, 0, 0.05, 0), name="")
+            + p9.labs(y="", color="")
+            + p9.facet_wrap("factor")
+        )
+    composition = _TopWeightsWrap(plots) + p9.composition.plot_layout(
+        nrow=nrow, ncol=ncol, guides="collect"
     )
+    composition.layout._setup(composition)
+    if len(composition) % composition.layout.ncol > 0:
+        composition += p9.composition.guide_area()
 
-    plot += p9.facet_wrap("factor", scales="free", nrow=nrow, ncol=ncol)
-
-    return plot
+    return composition + p9.composition.plot_annotation(caption="| Weight|") & p9.theme(figure_size=figsize, **_no_axis_ticks_y)
 
 
 def weights(

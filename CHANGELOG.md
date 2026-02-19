@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning][].
 - The Gaussian process prior can now also be used for weights.
 - The spike and slab prior now has option to make the background distribution a Gaussian.
 - Training with sparse inputs and minibatching is about 1.5 times faster.
+- The `pl.top_weights` function now correctly sorts the features in each plot when plotting multiple factors. This is possible
+  thanks to new functionality in plotnine 0.16.
 
 ### Removed
 - The MOFA compatibility mode for saving a trained model.
