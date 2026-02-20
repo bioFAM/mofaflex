@@ -1085,30 +1085,6 @@ _weights_inferred_color_scale = p9.scale_color_manual(
 )
 
 
-class _TopWeightsWrap(p9.composition.Wrap):
-    # For top_weights, we want to simulate facet_wrap as much as possible. That entails
-    # using plot_caption for the single X axis label. But plot_caption is a different
-    # themeable and there is no way to link two themeables together, so we overwrite
-    # the property at the point when the theme is used for drawing. Note that we can't
-    # simply use size=theme_get().getp(("axis_title_x", "size")) in top_weights itself
-    # since the user may modify the plot's theme after calling top_weights.'
-    @property
-    def theme(self):
-        th = super().theme
-        th.themeables["plot_caption"] = th.themeables["axis_title_x"]
-        return th
-
-    @theme.setter
-    def theme(self, value):
-        super(self.__class__, self.__class__).theme.fset(self, value)
-
-    def __add__(self, rhs):
-        if not isinstance(rhs, (p9.ggplot, p9.composition.Compose)):
-            return super().__add__(rhs)
-
-        return self.__class__([*self, rhs]) + self.layout + self.annotation
-
-
 def top_weights(
     model: types.terms.MofaFlex | MOFAFLEX,
     n_features: int = 10,
@@ -1157,18 +1133,21 @@ def top_weights(
             + p9.geom_point(size=5, stroke=0)
             + p9.scale_shape_manual(values=("$\\oplus$", "$\\ominus$"), breaks=(True, False), guide=None)
             + _weights_inferred_color_scale
-            + p9.scale_x_continuous(expand=(0, 0, 0.05, 0), name="")
-            + p9.labs(y="", color="")
+            + p9.scale_x_continuous(expand=(0, 0, 0.05, 0))
+            + p9.labs(x="", y="", color="")
             + p9.facet_wrap("factor")
         )
-    composition = _TopWeightsWrap(plots) + p9.composition.plot_layout(nrow=nrow, ncol=ncol, guides="collect")
+    composition = p9.composition.Wrap(plots) + p9.composition.plot_layout(nrow=nrow, ncol=ncol, guides="collect") & p9.theme(
+        figure_size=figsize, **_no_axis_ticks_y
+    )
     composition.layout._setup(composition)  # calculates ncol and nrow
     if len(composition) % composition.layout.ncol > 0:
         composition += p9.composition.guide_area()
 
-    return composition + p9.composition.plot_annotation(caption="| Weight|") & p9.theme(
-        figure_size=figsize, **_no_axis_ticks_y
-    )
+    for i in range(len(composition) - composition.ncol, len(composition)):
+        composition[i] += p9.labs(x="| Weight |")
+
+    return composition
 
 
 def weights(
@@ -1266,9 +1245,7 @@ def weights(
             figsize = (3 * len(factors), 3 * len(views))
     else:
         composition = (
-            _TopWeightsWrap(plots)
-            + p9.composition.plot_layout(nrow=nrow, ncol=ncol, guides="collect")
-            + p9.composition.plot_annotation(caption="Rank")
+            p9.composition.Wrap(plots) + p9.composition.plot_layout(nrow=nrow, ncol=ncol, guides="collect")
             & p9.facet_wrap(["view", "factor"])
             & p9.labs(x="", y="", color="")
         )
@@ -1282,6 +1259,8 @@ def weights(
 
         for i in range(0, len(composition), composition.ncol):
             composition[i] += p9.labs(y="Weight")
+        for i in range(len(composition) - composition.ncol, len(composition)):
+            composition[i] += p9.labs(x="Rank")
 
     if p9.options.limitsize:
         figsize = (min(figsize[0], 25), min(figsize[1], 25))
