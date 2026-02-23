@@ -9,13 +9,13 @@ import torch
 from pyro import distributions as dist
 from pyro.nn import PyroModule, PyroParam, PyroSample, pyro_method
 
-from ...utils import MeanStd, _PyroMeta, checked_baseclass
+from ...utils import MeanStd, PyroMeta, checked_baseclass
 
 
 @checked_baseclass(
     required_init_args=("view_name", "sample_dim", "feature_dim", "nsamples", "nfeatures"), registry="dict"
 )
-class Likelihood(ABC, PyroModule, metaclass=_PyroMeta):
+class Likelihood(ABC, PyroModule, metaclass=PyroMeta):
     """Base class for MOFA-FLEX likelihoods used in the Pyro model.
 
     Subclasses must implement `_model`, which returns a Pyro distribution object to be used as likelihood,

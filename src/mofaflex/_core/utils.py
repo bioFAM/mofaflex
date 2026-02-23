@@ -4,13 +4,14 @@ import os
 from abc import ABC
 from collections import namedtuple
 from collections.abc import Iterable, Mapping, Sequence
-from contextlib import suppress
+from contextlib import ExitStack, contextmanager, suppress
 from inspect import isabstract, signature
 from io import BytesIO
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 import numpy as np
+import pyro
 import torch
 from numpy.typing import NDArray
 from pyro.nn import PyroModule
@@ -44,7 +45,7 @@ PyroModuleDict = PyroModule[torch.nn.ModuleDict]
 
 
 # https://stackoverflow.com/a/61350480
-class _PyroMeta(type(ABC), type(PyroModule)):
+class PyroMeta(type(ABC), type(PyroModule)):
     pass
 
 
@@ -229,6 +230,20 @@ class SaveStateMixin:
             **kwargs: Additional, class-specific, arguments.
         """
         pass
+
+
+@contextmanager
+def change_pyro_plate_dim(plate: pyro.plate | Iterable[pyro.plate], new_dim: int):
+    if isinstance(plate, pyro.plate):
+        old_dim = plate.dim
+        plate.dim = new_dim
+        yield plate
+        plate.dim = old_dim
+    else:
+        with ExitStack() as stack:
+            for plate_ in plate:
+                stack.enter_context(change_pyro_plate_dim(plate_, new_dim))
+            yield plate
 
 
 def building_docs() -> bool:

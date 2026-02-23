@@ -22,10 +22,8 @@ from .base import Prior
 class Horseshoe(Prior):
     """Horseshoe sparsity-inducing prior."""
 
-    def _on_train_start(
+    def on_train_start(
         self,
-        factor_dim: int,
-        nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
         init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
@@ -48,34 +46,30 @@ class Horseshoe(Prior):
         self._caux_scales = PyroParameterDict()
         self._scales = PyroParameterDict()
 
-        ndims = abs(min(factor_dim, nonfactor_dim))
-        inter_scale_shape = [1] * ndims
-        inter_scale_shape[factor_dim] = n_factors
-
         for name in self._names:
             self._global_scale_locs[name] = PyroParam(torch.full((1,), init_loc))
             self._global_scale_scales[name] = PyroParam(
                 torch.full((1,), init_scale), constraint=constraints.softplus_positive
             )
-            self._inter_scale_locs[name] = PyroParam(torch.full(inter_scale_shape, init_loc))
+            self._inter_scale_locs[name] = PyroParam(torch.full((1, n_factors), init_loc))
             self._inter_scale_scales[name] = PyroParam(
-                torch.full(inter_scale_shape, init_scale), constraint=constraints.softplus_positive
+                torch.full((1, n_factors), init_scale), constraint=constraints.softplus_positive
             )
-            self._local_scale_locs[name] = PyroParam(torch.full(self._shapes[name], init_loc))
+            self._local_scale_locs[name] = PyroParam(torch.full((n_nonfactors[name], n_factors), init_loc))
             self._local_scale_scales[name] = PyroParam(
-                torch.full(self._shapes[name], init_scale), constraint=constraints.softplus_positive
+                torch.full((n_nonfactors[name], n_factors), init_scale), constraint=constraints.softplus_positive
             )
-            self._caux_locs[name] = PyroParam(torch.full(self._shapes[name], init_loc))
+            self._caux_locs[name] = PyroParam(torch.full((n_nonfactors[name], n_factors), init_loc))
             self._caux_scales[name] = PyroParam(
-                torch.full(self._shapes[name], init_scale), constraint=constraints.softplus_positive
+                torch.full((n_nonfactors[name], n_factors), init_scale), constraint=constraints.softplus_positive
             )
 
             if init_tensor is not None:
                 loc = init_tensor[name]["loc"]
                 scale = init_tensor[name]["scale"]
             else:
-                loc = torch.full(self._shapes[name], init_loc)
-                scale = torch.full(self._shapes[name], init_scale)
+                loc = torch.full((n_nonfactors[name], n_factors), init_loc)
+                scale = torch.full((n_nonfactors[name], n_factors), init_scale)
             self._locs[name] = PyroParam(loc)
             self._scales[name] = PyroParam(scale, constraint=constraints.softplus_positive)
 
@@ -137,8 +131,8 @@ class Horseshoe(Prior):
     def posterior(self) -> MeanStd:
         posteriors = MeanStd({}, {})
         for name in self._names:
-            posteriors.mean[name] = self._locs[name].squeeze(self._squeezedims)
-            posteriors.std[name] = self._scales[name].squeeze(self._squeezedims)
+            posteriors.mean[name] = self._locs[name]
+            posteriors.std[name] = self._scales[name]
         return posteriors
 
 
@@ -169,19 +163,14 @@ class InformedHorseshoe(Horseshoe):
         self._annotations_varm_key = annotations_varm_key
         self._annotation_confidence = annotation_confidence
 
-    def _on_train_start(
+    def on_train_start(
         self,
-        factor_dim: int,
-        nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
         init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
     ):
-        super()._on_train_start(factor_dim, nonfactor_dim, n_factors, n_nonfactors, init_tensor)
-
-        new_shape = [1] * abs(min(factor_dim, nonfactor_dim))
-        new_shape[factor_dim] = -1
-        self._uninformed_scale = torch.as_tensor(self._uninformed_scale).reshape(new_shape)
+        super().on_train_start(n_factors, n_nonfactors, init_tensor)
+        self._uninformed_scale = torch.as_tensor(self._uninformed_scale)[None, :]
 
     def _get_prior_scale(
         self,
@@ -192,18 +181,12 @@ class InformedHorseshoe(Horseshoe):
         **kwargs,
     ):
         try:
-            return self._reshape_tensor_to_batch(hs_prior_scales[name], name, factor_plate, nonfactor_plate)
+            return hs_prior_scales[name]
         except KeyError:
             return self._uninformed_scale
 
     def get_datasets(
-        self,
-        data: MofaFlexDataset,
-        axis: Literal[0, 1],
-        factor_dim: int,
-        nonfactor_dim: int,
-        n_factors: int,
-        n_nonfactors: Mapping[str, int],
+        self, data: MofaFlexDataset, axis: Literal[0, 1], n_factors: int, n_nonfactors: Mapping[str, int]
     ) -> dict[str, dict[str, np.ndarray]]:
         self._uninformed_scale = data.cast_to(1 - self._annotation_confidence)
         prior_scales = {

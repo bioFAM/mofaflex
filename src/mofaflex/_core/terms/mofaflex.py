@@ -26,7 +26,14 @@ from ..api import priors as apipriors
 from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset, merge_covariates
 from ..likelihoods.pyro import Likelihood
 from ..priors import API, APIType, FactorPriorType, Prior, WeightPriorType
-from ..utils import MeanStd, PyroModuleDict, PyroParameterDict, building_docs, default_torch_device
+from ..utils import (
+    MeanStd,
+    PyroModuleDict,
+    PyroParameterDict,
+    building_docs,
+    change_pyro_plate_dim,
+    default_torch_device,
+)
 from .base import Term
 
 _logger = logging.getLogger(__name__)
@@ -357,7 +364,6 @@ class MofaFlex(Term):
     ) -> dict[str, CovariatesDataset]:
         self._sample_plate_dim = sample_plate_dim
         self._feature_plate_dim = feature_plate_dim
-        self._factor_plate_dim = min(sample_plate_dim, feature_plate_dim) - 1
         self._init(data)
 
         ret = defaultdict(dict)
@@ -366,9 +372,7 @@ class MofaFlex(Term):
                 self._factor_names = prior.adjust_factors(data, axis, self._factor_names)
 
         for prior in self._factor_priors:
-            if priordsets := prior.get_datasets(
-                data, 0, self._factor_plate_dim, sample_plate_dim, self.n_total_factors, data.n_samples
-            ):
+            if priordsets := prior.get_datasets(data, 0, self.n_total_factors, data.n_samples):
                 for dsetname, dset in priordsets.items():
                     ret[dsetname].update(dset)  # handle multiple priors of the same class with different settings
         for dsetname, dset in ret.items():
@@ -376,9 +380,7 @@ class MofaFlex(Term):
 
         self._weight_dsets = defaultdict(dict)
         for prior in self._weight_priors:
-            if priordsets := prior.get_datasets(
-                data, 1, self._factor_plate_dim, feature_plate_dim, self.n_total_factors, data.n_features
-            ):
+            if priordsets := prior.get_datasets(data, 1, self.n_total_factors, data.n_features):
                 for dsetname, dset in priordsets.items():
                     self._weight_dsets[dsetname].update(dset)
 
@@ -429,10 +431,10 @@ class MofaFlex(Term):
             for group_name, n in data.n_samples.items():
                 init_tensor[group_name]["loc"] = np.full(
                     shape=(n, self.n_total_factors), fill_value=self._init_factors, dtype=np.float32
-                ).T[..., None]
+                )
                 init_tensor[group_name]["scale"] = np.full(
                     shape=(n, self.n_total_factors), fill_value=self._init_scale, dtype=np.float32
-                ).T[..., None]
+                )
             return init_tensor
         match self._init_factors:
             case "random":
@@ -470,10 +472,10 @@ class MofaFlex(Term):
                 q = 2.0 * (q - np.min(q)) / (np.max(q) - np.min(q)) - 1
 
             # Add artifical dimension at dimension -2 for broadcasting
-            init_tensor[group_name]["loc"] = q.T[..., None].astype(np.float32, copy=False)
+            init_tensor[group_name]["loc"] = q.astype(np.float32, copy=False)
             init_tensor[group_name]["scale"] = np.full(
                 shape=(n, self.n_total_factors), fill_value=self._init_scale, dtype=np.float32
-            ).T[..., None]
+            )
 
         return init_tensor
 
@@ -496,11 +498,9 @@ class MofaFlex(Term):
             factors_init_tensor = None
 
         for prior in self._factor_priors:
-            prior.on_train_start(
-                self._factor_plate_dim, sample_plate_dim, self.n_total_factors, data.n_samples, factors_init_tensor
-            )
+            prior.on_train_start(self.n_total_factors, data.n_samples, factors_init_tensor)
         for prior in self._weight_priors:
-            prior.on_train_start(self._factor_plate_dim, feature_plate_dim, self.n_total_factors, data.n_features)
+            prior.on_train_start(self.n_total_factors, data.n_features)
 
         for dsets in self._weight_dsets.values():
             for view_name, dset in dsets.items():
@@ -533,9 +533,9 @@ class MofaFlex(Term):
                 for name in names:
                     if nonnegative[name]:
                         res.mean[name] = self._pos_transform(res.mean[name])
-                    res.mean[name] = res.mean[name].cpu().numpy().T
+                    res.mean[name] = res.mean[name].cpu().numpy()
                     with suppress(KeyError):
-                        res.std[name] = res.std[name].cpu().numpy().T
+                        res.std[name] = res.std[name].cpu().numpy()
                 setattr(self, attrname, res)
 
         for prior in self._factor_priors:
@@ -566,7 +566,7 @@ class MofaFlex(Term):
         else:
             guiding_var_plate = guiding_var_coefficients_plate = guiding_var_categories_plates = None
 
-        factors_plate = pyro.plate(f"{id}_plate_factors", self.n_total_factors, dim=-3)
+        factors_plate = pyro.plate(f"{id}_plate_factors", self.n_total_factors, dim=-1)
 
         return guiding_var_plate, guiding_var_coefficients_plate, guiding_var_categories_plates, factors_plate
 
@@ -577,9 +577,7 @@ class MofaFlex(Term):
         with guiding_var_categories_plates[guiding_var_name], guiding_var_coefficients_plate:
             return pyro.sample(
                 f"{id}_guiding_vars_w_{guiding_var_name}",
-                dist.Normal(
-                    torch.zeros(weights_dim, 2), torch.ones(weights_dim, 2)
-                ),  # .to_event(2)  # (categories, intercept & slope)
+                dist.Normal(torch.zeros(weights_dim, 2), torch.ones(weights_dim, 2)),  # (categories, intercept & slope)
             )
 
     def _guide_guiding_vars_weights_normal(
@@ -607,16 +605,18 @@ class MofaFlex(Term):
         )
 
         factors = {}
-        for i, prior in enumerate(self._factor_priors):
-            factors.update(prior.model(f"{id}_factor_{i}", factor_plate, sample_plates, **kwargs))
+        with change_pyro_plate_dim(sample_plates.values(), -2):
+            for i, prior in enumerate(self._factor_priors):
+                factors.update(prior.model(f"{id}_factor_{i}", factor_plate, sample_plates, **kwargs))
 
         for group_name, group_factors in factors.items():
             if self._nonnegative_factors[group_name]:
                 factors[group_name] = self._pos_transform(group_factors)
 
         weights = {}
-        for i, prior in enumerate(self._weight_priors):
-            weights.update(prior.model(f"{id}_weight_{i}", factor_plate, feature_plates, **self._weight_dsets))
+        with change_pyro_plate_dim(feature_plates.values(), -2):
+            for i, prior in enumerate(self._weight_priors):
+                weights.update(prior.model(f"{id}_weight_{i}", factor_plate, feature_plates, **self._weight_dsets))
 
         for view_name, view_weights in weights.items():
             if self._nonnegative_weights[view_name]:
@@ -630,9 +630,9 @@ class MofaFlex(Term):
                 vnonmissing_features = gnonmissing_features[view_name]
 
                 z = factors[group_name][..., vnonmissing_samples, :]
-                w = weights[view_name][..., vnonmissing_features]
+                w = weights[view_name][..., vnonmissing_features, :]
 
-                gestimates[view_name] = torch.einsum("...ijk,...ikl->...kjl", z, w)
+                gestimates[view_name] = z @ w.mT
             estimates[group_name] = gestimates
 
         for guiding_var_name, guiding_var_factor_idx in zip(
@@ -643,12 +643,10 @@ class MofaFlex(Term):
             )
 
             for group_name, guiding_var in guiding_vars[guiding_var_name].items():
-                z_guiding = factors[group_name].select(factor_plate.dim, guiding_var_factor_idx)
+                z_guiding = factors[group_name][..., :, guiding_var_factor_idx, None]
 
                 # (1, n_cats) + (1, n_cats) * (n_samples, 1)
-                loc = (
-                    torch.atleast_2d(w_guiding[..., 0]) + torch.atleast_2d(w_guiding[..., 1]) * z_guiding
-                )  # (n_samples, n_cats)
+                loc = w_guiding[..., None, :, 0] + w_guiding[..., None, :, 1] * z_guiding  # (n_samples, n_cats)
 
                 if self._guiding_vars_n_categories[guiding_var_name] > 0:
                     loc = loc.unsqueeze(
@@ -683,11 +681,13 @@ class MofaFlex(Term):
             self._get_plates(id)
         )
 
-        for i, prior in enumerate(self._factor_priors):
-            prior.guide(f"{id}_factor_{i}", factor_plate, sample_plates, **kwargs)
+        with change_pyro_plate_dim(sample_plates.values(), -2):
+            for i, prior in enumerate(self._factor_priors):
+                prior.guide(f"{id}_factor_{i}", factor_plate, sample_plates, **kwargs)
 
-        for i, prior in enumerate(self._weight_priors):
-            prior.guide(f"{id}_weight_{i}", factor_plate, feature_plates, **self._weight_dsets)
+        with change_pyro_plate_dim(feature_plates.values(), -2):
+            for i, prior in enumerate(self._weight_priors):
+                prior.guide(f"{id}_weight_{i}", factor_plate, feature_plates, **self._weight_dsets)
 
         if self.n_guided_factors > 0:
             for guiding_var_name, guiding_var in guiding_vars.items():

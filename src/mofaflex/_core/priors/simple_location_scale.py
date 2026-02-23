@@ -17,10 +17,8 @@ class _SimpleLocationScale(Prior):
 
         self._prior_dist = prior_dist
 
-    def _on_train_start(
+    def on_train_start(
         self,
-        factor_dim: int,
-        nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
         init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
@@ -36,8 +34,8 @@ class _SimpleLocationScale(Prior):
                 loc = init_tensor[name]["loc"]
                 scale = init_tensor[name]["scale"]
             else:
-                loc = torch.full(self._shapes[name], init_loc)
-                scale = torch.full(self._shapes[name], init_scale)
+                loc = torch.full((n_nonfactors[name], n_factors), init_loc)
+                scale = torch.full((n_nonfactors[name], n_factors), init_scale)
             self._locs[name] = PyroParam(loc)
             self._scales[name] = PyroParam(scale, constraint=constraints.softplus_positive)
 
@@ -52,19 +50,15 @@ class _SimpleLocationScale(Prior):
     ) -> torch.Tensor:
         with factor_plate, nonfactor_plate as index:
             return pyro.sample(
-                f"{id}_z_{name}",
-                pyro.distributions.Normal(
-                    self._locs[name].index_select(nonfactor_plate.dim, index),
-                    self._scales[name].index_select(nonfactor_plate.dim, index),
-                ),
+                f"{id}_z_{name}", pyro.distributions.Normal(self._locs[name][index, :], self._scales[name][index, :])
             )
 
     @property
     def posterior(self) -> MeanStd:
         posteriors = MeanStd({}, {})
         for name in self._names:
-            posteriors.mean[name] = self._locs[name].squeeze(self._squeezedims)
-            posteriors.std[name] = self._scales[name].squeeze(self._squeezedims)
+            posteriors.mean[name] = self._locs[name]
+            posteriors.std[name] = self._scales[name]
         return posteriors
 
 

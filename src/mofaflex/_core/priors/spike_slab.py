@@ -23,10 +23,8 @@ class SpikeSlab(Prior):
 
     _state_attrs = ("_probabilities", "_precisions")
 
-    def _on_train_start(
+    def on_train_start(
         self,
-        factor_dim: int,
-        nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
         init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
@@ -39,7 +37,7 @@ class SpikeSlab(Prior):
         init_beta: float = 1.0
         init_prob: float = 0.5
 
-        self.__shapes = PyroParameterDict()
+        self._shapes = PyroParameterDict()
         self._rates = PyroParameterDict()
         self._alphas = PyroParameterDict()
         self._betas = PyroParameterDict()
@@ -47,25 +45,29 @@ class SpikeSlab(Prior):
         self._locs = PyroParameterDict()
         self._scales = PyroParameterDict()
 
-        ndims = abs(min(factor_dim, nonfactor_dim))
-        shape = [1] * ndims
-        shape[factor_dim] = n_factors
-
         for name in self._names:
-            self.__shapes[name] = PyroParam(torch.full(shape, init_shape), constraint=constraints.softplus_positive)
-            self._rates[name] = PyroParam(torch.full(shape, init_rate), constraint=constraints.softplus_positive)
-            self._alphas[name] = PyroParam(torch.full(shape, init_alpha), constraint=constraints.softplus_positive)
-            self._betas[name] = PyroParam(torch.full(shape, init_beta), constraint=constraints.softplus_positive)
+            self._shapes[name] = PyroParam(
+                torch.full((1, n_factors), init_shape), constraint=constraints.softplus_positive
+            )
+            self._rates[name] = PyroParam(
+                torch.full((1, n_factors), init_rate), constraint=constraints.softplus_positive
+            )
+            self._alphas[name] = PyroParam(
+                torch.full((1, n_factors), init_alpha), constraint=constraints.softplus_positive
+            )
+            self._betas[name] = PyroParam(
+                torch.full((1, n_factors), init_beta), constraint=constraints.softplus_positive
+            )
             self._probs[name] = PyroParam(
-                torch.full(self._shapes[name], init_prob), constraint=constraints.unit_interval
+                torch.full((n_nonfactors[name], n_factors), init_prob), constraint=constraints.unit_interval
             )
 
             if init_tensor is not None:
                 loc = init_tensor[name]["loc"]
                 scale = init_tensor[name]["scale"]
             else:
-                loc = torch.full(self._shapes[name], init_loc)
-                scale = torch.full(self._shapes[name], init_scale)
+                loc = torch.full((n_nonfactors[name], n_factors), init_loc)
+                scale = torch.full((n_nonfactors[name], n_factors), init_scale)
             self._locs[name] = PyroParam(loc)
             self._scales[name] = PyroParam(scale, constraint=constraints.softplus_positive)
 
@@ -82,13 +84,13 @@ class SpikeSlab(Prior):
         self._probabilities = {}
 
         for name in self._names:
-            precision_shape = self.__shapes[name].squeeze(self._squeezedims)
-            precision_rate = self._rates[name].squeeze(self._squeezedims)
+            precision_shape = self._shapes[name]
+            precision_rate = self._rates[name]
             d = dist.Gamma(concentration=precision_shape, rate=precision_rate)
-            self._precisions.mean[name] = d.mean.cpu().numpy().T
-            self._precisions.std[name] = d.stddev.cpu().numpy().T
+            self._precisions.mean[name] = d.mean.cpu().numpy()
+            self._precisions.std[name] = d.stddev.cpu().numpy()
 
-            self._probabilities[name] = self._probs[name].squeeze(self._squeezedims).cpu().numpy().T
+            self._probabilities[name] = self._probs[name].cpu().numpy()
 
     def _model(
         self, id: str, name: str, factor_plate: pyro.plate, nonfactor_plate: pyro.plate, **kwargs
@@ -107,7 +109,7 @@ class SpikeSlab(Prior):
         self, id: str, name: str, factor_plate: pyro.plate, nonfactor_plate: pyro.plate, **kwargs
     ) -> torch.Tensor:
         with factor_plate:
-            pyro.sample(f"{id}_alpha_z_{name}", dist.Gamma(self.__shapes[name], self._rates[name]))
+            pyro.sample(f"{id}_alpha_z_{name}", dist.Gamma(self._shapes[name], self._rates[name]))
             pyro.sample(f"{id}_theta_z_{name}", dist.Beta(self._alphas[name], self._betas[name]))
             with nonfactor_plate as index:
                 pyro.sample(
@@ -131,8 +133,8 @@ class SpikeSlab(Prior):
     def posterior(self) -> MeanStd:
         posteriors = MeanStd({}, {})
         for name in self._names:
-            posteriors.mean[name] = self._locs[name].squeeze(self._squeezedims)
-            posteriors.std[name] = self._scales[name].squeeze(self._squeezedims)
+            posteriors.mean[name] = self._locs[name]
+            posteriors.std[name] = self._scales[name]
         return posteriors
 
     @Prior._api

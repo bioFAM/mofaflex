@@ -100,13 +100,7 @@ class GaussianProcess(Prior):
         self._gps = None
 
     def get_datasets(
-        self,
-        data: MofaFlexDataset,
-        axis: Literal[0, 1],
-        factor_dim: int,
-        nonfactor_dim: int,
-        n_factors: int,
-        n_nonfactors: Mapping[str, int],
+        self, data: MofaFlexDataset, axis: Literal[0, 1], n_factors: int, n_nonfactors: Mapping[str, int]
     ) -> dict[str, dict[str, pd.DataFrame]]:
         self._covariates = merge_covariates(data.get_covariates(axis, self._obs_key, self._obsm_key, self._names))
         for covar in self._covariates.values():
@@ -126,10 +120,8 @@ class GaussianProcess(Prior):
             use_mefisto_kernel=self._mefisto_kernel,
         )
 
-    def _on_train_start(
+    def on_train_start(
         self,
-        factor_dim: int,
-        nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
         init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
@@ -159,25 +151,15 @@ class GaussianProcess(Prior):
         self._gp = pyro.module("gp", self._gp)
 
         self._sizes = [n_nonfactors[g] for g in self._names]
-        self._nonfactor_dim = nonfactor_dim
         self._idx = {name: torch.as_tensor(i) for i, name in enumerate(self._names)}
 
-        ndims = abs(min(factor_dim, nonfactor_dim))
-        shape = [1] * ndims
-        shape[factor_dim] = n_factors
-        self._gp_shape = tuple(shape)
-
-        shape = [1] * ndims
-        shape[min(factor_dim, nonfactor_dim)] = n_factors
-        shape[max(factor_dim, nonfactor_dim)] = -1
-        self._full_gp_shape = tuple(shape)
-
         if init_tensor is not None:
-            loc = torch.concatenate([init_tensor[name]["loc"] for name in self._names], dim=nonfactor_dim)
-            scale = torch.concatenate([init_tensor[name]["scale"] for name in self._names], dim=nonfactor_dim)
+            loc = torch.concatenate([init_tensor[name]["loc"] for name in self._names], dim=0)
+            scale = torch.concatenate([init_tensor[name]["scale"] for name in self._names], dim=0)
         else:
-            loc = torch.full(shape, init_loc)
-            scale = torch.full(shape, init_scale)
+            n_nonfactors = sum(self._sizes)
+            loc = torch.full((n_nonfactors, n_factors), init_loc)
+            scale = torch.full((n_nonfactors, n_factors), init_scale)
         self._loc = PyroParam(loc)
         self._scale = PyroParam(scale, constraint=constraints.softplus_positive)
 
@@ -186,7 +168,7 @@ class GaussianProcess(Prior):
             factormeans = {
                 group_name: mean.cpu().numpy() for group_name, mean in self.posterior.mean.items()
             }  # TODO: investigate how warping interacts with non-negativity
-            reffactormeans = factormeans[self._warp_reference_group].mean(axis=0)
+            reffactormeans = factormeans[self._warp_reference_group].mean(axis=1)
             refidx = self._warp_groups_order[self._warp_reference_group]
             for g in self.names:
                 if g == self._warp_reference_group:
@@ -194,7 +176,7 @@ class GaussianProcess(Prior):
                 idx = self._warp_groups_order[g]
                 alignment = dtw(
                     reffactormeans[refidx],
-                    factormeans[g][:, idx].mean(axis=0),
+                    factormeans[g][idx, :].mean(axis=1),
                     open_begin=self._warp_open_begin,
                     open_end=self._warp_open_end,
                     step_pattern="asymmetric",
@@ -323,14 +305,12 @@ class GaussianProcess(Prior):
         """Make combined sample plate."""
         offset = 0
         subsample = []
-        nonfactor_dim = None
         for name in self._names:
             splate = nonfactor_plates[name]
             subsample.append(splate.indices + offset)
             offset += splate.size
-            nonfactor_dim = splate.dim
         subsample = torch.cat(subsample)
-        return pyro.plate("gp_nonfactors", offset, dim=nonfactor_dim, subsample=subsample)
+        return pyro.plate("gp_nonfactors", offset, dim=-2, subsample=subsample)
 
     @pyro_method
     def model(
@@ -349,22 +329,16 @@ class GaussianProcess(Prior):
         nonfactor_plate = self._get_nonfactor_plate(nonfactor_plates)
         with pyro.plate(f"{id}_gp_batch", factor_plate.size, dim=-2):  # needs to be dim=-2 to work with GPyTorch
             f = pyro.sample(f"{id}_gp.f", f_dist)
-        new_f_shape = list(f.shape)
-        new_f_shape[-len(self._full_gp_shape) :] = self._full_gp_shape
-        f = f.reshape(new_f_shape)
-        if factor_plate.dim > nonfactor_plate.dim:
-            f = f.swapaxes(factor_plate.dim, nonfactor_plate.dim)
-
-        outputscale = self._gp.outputscale.reshape(self._gp_shape)
+        f = f.swapaxes(-2, -1)
 
         with factor_plate, nonfactor_plate:
             return dict(
                 zip(
                     self._names,
                     torch.split(
-                        pyro.sample(f"{id}_z", dist.Normal(f, 1 - outputscale)),
+                        pyro.sample(f"{id}_z", dist.Normal(f, 1 - self._gp.outputscale)),
                         tuple(gp_covariates[g].shape[0] for g in gnames),
-                        dim=self._nonfactor_dim,
+                        dim=-2,
                     ),
                     strict=False,
                 )
@@ -393,15 +367,9 @@ class GaussianProcess(Prior):
                 zip(
                     self._names,
                     torch.split(
-                        pyro.sample(
-                            f"{id}_z",
-                            dist.Normal(
-                                self._loc.index_select(nonfactor_plate.dim, index),
-                                self._scale.index_select(nonfactor_plate.dim, index),
-                            ),
-                        ),
+                        pyro.sample(f"{id}_z", dist.Normal(self._loc[index, :], self._scale[index, :])),
                         tuple(gp_covariates[g].shape[0] for g in gnames),
-                        dim=self._nonfactor_dim,
+                        dim=-2,
                     ),
                     strict=False,
                 )
@@ -409,10 +377,10 @@ class GaussianProcess(Prior):
 
     @property
     def posterior(self) -> MeanStd:
-        loc = dict(zip(self._names, torch.split(self._loc, self._sizes, dim=self._nonfactor_dim), strict=False))
-        scale = dict(zip(self._names, torch.split(self._scale, self._sizes, dim=self._nonfactor_dim), strict=False))
+        loc = dict(zip(self._names, torch.split(self._loc, self._sizes, dim=0), strict=False))
+        scale = dict(zip(self._names, torch.split(self._scale, self._sizes, dim=0), strict=False))
         posteriors = MeanStd(loc, scale)
         for res in posteriors:
             for k, v in res.items():
-                res[k] = v.squeeze(self._squeezedims)
+                res[k] = v
         return posteriors

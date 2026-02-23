@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 
 from ..datasets import CovariatesDataset, MofaFlexDataset
-from ..utils import SaveStateMixin, _PyroMeta, checked_baseclass
+from ..utils import PyroMeta, SaveStateMixin, checked_baseclass
 
 
 class _class_and_instancemethod:
@@ -25,7 +25,7 @@ class _class_and_instancemethod:
 
 
 @checked_baseclass(registry="dict")
-class Term(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
+class Term(SaveStateMixin, ABC, PyroModule, metaclass=PyroMeta):
     r"""Base class for MOFA-FLEX additive terms.
 
     A Term represents one additive contribution to the generative model, i.e. a component of the form:

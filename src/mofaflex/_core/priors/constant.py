@@ -32,13 +32,7 @@ class Constant(Prior):
         self._const_values = const_values
 
     def get_datasets(
-        self,
-        data: MofaFlexDataset,
-        axis: Literal[0, 1],
-        factor_dim: int,
-        nonfactor_dim: int,
-        n_factors: int,
-        n_nonfactors: Mapping[str, int],
+        self, data: MofaFlexDataset, axis: Literal[0, 1], n_factors: int, n_nonfactors: Mapping[str, int]
     ) -> dict[str, dict[str, pd.DataFrame | np.ndarray]]:
         data_names = data.get_names(axis)
         vals = {}
@@ -52,9 +46,7 @@ class Constant(Prior):
 
             val = const_val.loc[data_names[name], :].to_numpy()
             vals[name] = val
-            tvals[name] = torch.as_tensor(
-                val.T if factor_dim < nonfactor_dim else val, device="cpu"
-            )  # for post-training processing in the MofaFlex term
+            tvals[name] = torch.as_tensor(val, device="cpu")  # for post-training processing in the MofaFlex term
         self._const_values = tvals
         return {"const": vals}
 
@@ -67,7 +59,7 @@ class Constant(Prior):
         const: Mapping[str, torch.Tensor],
         **kwargs,
     ):
-        return self._reshape_tensor_to_batch(const[name], name, factor_plate, nonfactor_plate)
+        return const[name]
 
     _guide = _model
 

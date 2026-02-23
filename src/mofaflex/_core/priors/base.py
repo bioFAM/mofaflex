@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import Enum, auto
 from inspect import isabstract
-from itertools import chain
 from types import MappingProxyType
 from typing import Literal, NamedTuple
 
@@ -14,7 +13,7 @@ from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 
 from ..datasets import MofaFlexDataset
-from ..utils import MeanStd, SaveStateMixin, _PyroMeta, checked_baseclass
+from ..utils import MeanStd, PyroMeta, SaveStateMixin, checked_baseclass
 
 
 class APIType(Enum):
@@ -41,7 +40,7 @@ class API(NamedTuple):
 
 
 @checked_baseclass(required_init_args=("names"), registry="dict")
-class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
+class Prior(SaveStateMixin, ABC, PyroModule, metaclass=PyroMeta):
     """Base class for MOFA-FLEX factors and weights priors.
 
     Subclasses can eiher implement `_model` and `_guide`, or reimplment `model` and `guide`. The former set of methods
@@ -62,10 +61,7 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
     exists.
 
     Args:
-        axis: The axis that the prior is being used for. 0 for factors, 1 for weights.
         names: The names of the groups/views that the prior is responsible for.
-        factor_dim: The factor dimension.
-        nonfactor_dim: The nonfactor domension. Sample dimension for factors and feature dimension for weights.
     """
 
     _apilist = []
@@ -162,25 +158,8 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         """The user-facing properties of this prior."""
         return (api for api in cls._apilist if api.type == APIType.property)
 
-    def _reshape_tensor_to_batch(
-        self, tens: torch.Tensor, name: str, factor_plate: pyro.plate, nonfactor_plate: pyro.plate
-    ):
-        shape = self._shapes[name]
-        if tens.shape[0] < nonfactor_plate.size:
-            shape = list(shape)
-            shape[nonfactor_plate.dim] = tens.shape[0]
-        if factor_plate.dim < nonfactor_plate.dim:
-            tens = tens.T
-        return tens.reshape(shape)
-
     def get_datasets(
-        self,
-        data: MofaFlexDataset,
-        axis: Literal[0, 1],
-        factor_dim: int,
-        nonfactor_dim: int,
-        n_factors: int,
-        n_nonfactors: Mapping[str, int],
+        self, data: MofaFlexDataset, axis: Literal[0, 1], n_factors: int, n_nonfactors: Mapping[str, int]
     ) -> dict[str, dict[str, pd.DataFrame | np.ndarray]] | None:
         """Hook that is called prior to training.
 
@@ -190,8 +169,6 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         Args:
             data: The dataset.
             axis: The axis of this prior (0 for samples, 1 for features).
-            factor_dim: The factor dimension.
-            nonfactor_dim: The nonfactor domension. Sample dimension for factors and feature dimension for weights.
             n_factors: The number of factors.
             n_nonfactors: The number of samples (if `axis == 0`) or features (if `axis == 1`)
         """
@@ -240,49 +217,17 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
 
     def on_train_start(
         self,
-        factor_dim: int,
-        nonfactor_dim: int,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
         init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
     ):
         """Hook that is called immediately prior to training.
 
-        Subclasses must not reimplement this method. If custom behavior is desired, reimplement `_on_train_start` instead.
-
         Args:
-            factor_dim: The factor dimension.
-            nonfactor_dim: The nonfactor domension. Sample dimension for factors and feature dimension for weights.
             n_factors: The number of factors.
             n_nonfactors: The number of samples (if this prior is used for factors) or features (if this prior is used for weights).
             init_tensor: Initialization values.
         """
-        self._shapes = {}
-        shape = [1] * abs(min(factor_dim, nonfactor_dim))
-        shape[factor_dim] = n_factors
-        for name in self._names:
-            cshape = shape.copy()
-            cshape[nonfactor_dim] = n_nonfactors[name]
-            self._shapes[name] = tuple(cshape)
-
-        self._squeezedims = tuple(
-            i
-            for i in chain(
-                range(min(factor_dim, nonfactor_dim) + 1, max(factor_dim, nonfactor_dim)),
-                range(max(factor_dim, nonfactor_dim) + 1, 0),
-            )
-        )
-
-        self._on_train_start(factor_dim, nonfactor_dim, n_factors, n_nonfactors, init_tensor)
-
-    def _on_train_start(
-        self,
-        factor_dim: int,
-        nonfactor_dim: int,
-        n_factors: int,
-        n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
-    ):
         pass
 
     def on_train_epoch_start(self, epoch: int):
@@ -331,8 +276,8 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         Args:
             id: ID to be used in Pyro sample site names to make them unique if multiple priors of the same class or multiple
                 additive terms are used.
-            factor_plate: Pyro plate for the factors.
-            nonfactor_plates: Pyro plates for the nonfactors (samples or features) for all groups/views.
+            factor_plate: Pyro plate for the factors. Always has `dim=-1`.
+            nonfactor_plates: Pyro plates for the nonfactors (samples or features) for all groups/views. Always has `dim=-2`.
             **kwargs: Additional arguments that may only be relevant for particular subclasses.
 
         Returns:
@@ -349,8 +294,8 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
             id: ID to be used in Pyro sample site names to make them unique if multiple priors of the same class or multiple
                 additive terms are used.
             name: The name of the current group/view.
-            factor_plate: Pyro plate for the factors.
-            nonfactor_plate: Pyro plate for the nonfactors (samples or features).
+            factor_plate: Pyro plate for the factors. Always has `dim=-1`.
+            nonfactor_plate: Pyro plate for the nonfactors (samples or features). Always has `dim=-2`.
             **kwargs: Additional arguments that may only be relevant for particular subclasses.
         """
         raise NotImplementedError
@@ -364,8 +309,8 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
         Args:
             id: ID to be used in Pyro sample site names to make them unique if multiple priors of the same class or multiple
                 additive terms are used.
-            factor_plate: Pyro plate for the factors.
-            nonfactor_plates: Pyro plates for the nonfactors (samples or features) for all groups/views.
+            factor_plate: Pyro plate for the factors. Always has `dim=-1`.
+            nonfactor_plates: Pyro plates for the nonfactors (samples or features) for all groups/views. Always has `dim=-2`.
             **kwargs: Additional arguments that may only be relevant for particular subclasses.
 
         Returns:
@@ -383,8 +328,8 @@ class Prior(SaveStateMixin, ABC, PyroModule, metaclass=_PyroMeta):
                 additive terms are used.
             name: The name of the current group/view.
             factor_plate: Pyro plate for the factors.
-            nonfactor_plate: Pyro plate for the nonfactors (samples or features).
-            **kwargs: Additional arguments that may only be relevant for particular subclasses.
+            nonfactor_plate: Pyro plate for the nonfactors (samples or features). Always has `dim=-1`.
+            **kwargs: Additional arguments that may only be relevant for particular subclasses. Always has `dim=-2`.
         """
         raise NotImplementedError
 
