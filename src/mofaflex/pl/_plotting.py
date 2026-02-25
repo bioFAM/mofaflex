@@ -179,12 +179,12 @@ def covariates_factor_scatter(
     if isinstance(groups, str):
         groups = [groups]
     elif groups is None:
-        groups = [group_name for group_name in model.group_names if group_name in model.covariates]
+        groups = [group_name for group_name in model.group_names if group_name in model.factor_covariates]
     if figsize is None:
         figsize = (5 * len(groups), 5)
 
     df_factors = pd.concat(model.get_factors(), axis=0)
-    df_covariates = pd.concat(model.covariates, axis=0)
+    df_covariates = pd.concat(model.factor_covariates, axis=0)
 
     if isinstance(covariate_dims, int | str):
         covariate_dims = [covariate_dims]
@@ -636,31 +636,29 @@ def _check_covariate(cov, group_name, covars):
     return cov
 
 
-def _plot_factors_covariate(
-    model: types.MofaFlex | MOFAFLEX,
+def _plot_covariate(
+    covariates: Mapping[str, pd.DataFrame],
+    factors: Mapping[str, pd.DataFrame],
+    n_factors: int,
     covariate1: str | int,
     covariate2: str | int | None = None,
-    gp: bool = False,
     size: int = 1,
     figsize: tuple[float, float] | None = None,
 ) -> p9.ggplot:
     """Plot every factor against one or two covariates.
 
     Args:
-        model: The term to plot the factors for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
+        covariates: The covariates dict from the model.
+        factors: The factors dict from the model.
+        n_factors: The number of factors.
         covariate1: The first covariate to plot against. Can be an integer index or the covariate name, if the covariates are named.
         covariate2: The first covariate to plot against. Can be an integer index or the covariate name, if the covariates are named.
             If `None`, only one covariate will be plotted.
-        gp: If `False`, plot the estimated factor values. If `True`, plot the GP predictions.
         size: The point size.
         figsize: Figure size in inches.
     """
-    factors = model.get_factors() if not gp else model.get_gps()
-
     if figsize is None:
-        figsize = (2 * model.n_factors, 2 * len(factors))
-
-    covariates = model.covariates
+        figsize = (2 * n_factors, 2 * len(factors))
 
     df = []
     covnames = [covariate1, covariate2]
@@ -723,31 +721,28 @@ def factors_covariate(
         size: The point size.
         figsize: Figure size in inches.
     """
-    return _plot_factors_covariate(model, covariate1, covariate2, gp=False, size=size, figsize=figsize)
+    return _plot_covariate(
+        model.factor_covariates,
+        model.get_factors(),
+        model.n_total_factors,
+        covariate1,
+        covariate2,
+        size=size,
+        figsize=figsize,
+    )
 
 
-def gp_covariate(
-    model: types.MofaFlex | MOFAFLEX,
+def _plot_gp_covariate(
+    covariates: Mapping[str, pd.DataFrame],
+    gp_means: Mapping[str, pd.DataFrame],
+    gp_stds: Mapping[str, pd.DataFrame],
+    n_total_factors: int,
     ci_opacity: float = 0.3,
     group: Literal["facet", "color"] = "facet",
     color: str = "black",
     size: int = 1,
     figsize: tuple[float, float] | None = None,
 ) -> p9.ggplot:
-    """Plot the fitted GP mean for each factor in each group at the data covariate locations.
-
-    If the model covariates are 2D, plot the covariate on X and Y and encode the GP posterior mean with color.
-    If the model covariates are 1D, plot the covariate on X and the GP posterior mean and 95% confidence interval on Y.
-
-    Args:
-        model: The term to plot the factors for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
-        ci_opacity: Opacity of the 95% CI band. Only relevant for 1D covariates.
-        group: Whether to encode the sample groups by color or by faceting. Only relevant for 1D covariates.
-        color: Color of the line and CI and. Only relevant for 1D covariates and `group="facet"`.
-        size: The point size. Only relevant for 2D covariates.
-        figsize: Figure size in inches.
-    """
-    covariates = model.covariates
     covdim = np.unique(tuple(cov.shape[1] for cov in covariates.values()))
     if covdim.size > 1:
         raise NotImplementedError("Different groups have different covariate dimensions.")
@@ -765,15 +760,12 @@ def gp_covariate(
             else:
                 covnames[i] = covname[0]
     if covdim[0] == 2:
-        return _plot_factors_covariate(model, 0, 1, gp=True, size=size, figsize=figsize) + p9.labs(
+        return _plot_covariate(covariates, gp_means, n_total_factors, 0, 1, size=size, figsize=figsize) + p9.labs(
             x=covnames[0], y=covnames[1]
         )
 
-    gp_means = model.get_gps()
-    gp_stds = model.get_gps(moment="std")
-
     if figsize is None:
-        figsize = (2 * model.n_total_factors, 2 * len(gp_means))
+        figsize = (2 * n_total_factors, 2 * len(gp_means))
 
     df = []
 
@@ -815,19 +807,80 @@ def gp_covariate(
     return plt
 
 
-def smoothness(model: types.MofaFlex | MOFAFLEX, figsize: tuple[float, float] = (3, 3)) -> p9.ggplot:
-    """Plot the smoothness of the GP for each factor.
+def factor_gp_covariates(
+    model: types.MofaFlex | MOFAFLEX,
+    ci_opacity: float = 0.3,
+    group: Literal["facet", "color"] = "facet",
+    color: str = "black",
+    size: int = 1,
+    figsize: tuple[float, float] | None = None,
+) -> p9.ggplot:
+    """Plot the fitted GP mean for each factor in each group at the data covariate locations.
+
+    If the model covariates are 2D, plot the covariate on X and Y and encode the GP posterior mean with color.
+    If the model covariates are 1D, plot the covariate on X and the GP posterior mean and 95% confidence interval on Y.
 
     Args:
-        model: The term to plot the smoothness for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
+        model: The term to plot the factors for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
+        ci_opacity: Opacity of the 95% CI band. Only relevant for 1D covariates.
+        group: Whether to encode the sample groups by color or by faceting. Only relevant for 1D covariates.
+        color: Color of the line and CI and. Only relevant for 1D covariates and `group="facet"`.
+        size: The point size. Only relevant for 2D covariates.
         figsize: Figure size in inches.
     """
-    scale = model.gp_scale
+    return _plot_gp_covariate(
+        model.factor_covariates,
+        model.get_factor_gps(),
+        model.get_factor_gps(moment="std"),
+        model.n_total_factors,
+        ci_opacity,
+        group,
+        color,
+        size,
+        figsize,
+    )
+
+
+def weight_gp_covariates(
+    model: types.MofaFlex | MOFAFLEX,
+    ci_opacity: float = 0.3,
+    group: Literal["facet", "color"] = "facet",
+    color: str = "black",
+    size: int = 1,
+    figsize: tuple[float, float] | None = None,
+) -> p9.ggplot:
+    """Plot the fitted GP mean for each factor in each view at the data covariate locations.
+
+    If the model covariates are 2D, plot the covariate on X and Y and encode the GP posterior mean with color.
+    If the model covariates are 1D, plot the covariate on X and the GP posterior mean and 95% confidence interval on Y.
+
+    Args:
+        model: The term to plot the factors for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
+        ci_opacity: Opacity of the 95% CI band. Only relevant for 1D covariates.
+        group: Whether to encode the sample groups by color or by faceting. Only relevant for 1D covariates.
+        color: Color of the line and CI and. Only relevant for 1D covariates and `group="facet"`.
+        size: The point size. Only relevant for 2D covariates.
+        figsize: Figure size in inches.
+    """
+    return _plot_gp_covariate(
+        model.weight_covariates,
+        model.get_weight_gps(),
+        model.get_weight_gps(moment="std"),
+        model.n_total_factors,
+        ci_opacity,
+        group,
+        color,
+        size,
+        figsize,
+    )
+
+
+def _plot_gp_smoothness(
+    scale: np.ndarray, factor_names: np.ndarray, figsize: tuple[float, float] = (3, 3)
+) -> p9.ggplot:
     if scale is None:
         raise ValueError("model does not have any groups with a GP prior.")
-    df = pd.DataFrame(
-        {"smoothness": scale, "factor": pd.Categorical(model.factor_names, categories=model.factor_names)}
-    )
+    df = pd.DataFrame({"smoothness": scale, "factor": pd.Categorical(factor_names, categories=factor_names)})
     plt = (
         p9.ggplot(df, p9.aes("factor", "smoothness"))
         + p9.geom_bar(stat="identity")
@@ -836,6 +889,26 @@ def smoothness(model: types.MofaFlex | MOFAFLEX, figsize: tuple[float, float] = 
         + p9.theme(figure_size=figsize, axis_text_x=p9.element_text(rotation=90), **_no_axis_ticks_x)
     )
     return plt
+
+
+def factor_gp_smoothness(model: types.MofaFlex | MOFAFLEX, figsize: tuple[float, float] = (3, 3)) -> p9.gglot:
+    """Plot the smoothness of the GP for each factor.
+
+    Args:
+        model: The term to plot the smoothness for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
+        figsize: Figure size in inches.
+    """
+    return _plot_gp_smoothness(model.factor_gp_scale, model.factor_names, figsize)
+
+
+def weight_gp_smoothness(model: types.MofaFlex | MOFAFLEX, figsize: tuple[float, float] = (3, 3)) -> p9.gglot:
+    """Plot the smoothness of the GP for each factor.
+
+    Args:
+        model: The term to plot the smoothness for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
+        figsize: Figure size in inches.
+    """
+    return _plot_gp_smoothness(model.weight_gp_scale, model.factor_names, figsize)
 
 
 def _prepare_weights_df(

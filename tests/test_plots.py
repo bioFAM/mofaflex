@@ -180,9 +180,9 @@ def test_factors_covariate(mousebrain_model):
 
 @plotnine_comparison(baseline_images=["gp_covariate"])
 def test_gp_covariate(mousebrain_model):
-    return mfl.pl.gp_covariate(mousebrain_model, size=0.25, figsize=(60, 4))
+    return mfl.pl.factor_gp_covariates(mousebrain_model, size=0.25, figsize=(60, 4))
 
 
 @plotnine_comparison(baseline_images=["smoothness"])
 def test_smoothness(mousebrain_model):
-    return mfl.pl.smoothness(mousebrain_model, figsize=(5, 5))
+    return mfl.pl.factor_gp_smoothness(mousebrain_model, figsize=(5, 5))
