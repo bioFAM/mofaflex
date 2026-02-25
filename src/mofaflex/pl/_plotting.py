@@ -43,8 +43,8 @@ _no_axis_ticks_x = {"axis_ticks_length_major_x": 0, "axis_ticks_length_minor_x":
 _no_axis_ticks_y = {"axis_ticks_length_major_y": 0, "axis_ticks_length_minor_y": 0}
 
 
-def _covariate_df(data, key):
-    cov = data.get_covariates(axis=0, key=key)
+def _covariate_df(data, key, axis=0):
+    cov = data.get_covariates(axis=axis, key=key)
     for group_name, group in cov.items():
         have_covariate = False
         for view in group.values():
@@ -142,6 +142,97 @@ def factors_scatter(
     return plot
 
 
+def _plot_covariates_scatter(
+    model: types.MofaFlex | MOFAFLEX,
+    axis: Literal[0, 1],
+    factor: int | str,
+    groups: str | Sequence[str] | None = None,
+    covariate_dims: int | str | Sequence[int] | Sequence[str] | None = None,
+    color: int | str | None = None,
+    shape: str | None = None,
+    data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData | None = None,
+    size: float = 1,
+    alpha: float = 1,
+    figsize: tuple[float, float] = (6, 6),
+) -> p9.ggplot:
+    if isinstance(factor, int):
+        if factor not in range(1, model.n_total_factors + 1):
+            raise ValueError(f"Factor must be between 1 and {model.n_total_factors}.")
+        else:
+            factor = model.factor_names[factor - 1]
+
+    if axis == 0:
+        groups_attr = "group_names"
+        covariates_attr = "factor_covariates"
+    else:
+        groups_attr = "view_names"
+        covariates_attr = "weight_covariates"
+    if isinstance(groups, str):
+        groups = [groups]
+    elif groups is None:
+        groups = [
+            group_name for group_name in getattr(model, groups_attr) if group_name in getattr(model, covariates_attr)
+        ]
+    if figsize is None:
+        figsize = (5 * len(groups), 5)
+
+    df_factors = pd.concat(model.get_factors(), axis=0)
+    df_covariates = pd.concat(getattr(model, covariates_attr), axis=0)
+
+    if isinstance(covariate_dims, int | str):
+        covariate_dims = [covariate_dims]
+
+    if covariate_dims is None:
+        covariate_dims = df_covariates.columns
+    else:
+        covariate_dims = [df_covariates.columns[d] if isinstance(d, int) else d for d in covariate_dims]
+
+    if len(covariate_dims) == 2 and color is not None:
+        raise ValueError("Cannot specify a color variable when plotting two covariate dimensions.")
+    elif len(covariate_dims) not in (1, 2):
+        raise ValueError("Can only plot 1 or 2 covariate dimensions.")
+
+    if (color is not None or shape is not None) and data is None:
+        raise ValueError("'data' cannot be 'None' if 'color' or 'shape' are given.")
+    elif data is not None:
+        data = model._make_dataset(data)
+
+    toconcat = []
+    if color is not None:
+        if isinstance(color, int):
+            color = model.factor_names[color]
+        elif color not in df_factors.columns:
+            toconcat.append(pd.concat(_covariate_df(data, color, axis), axis=0))
+    if shape is not None and shape not in df_factors.columns:
+        toconcat.append(pd.concat(_covariate_df(data, shape, axis), axis=0))
+
+    df = pd.concat([df_factors, df_covariates, *toconcat], axis=1).reset_index(names=["group", "sample"])
+
+    aes_kwargs = {}
+    if len(covariate_dims) == 1:
+        x = covariate_dims[0]
+        y = factor
+        if color is not None:
+            aes_kwargs["color"] = color
+
+    elif len(covariate_dims) == 2:
+        x = covariate_dims[0]
+        y = covariate_dims[1]
+        aes_kwargs["color"] = factor
+
+    if shape is not None:
+        aes_kwargs["shape"] = shape
+
+    plot = (
+        p9.ggplot(df, p9.aes(x=x, y=y, **aes_kwargs))
+        + p9.geom_point(size=size, alpha=alpha, stroke=0)
+        + p9.facet_wrap("group")
+        + p9.theme(figure_size=figsize)
+    )
+
+    return plot
+
+
 def covariates_factor_scatter(
     model: types.MofaFlex | MOFAFLEX,
     factor: int | str,
@@ -170,74 +261,62 @@ def covariates_factor_scatter(
         alpha: Transparency of the data points.
         figsize: Figure size in inches.
     """
-    if isinstance(factor, int):
-        if factor not in range(1, model.n_factors + 1):
-            raise ValueError(f"Factor must be between 1 and {model.n_factors}.")
-        else:
-            factor = model.factor_names[factor - 1]
-
-    if isinstance(groups, str):
-        groups = [groups]
-    elif groups is None:
-        groups = [group_name for group_name in model.group_names if group_name in model.factor_covariates]
-    if figsize is None:
-        figsize = (5 * len(groups), 5)
-
-    df_factors = pd.concat(model.get_factors(), axis=0)
-    df_covariates = pd.concat(model.factor_covariates, axis=0)
-
-    if isinstance(covariate_dims, int | str):
-        covariate_dims = [covariate_dims]
-
-    if covariate_dims is None:
-        covariate_dims = df_covariates.columns
-    else:
-        covariate_dims = [df_covariates.columns[d] if isinstance(d, int) else d for d in covariate_dims]
-
-    if len(covariate_dims) == 2 and color is not None:
-        raise ValueError("Cannot specify a color variable when plotting two covariate dimensions.")
-    elif len(covariate_dims) not in (1, 2):
-        raise ValueError("Can only plot 1 or 2 covariate dimensions.")
-
-    if (color is not None or shape is not None) and data is None:
-        raise ValueError("'data' cannot be 'None' if 'color' or 'shape' are given.")
-    elif data is not None:
-        data = model._make_dataset(data)
-
-    toconcat = []
-    if color is not None:
-        if isinstance(color, int):
-            color = model.factor_names[color]
-        elif color not in df_factors.columns:
-            toconcat.append(pd.concat(_covariate_df(data, color), axis=0))
-    if shape is not None and shape not in df_factors.columns:
-        toconcat.append(pd.concat(_covariate_df(data, shape), axis=0))
-
-    df = pd.concat([df_factors, df_covariates, *toconcat], axis=1).reset_index(names=["group", "sample"])
-
-    aes_kwargs = {}
-    if len(covariate_dims) == 1:
-        x = covariate_dims[0]
-        y = factor
-        if color is not None:
-            aes_kwargs["color"] = color
-
-    elif len(covariate_dims) == 2:
-        x = covariate_dims[0]
-        y = covariate_dims[1]
-        aes_kwargs["color"] = factor
-
-    if shape is not None:
-        aes_kwargs["shape"] = shape
-
-    plot = (
-        p9.ggplot(df, p9.aes(x=x, y=y, **aes_kwargs))
-        + p9.geom_point(size=size, alpha=alpha, stroke=0)
-        + p9.facet_wrap("group")
-        + p9.theme(figure_size=figsize)
+    return _plot_covariates_scatter(
+        model,
+        axis=0,
+        factor=factor,
+        groups=groups,
+        covariate_dims=covariate_dims,
+        color=color,
+        shape=shape,
+        data=data,
+        size=size,
+        alpha=alpha,
+        figsize=figsize,
     )
 
-    return plot
+
+def covariates_weight_scatter(
+    model: types.MofaFlex | MOFAFLEX,
+    factor: int | str,
+    groups: str | Sequence[str] | None = None,
+    covariate_dims: int | str | Sequence[int] | Sequence[str] | None = None,
+    color: int | str | None = None,
+    shape: str | None = None,
+    data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData | None = None,
+    size: float = 1,
+    alpha: float = 1,
+    figsize: tuple[float, float] = (6, 6),
+) -> p9.ggplot:
+    """Plot a factor against one or two covariate dimensions.
+
+    Args:
+        model: The term to plot the factor correlation for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
+        factor: The factor to plot.
+        groups: The groups to plot. If `None`, all groups with covariates are shown.
+        covariate_dims: The dimensions of the covariates to plot against. If a list of length 1, plot covariate
+            on the x-axis and factor on the y-axis. If a list of length 2, plot the first covariate on the x-axis,
+            the second covariate on the y-axis, and factor as color. If None, use all dimensions.
+        color: The factor or covariate to color by. Only used when one covariate dimension is plotted.
+        shape: The covariate name to shape by.
+        data: The data that the model was trained on. Only required if `color is not None` or `shape is not None`.
+        size: Size of the data points.
+        alpha: Transparency of the data points.
+        figsize: Figure size in inches.
+    """
+    return _plot_covariates_scatter(
+        model,
+        axis=1,
+        factor=factor,
+        groups=groups,
+        covariate_dims=covariate_dims,
+        color=color,
+        shape=shape,
+        data=data,
+        size=size,
+        alpha=alpha,
+        figsize=figsize,
+    )
 
 
 def training_curve(
