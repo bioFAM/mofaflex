@@ -85,6 +85,17 @@ def merge_covariates(covariates: Mapping[str, Mapping[str, pd.DataFrame]]):
     return merged_covariates
 
 
+def df_to_array(df: pd.DataFrame, cast_to=None):
+    if df.dtypes.iloc[0] == "category":
+        df = np.stack(tuple(df[col].cat.codes.to_numpy() for col in df.columns), axis=1)
+        if cast_to is not None:
+            df = df.astype(cast_to, copy=False)
+        df[df < 0] = np.nan
+    else:
+        df = df.to_numpy()
+    return df
+
+
 class CovariatesDataset(Dataset):
     def __init__(
         self, covariates: Mapping[str, Mapping[str, pd.DataFrame | np.ndarray]], cast_to: np.number | None = np.float32
@@ -103,14 +114,7 @@ class CovariatesDataset(Dataset):
             if group_name in self._covariates:
                 arr = self._covariates[group_name]
                 if isinstance(arr, pd.DataFrame):
-                    arr = arr.iloc[group_idx, :]
-                    if arr.dtypes.iloc[0] == "category":
-                        arr = np.stack(tuple(arr[col].cat.codes.to_numpy() for col in arr.columns), axis=1)
-                        if self._cast_to is not None:
-                            arr = arr.astype(self._cast_to, copy=False)
-                        arr[arr < 0] = np.nan
-                    else:
-                        arr = arr.to_numpy()
+                    arr = df_to_array(arr.iloc[group_idx, :], self._cast_to)
                 else:
                     arr = arr[group_idx, :]
                 if self._cast_to is not None:

@@ -26,8 +26,8 @@ class GaussianProcess(Prior):
     """Gaussian process prior for spatially or temporally smooth factors.
 
     Args:
-        covariates_obs_key: The column of `.obs` that contains covariate values. Cannot be used together with `covariates_obsm_key`.
-        covariates_obsm_key: The key in `.obsm` that contains covariate values. Cannot be used together with `covariates_obs_key`.
+        covariates_key: The column of `.obs`/`.var` that contains covariate values. Cannot be used together with `covariates_mkey`.
+        covariates_mkey: The key in `.obsm`/`.varm` that contains covariate values. Cannot be used together with `covariates_key`.
         n_inducing: Number of inducing points.
         kernel: Kernel function to use.
         mefisto_kernel: Whether to use the MEFISTO group covariance kernel or treat groups independently.
@@ -41,8 +41,8 @@ class GaussianProcess(Prior):
     """
 
     _state_attrs = (
-        "_obs_key",
-        "_obsm_key",
+        "_key",
+        "_mkey",
         "_covariates",
         "_orig_covariates",
         "_n_inducing",
@@ -57,14 +57,12 @@ class GaussianProcess(Prior):
         "_warp_reference_group",
         "_warp_groups_order",
     )
-    _factors = True
-    _weights = False
 
     def __init__(
         self,
         names: str | Sequence[str],
-        covariates_obs_key: str | Mapping[str] | None = None,
-        covariates_obsm_key: str | Mapping[str] | None = None,
+        covariates_key: str | Mapping[str] | None = None,
+        covariates_mkey: str | Mapping[str] | None = None,
         n_inducing: int = 100,
         kernel: Literal["RBF", "Matern"] = "RBF",
         mefisto_kernel: bool = True,
@@ -78,13 +76,13 @@ class GaussianProcess(Prior):
     ):
         super().__init__(names)
 
-        if covariates_obs_key is None and covariates_obsm_key is None:
-            raise ValueError("Neither `covariates_obs_key` nor covariates_obsm_key` given.")
-        if covariates_obs_key is not None and covariates_obsm_key is not None:
-            raise ValueError("Provide either `covariates_obs_key` or `covariates_obsm_key`, but not both.")
+        if covariates_key is None and covariates_mkey is None:
+            raise ValueError("Neither `covariates_key` nor covariates_mkey` given.")
+        if covariates_key is not None and covariates_mkey is not None:
+            raise ValueError("Provide either `covariates_key` or `covariates_mkey`, but not both.")
 
-        self._obs_key = covariates_obs_key
-        self._obsm_key = covariates_obsm_key
+        self._key = covariates_key
+        self._mkey = covariates_mkey
         self._n_inducing = n_inducing
         self._kernel = kernel
         self._mefisto_kernel = mefisto_kernel
@@ -102,7 +100,7 @@ class GaussianProcess(Prior):
     def get_datasets(
         self, data: MofaFlexDataset, axis: Literal[0, 1], n_factors: int, n_nonfactors: Mapping[str, int]
     ) -> dict[str, dict[str, pd.DataFrame]]:
-        self._covariates = merge_covariates(data.get_covariates(axis, self._obs_key, self._obsm_key, self._names))
+        self._covariates = merge_covariates(data.get_covariates(axis, self._key, self._mkey, self._names))
         for covar in self._covariates.values():
             if pd.api.types.is_integer_dtype(covar.columns):
                 covar.columns = "Covariate " + covar.columns.astype(str)
@@ -223,13 +221,13 @@ class GaussianProcess(Prior):
 
     @Prior._api
     @property
-    def covariates_names(self) -> dict[str, NDArray[str | np.str_]]:
+    def a̲x̲i̲s̲_covariates_names(self) -> dict[str, NDArray[str | np.str_]]:
         """Covariate names for each group where they could be inferred from the input."""
         return {group_name: covar.columns.to_numpy() for group_name, covar in self.covariates.items()}
 
     @Prior._api
     @property
-    def covariates(self) -> Mapping[str, NDArray[np.float32]]:
+    def a̲x̲i̲s̲_covariates(self) -> Mapping[str, NDArray[np.float32]]:
         """Covariates for each group."""
         return (
             MappingProxyType(self._orig_covariates)
@@ -239,30 +237,30 @@ class GaussianProcess(Prior):
 
     @Prior._api
     @property
-    def warped_covariates(self) -> Mapping[str, NDArray[np.float32]] | None:
+    def warped_a̲x̲i̲s̲_covariates(self) -> Mapping[str, NDArray[np.float32]] | None:
         """Time-warped covariates for each group, if dynamic time warping was enabled."""
         return MappingProxyType(self._covariates) if hasattr(self, "_orig_covariates") else None
 
     @Prior._api
     @property
-    def gp_lengthscale(self) -> NDArray[np.float32]:
+    def a̲x̲i̲s̲_gp_lengthscale(self) -> NDArray[np.float32]:
         """Inferred lengthscales for each factor."""
         return self._gp.lengthscale.detach().cpu().numpy()
 
     @Prior._api
     @property
-    def gp_scale(self) -> NDArray[np.float32]:
+    def a̲x̲i̲s̲_gp_scale(self) -> NDArray[np.float32]:
         """Inferred variance scales (smoothness) for each factor."""
         return self._gp.outputscale.detach().cpu().numpy()
 
     @Prior._api
     @property
-    def gp_group_correlation(self) -> NDArray[np.float32]:
+    def a̲x̲i̲s̲_gp_group_correlation(self) -> NDArray[np.float32]:
         """Between-group correlation for each factor."""
         return self._gp.group_corr.detach().cpu().numpy()
 
     @Prior._api
-    def get_gps(
+    def get_a̲x̲i̲s̲_gps(
         self,
         moment: Literal["mean", "std"] = "mean",
         x: Mapping[str, np.ndarray | torch.Tensor] | None = None,

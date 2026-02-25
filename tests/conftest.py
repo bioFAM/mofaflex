@@ -71,6 +71,11 @@ def random_adata(rng, random_array):
         )
         adata.varm["annot_array"] = rng.random(size=(nvar, 3))
         adata.varm["annot_sparse"] = csr_array(rng.poisson(size=(nvar, 3)))
+        adata.varm["covar_df"] = pd.DataFrame(
+            rng.random(size=(nvar, 3)), columns=["a", "b", "c"], index=adata.var_names
+        )
+        adata.varm["covar_array"] = rng.random(size=(nvar, 3))
+        adata.varm["covar_sparse"] = csr_array(rng.poisson(size=(nvar, 3)))
         return adata
 
     return _adata

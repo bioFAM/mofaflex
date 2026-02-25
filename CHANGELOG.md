@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning][].
 - The `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does.
 - The API has received an overhaul. Make sure to re-familiarize yourself with the tutorials.
 - R2 estimation for non-Gaussian likelihoods should be more robust.
-- The on-disk format for trained model has changed. Files created with mofaflex 0.1 cannot be read by 0.2 and vice versa.
+- The on-disk format for trained models has changed. Files created with mofaflex 0.1 cannot be read by 0.2 and vice versa.
+- The Gaussian process prior can now also be used for weights.
 
 ### Removed
 - The MOFA compatibility mode for saving a trained model.

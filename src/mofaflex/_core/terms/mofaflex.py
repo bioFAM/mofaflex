@@ -23,7 +23,7 @@ from scipy.sparse import issparse
 from sklearn.decomposition import NMF, PCA
 
 from ..api import priors as apipriors
-from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset, merge_covariates
+from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset, df_to_array, merge_covariates
 from ..likelihoods.pyro import Likelihood
 from ..priors import API, APIType, FactorPriorType, Prior, WeightPriorType
 from ..utils import (
@@ -382,7 +382,9 @@ class MofaFlex(Term):
         for prior in self._weight_priors:
             if priordsets := prior.get_datasets(data, 1, self.n_total_factors, data.n_features):
                 for dsetname, dset in priordsets.items():
-                    self._weight_dsets[dsetname].update(dset)
+                    wdsets = self._weight_dsets[dsetname]
+                    for view_name, view_dset in dset.items():
+                        wdsets[view_name] = df_to_array(view_dset) if isinstance(view_dset, pd.DataFrame) else view_dset
 
         if self.n_guided_factors > 0:
             guiding_vars = {
