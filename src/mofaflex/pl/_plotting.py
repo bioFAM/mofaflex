@@ -732,6 +732,34 @@ def factors_covariate(
     )
 
 
+def weights_covariate(
+    model: types.MofaFlex | MOFAFLEX,
+    covariate1: str | int,
+    covariate2: str | int | None = None,
+    size: int = 1,
+    figsize: tuple[float, float] | None = None,
+) -> p9.ggplot:
+    """Plot the weights of every factor against one or two covariates.
+
+    Args:
+        model: The term to plot the factors for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
+        covariate1: The first covariate to plot against. Can be an integer index or the covariate name, if the covariates are named.
+        covariate2: The first covariate to plot against. Can be an integer index or the covariate name, if the covariates are named.
+            If `None`, only one covariate will be plotted.
+        size: The point size.
+        figsize: Figure size in inches.
+    """
+    return _plot_covariate(
+        model.weight_covariates,
+        model.get_weights(),
+        model.n_total_factors,
+        covariate1,
+        covariate2,
+        size=size,
+        figsize=figsize,
+    )
+
+
 def _plot_gp_covariate(
     covariates: Mapping[str, pd.DataFrame],
     gp_means: Mapping[str, pd.DataFrame],
