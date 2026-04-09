@@ -195,7 +195,11 @@ class TrainingOptions(_Options):
 
     mofa_compat: MOFACompatOption = False
     """Save model in MOFA2 compatible format. If `True` or `"full"`, will include the data in the file. This
-    can result in very large files. `"modelonly"` will save only the trained model."""
+    can result in very large files. `"modelonly"` will save only the trained model.
+
+    .. version-deprecated:: 0.1.1
+       This option will be removed in MOFA-FLEX 0.2. If you are missing a feature from the MOFA2 R package, please open an `issue <https://github.com/bioFAM/mofaflex/issues>`_.
+"""
 
     seed: int | None = None
     """Seed for the pseudorandom number generator."""
