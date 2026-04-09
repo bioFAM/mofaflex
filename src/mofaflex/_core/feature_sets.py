@@ -20,10 +20,10 @@ class FeatureSet:
 
     This class stores a single set of features (genes) and provides set operations for intersection, union, and difference.
 
-    Attributes:
-        features (frozenset): The set of features in the feature set.
-        name (str): The name of the feature set.
-        description (str): A description of the feature set.
+    Args:
+        features: The set of features in the feature set.
+        name: The name of the feature set.
+        description: A description of the feature set.
 
     Notes:
         If the feature set is empty, a warning is raised.
@@ -31,9 +31,9 @@ class FeatureSet:
     """
 
     def __init__(self, features: Collection[str], name: str, description: str = ""):
-        self.name = name
-        self.features = frozenset(features)
-        self.description = description
+        self._name = name
+        self._features = frozenset(features)
+        self._description = description
 
         if self.empty:
             logger.warning(f"FeatureSet {name!r} is empty.")
@@ -51,7 +51,30 @@ class FeatureSet:
         self.redundant_features = redundant_features
 
     @property
-    def empty(self):
+    def name(self) -> str:
+        """The name of the feature set."""
+        return self._name
+
+    @name.setter
+    def name(self, val: str):
+        self._name = val
+
+    @property
+    def features(self) -> frozenset:
+        """The set of features in the feature set."""
+        return self._features
+
+    @property
+    def description(self) -> str:
+        """A description of the feature set."""
+        return self._description
+
+    @description.setter
+    def description(self, val: str):
+        self._description = val
+
+    @property
+    def empty(self) -> bool:
         """Check if the feature set is empty."""
         return len(self) == 0
 
@@ -94,14 +117,14 @@ class FeatureSets:
 
     This class stores a collection of feature sets and provides set operations for intersection, union, and difference.
 
-    Attributes:
-        feature_sets (frozenset): The collection of feature sets.
-        name (str): The name of the feature set collection.
-        remove_empty (bool): Whether to remove empty feature sets.
+    Args:
+        feature_sets: The collection of feature sets.
+        name: The name of the feature set collection.
+        remove_empty: Whether to remove empty feature sets.
     """
 
     def __init__(self, feature_sets: Collection[FeatureSet], name: str = "UNL", remove_empty: bool = True):
-        self.name = name
+        self._name = name
 
         if remove_empty:
             feature_sets = {feature_set for feature_set in feature_sets if not feature_set.empty}
@@ -118,11 +141,25 @@ class FeatureSets:
                 "collection of feature sets; redundant feature sets: "
                 f"{redundant_feature_sets}"
             )
-        self.feature_sets = frozenset(feature_sets)
-        self.redundant_feature_sets = redundant_feature_sets
+        self._feature_sets = frozenset(feature_sets)
+        self._redundant_feature_sets = redundant_feature_sets
 
     @property
-    def empty(self):
+    def feature_sets(self) -> frozenset:
+        """The collection of feature sets."""
+        return self._feature_sets
+
+    @property
+    def name(self) -> str:
+        """The name of the feature set collection."""
+        return self._name
+
+    @name.setter
+    def name(self, val: str):
+        self._name = val
+
+    @property
+    def empty(self) -> bool:
         """Check if the feature set collection is empty."""
         return len(self) == 0
 
