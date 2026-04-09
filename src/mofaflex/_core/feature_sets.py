@@ -266,9 +266,9 @@ class FeatureSets:
     def filter(
         self,
         features: Iterable[str],
-        min_fraction: float = 0.5,
+        min_fraction: float = 0.0,
         min_count: int = 5,
-        max_count: int | None = None,
+        max_count: int | None = 300,
         keep: Iterable[str] | None = None,
         subset: bool = True,
     ) -> FeatureSets:

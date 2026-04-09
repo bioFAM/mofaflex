@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Changed
 - `pl.factor` now also accepts factor names for the `factor` argument.
+- `FeatureSets.filter` now has better defaults (based on extensive benchmarking).
 
 ### Deprecated
 - The MOFA compatibility mode for saving a trained model.
