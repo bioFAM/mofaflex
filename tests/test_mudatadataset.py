@@ -220,7 +220,7 @@ def test_getitems(mdata, dataset, layer, rng):
                 obsm=adata.obsm,
                 varm=adata.varm,
             )
-        new_mdata = MuData(mods, obs=mdata.obs, var=mdata.var, obsmap=mdata.obsmap, varmap=mdata.varmap)
+        new_mdata = MuData(mods, obs=mdata.obs, var=mdata.var, obsmap=dict(mdata.obsmap), varmap=dict(mdata.varmap))
         new_mdata.obs = mdata.obs
         new_mdata.var = mdata.var
         mdata = new_mdata
