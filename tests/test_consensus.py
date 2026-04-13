@@ -1,5 +1,4 @@
 """Tests for mofaflex.tl.consensus."""
-import warnings
 
 import anndata as ad
 import numpy as np
@@ -42,11 +41,7 @@ def consensus_mdata():
 
 def _nonneg_template_factory(n_factors=5):
     def factory():
-        return terms.MofaFlex(
-            n_factors=n_factors,
-            nonnegative_factors=True,
-            nonnegative_weights=True,
-        )
+        return terms.MofaFlex(n_factors=n_factors, nonnegative_factors=True, nonnegative_weights=True)
 
     return factory
 
@@ -102,11 +97,7 @@ def test_consensus_diagnostics_shapes(consensus_result):
 
 def test_fit_consensus_rejects_signed_template(consensus_mdata):
     def factory():
-        return terms.MofaFlex(
-            n_factors=4,
-            nonnegative_factors=False,
-            nonnegative_weights=False,
-        )
+        return terms.MofaFlex(n_factors=4, nonnegative_factors=False, nonnegative_weights=False)
 
     with pytest.raises(ValueError, match="non-negative"):
         fit_consensus(
@@ -143,11 +134,7 @@ def test_consensus_factors_sorted_by_usage(consensus_result):
 
 def test_k_selection_sweep(consensus_mdata):
     def factory(k):
-        return terms.MofaFlex(
-            n_factors=k,
-            nonnegative_factors=True,
-            nonnegative_weights=True,
-        )
+        return terms.MofaFlex(n_factors=k, nonnegative_factors=True, nonnegative_weights=True)
 
     result = k_selection(
         factory,
@@ -203,9 +190,9 @@ def test_plot_clustergram_returns_figure(consensus_result):
                 xs = child.get_xdata()
                 if len(xs) and np.allclose(xs, xs[0]):
                     line_xs.append(float(xs[0]))
-        assert any(
-            np.isclose(x, consensus_result.density_threshold) for x in line_xs
-        ), f"density threshold marker not found among {line_xs}"
+        assert any(np.isclose(x, consensus_result.density_threshold) for x in line_xs), (
+            f"density threshold marker not found among {line_xs}"
+        )
     finally:
         import matplotlib.pyplot as plt
 
@@ -219,11 +206,7 @@ def test_plot_cnmf_k_selection_returns_figure(consensus_mdata):
     from matplotlib.figure import Figure
 
     def factory(k):
-        return terms.MofaFlex(
-            n_factors=k,
-            nonnegative_factors=True,
-            nonnegative_weights=True,
-        )
+        return terms.MofaFlex(n_factors=k, nonnegative_factors=True, nonnegative_weights=True)
 
     result = k_selection(
         factory,

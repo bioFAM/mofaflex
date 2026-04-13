@@ -89,11 +89,7 @@ class ConsensusResult:
     distance_matrix: np.ndarray
 
     def plot_clustergram(
-        self,
-        *,
-        figsize: tuple[float, float] = (10, 6),
-        cmap_distance: str = "viridis",
-        cmap_clusters: str = "Spectral",
+        self, *, figsize: tuple[float, float] = (10, 6), cmap_distance: str = "viridis", cmap_clusters: str = "Spectral"
     ):
         """Plot cNMF's consensus diagnostic clustergram.
 
@@ -145,35 +141,19 @@ class ConsensusResult:
 
         # Top cluster-label sidebar (cnmf.py:1127-1135).
         top_ax = fig.add_subplot(gs[0, 1])
-        top_ax.imshow(
-            labels_ordered.reshape(1, -1),
-            aspect="auto",
-            cmap=cmap_clusters,
-            interpolation="none",
-        )
+        top_ax.imshow(labels_ordered.reshape(1, -1), aspect="auto", cmap=cmap_clusters, interpolation="none")
         top_ax.set_xticks([])
         top_ax.set_yticks([])
 
         # Left cluster-label sidebar.
         left_ax = fig.add_subplot(gs[1, 0])
-        left_ax.imshow(
-            labels_ordered.reshape(-1, 1),
-            aspect="auto",
-            cmap=cmap_clusters,
-            interpolation="none",
-        )
+        left_ax.imshow(labels_ordered.reshape(-1, 1), aspect="auto", cmap=cmap_clusters, interpolation="none")
         left_ax.set_xticks([])
         left_ax.set_yticks([])
 
         # Main reordered distance heatmap (cnmf.py:1119-1125).
         dist_ax = fig.add_subplot(gs[1, 1])
-        dist_im = dist_ax.imshow(
-            D_ordered,
-            interpolation="none",
-            cmap=cmap_distance,
-            aspect="auto",
-            rasterized=True,
-        )
+        dist_im = dist_ax.imshow(D_ordered, interpolation="none", cmap=cmap_distance, aspect="auto", rasterized=True)
         dist_ax.set_xticks([])
         dist_ax.set_yticks([])
         dist_ax.set_title(f"Spectra distance (k={self.n_factors})", fontsize=11)
@@ -212,13 +192,9 @@ class KSelectionResult:
 
     def __post_init__(self):
         ks = sorted(self.results.keys())
-        self.stability = pd.Series(
-            [self.results[k].stability for k in ks], index=ks, name="stability"
-        )
+        self.stability = pd.Series([self.results[k].stability for k in ks], index=ks, name="stability")
         self.reconstruction_error = pd.Series(
-            [self.results[k].reconstruction_error for k in ks],
-            index=ks,
-            name="reconstruction_error",
+            [self.results[k].reconstruction_error for k in ks], index=ks, name="reconstruction_error"
         )
 
     def plot(self, figsize: tuple[float, float] = (8, 4)):
@@ -266,16 +242,9 @@ class KSelectionResult:
         fig = plt.figure(figsize=figsize)
         ax1 = fig.add_subplot(111)
         ax2 = ax1.twinx()
-        ax1.plot(
-            self.stability.index, self.stability.values, "o-", color="b"
-        )
+        ax1.plot(self.stability.index, self.stability.values, "o-", color="b")
         ax1.set_ylabel("Stability", color="b", fontsize=15)
-        ax2.plot(
-            self.reconstruction_error.index,
-            self.reconstruction_error.values,
-            "o-",
-            color="r",
-        )
+        ax2.plot(self.reconstruction_error.index, self.reconstruction_error.values, "o-", color="r")
         ax2.set_ylabel("Error", color="r", fontsize=15)
         ax1.set_xlabel("Number of components (k)", fontsize=15)
         ax1.grid(True)
@@ -287,9 +256,7 @@ class KSelectionResult:
 # ---------------------------------------------------------------------------
 
 
-def _instantiate_template(
-    template: MOFAFLEX | Callable[[], MOFAFLEX],
-) -> MOFAFLEX:
+def _instantiate_template(template: MOFAFLEX | Callable[[], MOFAFLEX]) -> MOFAFLEX:
     """Return a fresh, untrained :class:`MOFAFLEX` instance from ``template``.
 
     Accepts either a callable that returns a new :class:`MOFAFLEX`, or an
@@ -302,9 +269,7 @@ def _instantiate_template(
     if callable(template):
         model = template()
         if not isinstance(model, MOFAFLEX):
-            raise TypeError(
-                f"template_factory must return a MOFAFLEX instance, got {type(model).__name__}."
-            )
+            raise TypeError(f"template_factory must return a MOFAFLEX instance, got {type(model).__name__}.")
         if hasattr(model, "_model"):
             raise ValueError("template_factory returned an already-trained model.")
         return model
@@ -314,9 +279,7 @@ def _instantiate_template(
             f"template must be a MOFAFLEX instance or a callable returning one, got {type(template).__name__}."
         )
     if hasattr(template, "_model"):
-        raise ValueError(
-            "template is an already-trained MOFAFLEX model. Pass a fresh model or a factory."
-        )
+        raise ValueError("template is an already-trained MOFAFLEX model. Pass a fresh model or a factory.")
     return copy.deepcopy(template)
 
 
@@ -411,21 +374,11 @@ def _run_replicates(
         per_run_factors.append(factors)
         last_model = model
 
-    return (
-        per_run_weights,
-        per_run_factors,
-        view_names,
-        group_names,
-        int(n_factors),
-        seeds,
-        last_model,
-    )
+    return (per_run_weights, per_run_factors, view_names, group_names, int(n_factors), seeds, last_model)
 
 
 def _build_spectra_matrix(
-    per_run_weights: Sequence[Mapping[str, pd.DataFrame]],
-    view_names: Sequence[str],
-    n_factors: int,
+    per_run_weights: Sequence[Mapping[str, pd.DataFrame]], view_names: Sequence[str], n_factors: int
 ) -> tuple[np.ndarray, list[tuple[int, int]], list[str], dict[str, slice]]:
     """Build the pooled, per-view-normalized, L2-normalized spectra matrix.
 
@@ -483,10 +436,7 @@ def _build_spectra_matrix(
 
 
 def _local_density_filter(
-    S: np.ndarray,
-    n_runs: int,
-    local_neighborhood_size: float,
-    density_threshold: float,
+    S: np.ndarray, n_runs: int, local_neighborhood_size: float, density_threshold: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute the pairwise distance matrix, per-row local densities, and an outlier kept mask.
 
@@ -494,7 +444,7 @@ def _local_density_filter(
 
     .. code-block:: python
 
-        n_neighbors = int(local_neighborhood_size * merged_spectra.shape[0]/k)
+        n_neighbors = int(local_neighborhood_size * merged_spectra.shape[0] / k)
         # i.e. int(local_neighborhood_size * n_runs) in our notation
         topics_dist = euclidean_distances(l2_spectra.values)
         # take the n_neighbors+1 nearest (incl self at distance 0), sum, /n_neighbors
@@ -525,11 +475,11 @@ def _within_cluster_order(D_kept: np.ndarray, labels: np.ndarray) -> np.ndarray:
     .. code-block:: python
 
         for cl in sorted(set(kmeans_cluster_labels)):
-            cl_filter = kmeans_cluster_labels==cl
+            cl_filter = kmeans_cluster_labels == cl
             if cl_filter.sum() > 1:
                 cl_dist = squareform(topics_dist[cl_filter, :][:, cl_filter], checks=False)
                 cl_dist[cl_dist < 0] = 0
-                cl_link = linkage(cl_dist, 'average')
+                cl_link = linkage(cl_dist, "average")
                 cl_leaves_order = leaves_list(cl_link)
                 spectra_order += list(np.where(cl_filter)[0][cl_leaves_order])
     """
@@ -564,7 +514,7 @@ def _cluster_and_consensus(
 
         kmeans_model = KMeans(n_clusters=k, n_init=10, random_state=1)
         kmeans_model.fit(l2_spectra)
-        kmeans_cluster_labels = pd.Series(kmeans_model.labels_+1, index=l2_spectra.index)
+        kmeans_cluster_labels = pd.Series(kmeans_model.labels_ + 1, index=l2_spectra.index)
         median_spectra = l2_spectra.groupby(kmeans_cluster_labels).median()
 
     The median is taken on the L2-normalized stacked spectra (the same rows
@@ -602,17 +552,12 @@ def _cluster_and_consensus(
         # median being approximate. Clamp at zero to keep weights non-negative.
         view_block = np.where(view_block > 0, view_block, 0.0)
         consensus_weights[v] = pd.DataFrame(
-            view_block,
-            index=feature_index,
-            columns=[f"Factor {c + 1}" for c in range(n_factors)],
+            view_block, index=feature_index, columns=[f"Factor {c + 1}" for c in range(n_factors)]
         )
     return consensus_weights, labels, stability
 
 
-def _get_data_matrices(
-    model: MOFAFLEX,
-    data,
-) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, np.ndarray]]:
+def _get_data_matrices(model: MOFAFLEX, data) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, np.ndarray]]:
     """Pull the preprocessed data matrices and sample names from the fitted model's dataset.
 
     Reuses the model's own :class:`MofaFlexDataset` construction so the
@@ -692,18 +637,13 @@ def _refit_usages(
             tol=1e-4,
             max_iter=500,
         )
-        consensus_factors[group_name] = pd.DataFrame(
-            W,
-            index=sample_names[group_name],
-            columns=factor_names,
-        )
+        consensus_factors[group_name] = pd.DataFrame(W, index=sample_names[group_name], columns=factor_names)
 
     return consensus_factors
 
 
 def _reorder_by_usage(
-    consensus_weights: Mapping[str, pd.DataFrame],
-    consensus_factors: Mapping[str, pd.DataFrame],
+    consensus_weights: Mapping[str, pd.DataFrame], consensus_factors: Mapping[str, pd.DataFrame]
 ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
     """Sort factors by total usage contribution descending.
 
@@ -728,12 +668,10 @@ def _reorder_by_usage(
 
     new_columns = [f"Factor {i + 1}" for i in range(len(order))]
     new_weights = {
-        v: pd.DataFrame(W.values[:, order], index=W.index, columns=new_columns)
-        for v, W in consensus_weights.items()
+        v: pd.DataFrame(W.values[:, order], index=W.index, columns=new_columns) for v, W in consensus_weights.items()
     }
     new_factors = {
-        g: pd.DataFrame(Z.values[:, order], index=Z.index, columns=new_columns)
-        for g, Z in consensus_factors.items()
+        g: pd.DataFrame(Z.values[:, order], index=Z.index, columns=new_columns) for g, Z in consensus_factors.items()
     }
     return new_weights, new_factors
 
@@ -832,21 +770,11 @@ def fit_consensus(
     if n_runs < 2:
         raise ValueError(f"n_runs must be at least 2 to form consensus, got {n_runs}.")
 
-    (
-        per_run_weights,
-        per_run_factors,
-        view_names,
-        group_names,
-        n_factors,
-        seeds,
-        last_model,
-    ) = _run_replicates(
+    (per_run_weights, per_run_factors, view_names, group_names, n_factors, seeds, last_model) = _run_replicates(
         template_factory, data, n_runs, seed, fit_kwargs, show_progress
     )
 
-    S, row_keys, row_labels, view_slices = _build_spectra_matrix(
-        per_run_weights, view_names, n_factors
-    )
+    S, row_keys, row_labels, view_slices = _build_spectra_matrix(per_run_weights, view_names, n_factors)
 
     D_full, local_density_arr, kept_mask_arr = _local_density_filter(
         S, n_runs, local_neighborhood_size, density_threshold
@@ -869,27 +797,19 @@ def fit_consensus(
         S_kept, per_run_weights, view_names, view_slices, n_factors
     )
     cluster_labels = pd.Series(
-        cluster_labels_arr,
-        index=[row_labels[i] for i, kept in enumerate(kept_mask_arr) if kept],
-        name="cluster",
+        cluster_labels_arr, index=[row_labels[i] for i, kept in enumerate(kept_mask_arr) if kept], name="cluster"
     )
 
     X_by_group, sample_names = _get_data_matrices(last_model, data)
-    consensus_factors = _refit_usages(
-        consensus_weights, X_by_group, sample_names, view_names
-    )
+    consensus_factors = _refit_usages(consensus_weights, X_by_group, sample_names, view_names)
 
     # Reorder factors by total usage contribution (cnmf.py:950-957):
     #   reorder = norm_usages.sum(axis=0).sort_values(ascending=False)
     # We use the unnormalized refitted Z column sums directly, since they
     # are already non-negative.
-    consensus_weights, consensus_factors = _reorder_by_usage(
-        consensus_weights, consensus_factors
-    )
+    consensus_weights, consensus_factors = _reorder_by_usage(consensus_weights, consensus_factors)
 
-    reconstruction_error = _reconstruction_error(
-        X_by_group, consensus_weights, consensus_factors, view_names
-    )
+    reconstruction_error = _reconstruction_error(X_by_group, consensus_weights, consensus_factors, view_names)
 
     return ConsensusResult(
         n_factors=n_factors,
@@ -952,7 +872,7 @@ def k_selection(
     results: dict[int, ConsensusResult] = {}
     for k in k_values:
         k_seed = int(rng.integers(1, 2**31 - 1))
-        factory = (lambda k=k: template_factory(k))  # noqa: E731
+        factory = lambda k=k: template_factory(k)
         results[int(k)] = fit_consensus(
             factory,
             data,
