@@ -40,7 +40,7 @@ def _fixup_mudata(mudata: MuData, orig: MuData, with_extra: bool = True, extra_c
 
 def _mudata_to_dask(mudata: MuData, with_extra: bool = True):
     mods = {modname: anndata_to_dask(mod) for modname, mod in mudata.mod.items()}
-    dask_mudata = MuData(mods, obs=mudata.obs, var=mudata.var, obsmap=mudata.obsmap, varmap=mudata.varmap)
+    dask_mudata = MuData(mods, obs=mudata.obs, var=mudata.var, obsmap=dict(mudata.obsmap), varmap=dict(mudata.varmap))
     return _fixup_mudata(dask_mudata, mudata, with_extra=with_extra, extra_callback=array_to_dask)
 
 
@@ -57,8 +57,8 @@ def _select_layers(mudata: MuData, layer: Mapping[str, str | None] | None):
         {modname: select_anndata_layer(mod, layerfunc(modname)) for modname, mod in mudata.mod.items()},
         obs=mudata.obs,
         var=mudata.var,
-        obsmap=mudata.obsmap,
-        varmap=mudata.varmap,
+        obsmap=dict(mudata.obsmap),
+        varmap=dict(mudata.varmap),
     )
     return _fixup_mudata(new_mudata, mudata, with_extra=True)
 
@@ -330,7 +330,7 @@ class MuDataDataset(MofaFlexDataset):
         }
 
         # need to pass obs in the constructor to make shape validation for obsmap work
-        fakemudata = MuData(fakeadatas, obs=self._data.obs, obsmap=self._data.obsmap)
+        fakemudata = MuData(fakeadatas, obs=self._data.obs, obsmap=dict(self._data.obsmap))
         # need to replace obs since the constructor runs update(), which breaks push_obs()
         fakemudata.obs = self._data.obs
         fakemudata.push_obs()
