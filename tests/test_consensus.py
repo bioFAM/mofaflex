@@ -131,6 +131,16 @@ def test_fit_consensus_requires_n_runs_at_least_2(consensus_mdata):
         )
 
 
+def test_consensus_factors_sorted_by_usage(consensus_result):
+    # cnmf.py:950-957: factors are reordered by total usage contribution
+    # descending. Verify the per-group column-sum totals are non-increasing.
+    totals = None
+    for Z in consensus_result.consensus_factors.values():
+        col_sums = Z.values.sum(axis=0)
+        totals = col_sums if totals is None else totals + col_sums
+    assert np.all(np.diff(totals) <= 1e-9), f"factors not sorted by usage: {totals}"
+
+
 def test_k_selection_sweep(consensus_mdata):
     def factory(k):
         return terms.MofaFlex(

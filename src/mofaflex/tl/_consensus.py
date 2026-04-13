@@ -281,7 +281,7 @@ def _build_spectra_matrix(
     per_run_weights: Sequence[Mapping[str, pd.DataFrame]],
     view_names: Sequence[str],
     n_factors: int,
-) -> tuple[np.ndarray, list[tuple[int, int]], list[str]]:
+) -> tuple[np.ndarray, list[tuple[int, int]], list[str], dict[str, slice]]:
     """Build the pooled, per-view-normalized, L2-normalized spectra matrix.
 
     Each row is one (run, factor) pair. For each view we take the column of
@@ -296,6 +296,9 @@ def _build_spectra_matrix(
         row_keys: List of ``(run_index, factor_index)`` tuples aligned to
             rows of S.
         row_labels: Human-readable row labels (``"run{i}_factor{j}"``).
+        view_slices: Mapping ``view_name -> slice`` indexing the columns of
+            ``S`` (and of any row median computed from ``S``) that
+            correspond to that view.
     """
     eps = np.finfo(np.float64).eps
     n_runs = len(per_run_weights)
@@ -318,15 +321,20 @@ def _build_spectra_matrix(
     # For each view, stack its per-run (p_v, k) blocks column-wise to get
     # (p_v, n_runs * k), then transpose to (n_runs * k, p_v).
     per_view_rows = []
+    view_slices: dict[str, slice] = {}
+    offset = 0
     for v in view_names:
         stacked = np.concatenate(view_cols[v], axis=1)  # (p_v, n_runs * k)
+        p_v = stacked.shape[0]
+        view_slices[v] = slice(offset, offset + p_v)
+        offset += p_v
         per_view_rows.append(stacked.T)  # (n_runs * k, p_v)
     S = np.concatenate(per_view_rows, axis=1)  # (n_runs * k, sum_p)
 
-    # Global L2 normalization (cNMF-style).
+    # Global L2 normalization (cNMF-style, l2_spectra in cnmf.py:889).
     norms = np.linalg.norm(S, axis=1, keepdims=True)
     S = S / np.where(norms > eps, norms, 1.0)
-    return S, row_keys, row_labels
+    return S, row_keys, row_labels, view_slices
 
 
 def _local_density_filter(
@@ -337,18 +345,26 @@ def _local_density_filter(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute per-row local densities and an outlier kept mask.
 
-    The local density of a row is the mean Euclidean distance to its
-    ``nn`` nearest neighbors, where ``nn = max(1, int(local_neighborhood_size
-    * n_runs))``. Rows whose density is strictly below ``density_threshold``
-    are kept.
+    Faithful port of cNMF's local-density step (``cnmf.py`` lines 891, 901-912):
+
+    .. code-block:: python
+
+        n_neighbors = int(local_neighborhood_size * merged_spectra.shape[0]/k)
+        # i.e. int(local_neighborhood_size * n_runs) in our notation
+        topics_dist = euclidean_distances(l2_spectra.values)
+        # take the n_neighbors+1 nearest (incl self at distance 0), sum, /n_neighbors
+        local_density = distance_to_nearest_neighbors.sum(1) / n_neighbors
+        density_filter = local_density < density_threshold
 
     Returns (local_density, kept_mask) with shapes ``(n_rows,)`` each.
     """
     D = euclidean_distances(S)
-    nn = max(1, int(round(local_neighborhood_size * n_runs)))
-    # For each row, take mean of the nn nearest *other* rows.
+    # cnmf.py:891 uses int() (truncation), not round(). Guard against 0.
+    nn = max(1, int(local_neighborhood_size * n_runs))
+    # cnmf.py:901-906 takes the n_neighbors+1 nearest including self (distance
+    # 0) and divides by n_neighbors. Equivalently, the mean of the nn nearest
+    # *non-self* rows.
     sorted_D = np.sort(D, axis=1)
-    # sorted_D[:, 0] is self (distance 0); nearest neighbors are columns 1..nn
     local_density = sorted_D[:, 1 : nn + 1].mean(axis=1)
     kept_mask = local_density < density_threshold
     return local_density, kept_mask
@@ -356,54 +372,58 @@ def _local_density_filter(
 
 def _cluster_and_consensus(
     S_kept: np.ndarray,
-    kept_row_keys: Sequence[tuple[int, int]],
     per_run_weights: Sequence[Mapping[str, pd.DataFrame]],
     view_names: Sequence[str],
+    view_slices: Mapping[str, slice],
     n_factors: int,
 ) -> tuple[dict[str, pd.DataFrame], np.ndarray, float]:
     """KMeans-cluster the kept spectra and build per-view median consensus weights.
 
-    Cluster labels are assigned to contiguous factor IDs in the order the
-    clusters first appear. The consensus weight for cluster ``c`` and view
-    ``v`` is the element-wise median of the (un-normalized) columns of
-    ``per_run_weights[run_idx][v]`` for all ``(run_idx, factor_idx)`` in
-    that cluster.
+    Faithful port of cnmf.py:918-923:
+
+    .. code-block:: python
+
+        kmeans_model = KMeans(n_clusters=k, n_init=10, random_state=1)
+        kmeans_model.fit(l2_spectra)
+        kmeans_cluster_labels = pd.Series(kmeans_model.labels_+1, index=l2_spectra.index)
+        median_spectra = l2_spectra.groupby(kmeans_cluster_labels).median()
+
+    The median is taken on the L2-normalized stacked spectra (the same rows
+    KMeans was fit on), then split by view to recover one consensus weight
+    matrix per view. This matches cNMF's choice of computing the consensus
+    in normalized space; the downstream multi-view NNLS refit absorbs the
+    scaling. Cluster labels are deterministically remapped to contiguous
+    factor IDs in the order the clusters first appear.
     """
     km = KMeans(n_clusters=n_factors, n_init=10, random_state=1)
     raw_labels = km.fit_predict(S_kept)
     stability = float(silhouette_score(S_kept, raw_labels, metric="euclidean"))
 
-    # Relabel clusters 0..k-1 in the order they first appear so downstream
-    # factor numbering is deterministic across runs of the same data.
+    # Deterministic relabeling 0..k-1 in order of first appearance.
     remap: dict[int, int] = {}
     for lbl in raw_labels:
         if lbl not in remap:
             remap[lbl] = len(remap)
-    labels = np.array([remap[l] for l in raw_labels], dtype=int)
+    labels = np.array([remap[int(l)] for l in raw_labels], dtype=int)
 
-    # Gather (run_idx, factor_idx) per cluster.
-    cluster_members: dict[int, list[tuple[int, int]]] = {c: [] for c in range(n_factors)}
-    for key, lbl in zip(kept_row_keys, labels, strict=True):
-        cluster_members[int(lbl)].append(key)
+    # Median of L2-normalized rows per cluster: shape (k, sum_v p_v).
+    # Equivalent to cnmf.py:923 `l2_spectra.groupby(labels).median()`.
+    df = pd.DataFrame(S_kept)
+    df["_label"] = labels
+    median_rows = df.groupby("_label").median().sort_index().values  # (k, sum_p)
 
+    # Split the median rows back into per-view weight matrices.
     consensus_weights: dict[str, pd.DataFrame] = {}
     for v in view_names:
         feature_index = per_run_weights[0][v].index
-        cols: list[np.ndarray] = []
-        for c in range(n_factors):
-            members = cluster_members[c]
-            if not members:
-                # Degenerate cluster: fall back to a zero vector. This
-                # shouldn't happen in practice because KMeans always
-                # produces exactly n_factors clusters, but guard anyway.
-                cols.append(np.zeros(len(feature_index), dtype=np.float64))
-                continue
-            stacked = np.stack(
-                [per_run_weights[r][v].values[:, j] for r, j in members], axis=1
-            )  # (p_v, |members|)
-            cols.append(np.median(stacked, axis=1))
+        # median_rows[:, view_slices[v]] is (k, p_v); transpose to (p_v, k)
+        # so columns correspond to factors, matching MOFAFLEX get_weights().
+        view_block = median_rows[:, view_slices[v]].T
+        # The L2-normalized rows can carry small negative values due to the
+        # median being approximate. Clamp at zero to keep weights non-negative.
+        view_block = np.where(view_block > 0, view_block, 0.0)
         consensus_weights[v] = pd.DataFrame(
-            np.stack(cols, axis=1),
+            view_block,
             index=feature_index,
             columns=[f"Factor {c + 1}" for c in range(n_factors)],
         )
@@ -500,6 +520,43 @@ def _refit_usages(
         )
 
     return consensus_factors
+
+
+def _reorder_by_usage(
+    consensus_weights: Mapping[str, pd.DataFrame],
+    consensus_factors: Mapping[str, pd.DataFrame],
+) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    """Sort factors by total usage contribution descending.
+
+    Mirrors cnmf.py:950-957:
+
+    .. code-block:: python
+
+        norm_usages = rf_usages.div(rf_usages.sum(axis=1), axis=0)
+        reorder = norm_usages.sum(axis=0).sort_values(ascending=False)
+
+    Here we sum the (un-row-normalized) refitted factor columns across all
+    groups, since the refitted Z is already non-negative and groups share
+    the same factor identity. Factor columns are renumbered ``Factor 1``,
+    ``Factor 2``, ... after reordering so the most-used factor is first.
+    """
+    # Build the per-factor usage total across all groups.
+    totals = None
+    for Z in consensus_factors.values():
+        col_sums = Z.values.sum(axis=0)
+        totals = col_sums if totals is None else totals + col_sums
+    order = np.argsort(-totals)  # descending
+
+    new_columns = [f"Factor {i + 1}" for i in range(len(order))]
+    new_weights = {
+        v: pd.DataFrame(W.values[:, order], index=W.index, columns=new_columns)
+        for v, W in consensus_weights.items()
+    }
+    new_factors = {
+        g: pd.DataFrame(Z.values[:, order], index=Z.index, columns=new_columns)
+        for g, Z in consensus_factors.items()
+    }
+    return new_weights, new_factors
 
 
 def _reconstruction_error(
@@ -608,7 +665,7 @@ def fit_consensus(
         template_factory, data, n_runs, seed, fit_kwargs, show_progress
     )
 
-    S, row_keys, row_labels = _build_spectra_matrix(
+    S, row_keys, row_labels, view_slices = _build_spectra_matrix(
         per_run_weights, view_names, n_factors
     )
 
@@ -626,11 +683,10 @@ def fit_consensus(
             "Try relaxing `density_threshold` or increasing `n_runs`."
         )
 
-    kept_row_keys = [row_keys[i] for i, kept in enumerate(kept_mask_arr) if kept]
     S_kept = S[kept_mask_arr]
 
     consensus_weights, cluster_labels_arr, stability = _cluster_and_consensus(
-        S_kept, kept_row_keys, per_run_weights, view_names, n_factors
+        S_kept, per_run_weights, view_names, view_slices, n_factors
     )
     cluster_labels = pd.Series(
         cluster_labels_arr,
@@ -642,6 +698,15 @@ def fit_consensus(
     consensus_factors = _refit_usages(
         consensus_weights, X_by_group, sample_names, view_names
     )
+
+    # Reorder factors by total usage contribution (cnmf.py:950-957):
+    #   reorder = norm_usages.sum(axis=0).sort_values(ascending=False)
+    # We use the unnormalized refitted Z column sums directly, since they
+    # are already non-negative.
+    consensus_weights, consensus_factors = _reorder_by_usage(
+        consensus_weights, consensus_factors
+    )
+
     reconstruction_error = _reconstruction_error(
         X_by_group, consensus_weights, consensus_factors, view_names
     )
