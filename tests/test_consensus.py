@@ -59,7 +59,7 @@ def consensus_result(consensus_mdata):
         n_runs=3,
         density_threshold=2.0,  # permissive; tiny n_runs gives higher densities
         seed=123,
-        fit_kwargs={"max_epochs": 50, "device": "cpu", "lr": 0.01, "early_stopper_patience": 20},
+        fit_kwargs={"max_epochs": 50, "device": "cpu", "lr": 0.01, "early_stopper_patience": 20, "save_path": False},
         show_progress=False,
     )
 
@@ -114,7 +114,7 @@ def test_fit_consensus_rejects_signed_template(consensus_mdata):
             consensus_mdata,
             n_runs=2,
             seed=0,
-            fit_kwargs={"max_epochs": 20, "device": "cpu"},
+            fit_kwargs={"max_epochs": 20, "device": "cpu", "save_path": False},
             show_progress=False,
         )
 
@@ -126,7 +126,7 @@ def test_fit_consensus_requires_n_runs_at_least_2(consensus_mdata):
             consensus_mdata,
             n_runs=1,
             seed=0,
-            fit_kwargs={"max_epochs": 10, "device": "cpu"},
+            fit_kwargs={"max_epochs": 10, "device": "cpu", "save_path": False},
             show_progress=False,
         )
 
@@ -156,7 +156,7 @@ def test_k_selection_sweep(consensus_mdata):
         n_runs=2,
         density_threshold=2.0,
         seed=7,
-        fit_kwargs={"max_epochs": 50, "device": "cpu", "lr": 0.01, "early_stopper_patience": 20},
+        fit_kwargs={"max_epochs": 50, "device": "cpu", "lr": 0.01, "early_stopper_patience": 20, "save_path": False},
         show_progress=False,
     )
     assert isinstance(result, KSelectionResult)
@@ -171,3 +171,76 @@ def test_k_selection_sweep(consensus_mdata):
 
     plot = result.plot()
     assert isinstance(plot, p9.ggplot)
+
+
+def test_distance_matrix_shape(consensus_result):
+    # cNMF clustergram diagnostic plumbing: the kept-only Euclidean
+    # distance matrix is stashed on the result for plot_clustergram.
+    D = consensus_result.distance_matrix
+    n_kept = int(consensus_result.kept_mask.sum())
+    assert D.shape == (n_kept, n_kept)
+    assert np.allclose(np.diag(D), 0.0, atol=1e-9)
+    assert np.allclose(D, D.T)
+
+
+def test_plot_clustergram_returns_figure(consensus_result):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
+
+    fig = consensus_result.plot_clustergram()
+    try:
+        assert isinstance(fig, Figure)
+        # 5 panels: top sidebar, left sidebar, main heatmap, colorbar, histogram.
+        assert len(fig.axes) == 5
+        # The histogram should have an axvline at the density threshold.
+        hist_ax = fig.axes[-1]
+        line_xs = []
+        for child in hist_ax.get_lines():
+            if isinstance(child, Line2D):
+                xs = child.get_xdata()
+                if len(xs) and np.allclose(xs, xs[0]):
+                    line_xs.append(float(xs[0]))
+        assert any(
+            np.isclose(x, consensus_result.density_threshold) for x in line_xs
+        ), f"density threshold marker not found among {line_xs}"
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(fig)
+
+
+def test_plot_cnmf_k_selection_returns_figure(consensus_mdata):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    from matplotlib.figure import Figure
+
+    def factory(k):
+        return terms.MofaFlex(
+            n_factors=k,
+            nonnegative_factors=True,
+            nonnegative_weights=True,
+        )
+
+    result = k_selection(
+        factory,
+        consensus_mdata,
+        k_values=[3, 5],
+        n_runs=2,
+        density_threshold=2.0,
+        seed=11,
+        fit_kwargs={"max_epochs": 30, "device": "cpu", "lr": 0.01, "early_stopper_patience": 20, "save_path": False},
+        show_progress=False,
+    )
+    fig = result.plot_cnmf()
+    try:
+        assert isinstance(fig, Figure)
+        # Twin-axis layout: ax + twin = 2 axes on the figure.
+        assert len(fig.axes) == 2
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(fig)

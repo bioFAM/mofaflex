@@ -23,6 +23,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.cluster.hierarchy import leaves_list, linkage
+from scipy.spatial.distance import squareform
 from sklearn.cluster import KMeans
 from sklearn.decomposition import non_negative_factorization
 from sklearn.metrics import silhouette_score
@@ -66,6 +68,10 @@ class ConsensusResult:
             ``kept_mask`` is ``True``.
         per_run_seeds: Seeds used for each replicate fit.
         density_threshold: The density threshold used for outlier filtering.
+        distance_matrix: Pairwise Euclidean distance matrix on the kept
+            spectra (i.e. on the L2-normalized stacked weight rows that
+            survived outlier filtering). Shape ``(n_kept, n_kept)``. Used
+            by :meth:`plot_clustergram` for the cNMF-style diagnostic.
     """
 
     n_factors: int
@@ -80,6 +86,113 @@ class ConsensusResult:
     cluster_labels: pd.Series
     per_run_seeds: tuple[int, ...]
     density_threshold: float
+    distance_matrix: np.ndarray
+
+    def plot_clustergram(
+        self,
+        *,
+        figsize: tuple[float, float] = (10, 6),
+        cmap_distance: str = "viridis",
+        cmap_clusters: str = "Spectral",
+    ):
+        """Plot cNMF's consensus diagnostic clustergram.
+
+        Faithful port of ``cnmf.py:1043-1166``. Renders a matplotlib figure
+        with five panels in a 2x5 gridspec:
+
+        - The pairwise Euclidean distance matrix of the (kept) L2-normalized
+          spectra, reordered so cluster members are contiguous and
+          within-cluster ordering follows average-linkage hierarchical
+          clustering.
+        - Cluster-label color sidebars on the left and top of the heatmap.
+        - A vertical colorbar for the distance heatmap.
+        - A histogram of all per-spectrum local densities with a vertical
+          line marking the chosen ``density_threshold``.
+
+        Args:
+            figsize: Figure size in inches passed to :func:`matplotlib.pyplot.figure`.
+            cmap_distance: Colormap for the distance heatmap. cNMF uses ``viridis``.
+            cmap_clusters: Colormap for the cluster-label sidebars. cNMF uses ``Spectral``.
+
+        Returns:
+            The :class:`matplotlib.figure.Figure` instance. The caller is
+            responsible for displaying or saving it.
+        """
+        import matplotlib.gridspec as gridspec
+        import matplotlib.pyplot as plt
+
+        labels = self.cluster_labels.values.astype(int)
+        D_kept = self.distance_matrix
+        order = _within_cluster_order(D_kept, labels)
+        labels_ordered = labels[order]
+        D_ordered = D_kept[np.ix_(order, order)]
+
+        fig = plt.figure(figsize=figsize)
+        # cnmf.py:1104-1117
+        gs = gridspec.GridSpec(
+            2,
+            5,
+            figure=fig,
+            left=0.04,
+            bottom=0.05,
+            right=0.96,
+            top=0.96,
+            wspace=0.05,
+            hspace=0.05,
+            width_ratios=[0.5, 9, 0.5, 4, 1],
+            height_ratios=[0.5, 9],
+        )
+
+        # Top cluster-label sidebar (cnmf.py:1127-1135).
+        top_ax = fig.add_subplot(gs[0, 1])
+        top_ax.imshow(
+            labels_ordered.reshape(1, -1),
+            aspect="auto",
+            cmap=cmap_clusters,
+            interpolation="none",
+        )
+        top_ax.set_xticks([])
+        top_ax.set_yticks([])
+
+        # Left cluster-label sidebar.
+        left_ax = fig.add_subplot(gs[1, 0])
+        left_ax.imshow(
+            labels_ordered.reshape(-1, 1),
+            aspect="auto",
+            cmap=cmap_clusters,
+            interpolation="none",
+        )
+        left_ax.set_xticks([])
+        left_ax.set_yticks([])
+
+        # Main reordered distance heatmap (cnmf.py:1119-1125).
+        dist_ax = fig.add_subplot(gs[1, 1])
+        dist_im = dist_ax.imshow(
+            D_ordered,
+            interpolation="none",
+            cmap=cmap_distance,
+            aspect="auto",
+            rasterized=True,
+        )
+        dist_ax.set_xticks([])
+        dist_ax.set_yticks([])
+        dist_ax.set_title(f"Spectra distance (k={self.n_factors})", fontsize=11)
+
+        # Colorbar.
+        cbar_ax = fig.add_subplot(gs[1, 2])
+        fig.colorbar(dist_im, cax=cbar_ax)
+
+        # Local-density histogram with threshold line (cnmf.py:1145-1161).
+        hist_ax = fig.add_subplot(gs[1, 3])
+        ld = np.asarray(self.local_density.values, dtype=float)
+        upper = float(max(ld.max(), self.density_threshold)) * 1.05 if ld.size else 1.0
+        hist_ax.hist(ld, bins=np.linspace(0, upper, 50), color="#888888")
+        hist_ax.axvline(self.density_threshold, linestyle="--", color="k")
+        hist_ax.set_xlabel("Local density")
+        hist_ax.set_ylabel("Count")
+        hist_ax.set_title("Outlier filtering", fontsize=11)
+
+        return fig
 
 
 @dataclass
@@ -135,6 +248,38 @@ class KSelectionResult:
             + p9.theme(figure_size=figsize)
         )
         return plot
+
+    def plot_cnmf(self, figsize: tuple[float, float] = (6, 4)):
+        """cNMF-style twin-axis k-selection plot (matplotlib).
+
+        Faithful port of ``cnmf.py:1175-1207``: silhouette stability in blue
+        on the left axis, reconstruction error in red on the right axis.
+
+        Args:
+            figsize: Figure size in inches.
+
+        Returns:
+            The :class:`matplotlib.figure.Figure` instance.
+        """
+        import matplotlib.pyplot as plt
+
+        fig = plt.figure(figsize=figsize)
+        ax1 = fig.add_subplot(111)
+        ax2 = ax1.twinx()
+        ax1.plot(
+            self.stability.index, self.stability.values, "o-", color="b"
+        )
+        ax1.set_ylabel("Stability", color="b", fontsize=15)
+        ax2.plot(
+            self.reconstruction_error.index,
+            self.reconstruction_error.values,
+            "o-",
+            color="r",
+        )
+        ax2.set_ylabel("Error", color="r", fontsize=15)
+        ax1.set_xlabel("Number of components (k)", fontsize=15)
+        ax1.grid(True)
+        return fig
 
 
 # ---------------------------------------------------------------------------
@@ -342,8 +487,8 @@ def _local_density_filter(
     n_runs: int,
     local_neighborhood_size: float,
     density_threshold: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute per-row local densities and an outlier kept mask.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute the pairwise distance matrix, per-row local densities, and an outlier kept mask.
 
     Faithful port of cNMF's local-density step (``cnmf.py`` lines 891, 901-912):
 
@@ -356,7 +501,9 @@ def _local_density_filter(
         local_density = distance_to_nearest_neighbors.sum(1) / n_neighbors
         density_filter = local_density < density_threshold
 
-    Returns (local_density, kept_mask) with shapes ``(n_rows,)`` each.
+    Returns (D, local_density, kept_mask). ``D`` has shape ``(n_rows, n_rows)``
+    and is returned so callers can stash it on the result for later
+    diagnostic plotting (clustergram).
     """
     D = euclidean_distances(S)
     # cnmf.py:891 uses int() (truncation), not round(). Guard against 0.
@@ -367,7 +514,39 @@ def _local_density_filter(
     sorted_D = np.sort(D, axis=1)
     local_density = sorted_D[:, 1 : nn + 1].mean(axis=1)
     kept_mask = local_density < density_threshold
-    return local_density, kept_mask
+    return D, local_density, kept_mask
+
+
+def _within_cluster_order(D_kept: np.ndarray, labels: np.ndarray) -> np.ndarray:
+    """Reorder spectra so cluster members are contiguous and within-cluster ordering follows average-linkage hierarchical clustering.
+
+    Faithful port of cnmf.py:1080-1103:
+
+    .. code-block:: python
+
+        for cl in sorted(set(kmeans_cluster_labels)):
+            cl_filter = kmeans_cluster_labels==cl
+            if cl_filter.sum() > 1:
+                cl_dist = squareform(topics_dist[cl_filter, :][:, cl_filter], checks=False)
+                cl_dist[cl_dist < 0] = 0
+                cl_link = linkage(cl_dist, 'average')
+                cl_leaves_order = leaves_list(cl_link)
+                spectra_order += list(np.where(cl_filter)[0][cl_leaves_order])
+    """
+    order: list[int] = []
+    for cl in sorted(np.unique(labels).tolist()):
+        idx = np.where(labels == cl)[0]
+        if idx.size > 1:
+            sub = D_kept[np.ix_(idx, idx)].astype(np.float64, copy=True)
+            # Numerical safety: a few negative dust entries can confuse squareform.
+            sub[sub < 0] = 0.0
+            condensed = squareform(sub, checks=False)
+            link_mat = linkage(condensed, "average")
+            leaves = leaves_list(link_mat)
+            order.extend(idx[leaves].tolist())
+        else:
+            order.extend(idx.tolist())
+    return np.asarray(order, dtype=int)
 
 
 def _cluster_and_consensus(
@@ -669,7 +848,7 @@ def fit_consensus(
         per_run_weights, view_names, n_factors
     )
 
-    local_density_arr, kept_mask_arr = _local_density_filter(
+    D_full, local_density_arr, kept_mask_arr = _local_density_filter(
         S, n_runs, local_neighborhood_size, density_threshold
     )
 
@@ -684,6 +863,7 @@ def fit_consensus(
         )
 
     S_kept = S[kept_mask_arr]
+    D_kept = D_full[np.ix_(kept_mask_arr, kept_mask_arr)]
 
     consensus_weights, cluster_labels_arr, stability = _cluster_and_consensus(
         S_kept, per_run_weights, view_names, view_slices, n_factors
@@ -724,6 +904,7 @@ def fit_consensus(
         cluster_labels=cluster_labels,
         per_run_seeds=seeds,
         density_threshold=density_threshold,
+        distance_matrix=D_kept,
     )
 
 
