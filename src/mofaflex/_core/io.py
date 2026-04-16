@@ -252,7 +252,12 @@ def load_model(path: str | Path, map_location=None):
     path = Path(path)
     with h5py.File(path, "r") as f:
         mofaflexgrp = f["mofaflex"]
-        if mofaflexgrp.attrs["version"] != __version__:
+        version = mofaflexgrp.attrs["version"]
+        if Version(version) >= Version("0.2"):
+            raise ValueError(
+                "The stored model was created with a newer, incompatible version of MOFA-FLEX and cannot be loaded."
+            )
+        if version != __version__:
             logger.warning(
                 "The stored model was created with a different version of MOFA-FLEX. Some features may not work."
             )
