@@ -90,3 +90,17 @@ def test_test_single_view(mousebrain_model, sign):
     assert "t" in results
     assert "p" in results
     assert "padj" in results
+
+
+def test_single_guided_factor(mousebrain_model):
+    results = _test_single_view(
+        "view_1",
+        nonnegative_weights=False,
+        feature_sets=mousebrain_model.get_annotations()["view_1"].iloc[:1, :],
+        factor_loadings=mousebrain_model.get_weights()["view_1"],
+        y=None,
+        sign="all",
+        corr_adjust=False,
+    )
+    for res in results.values():
+        assert res.shape == (mousebrain_model.n_factors, 1)

@@ -54,7 +54,7 @@ def _test_single_view(
         _logger.warning(f"No feature sets with more than {min_size} features for view {view_name}, skipping view.")
         return None
 
-    feature_sets = feature_sets.loc[~(feature_sets.all(axis=1)), feature_sets.any()]
+    feature_sets = feature_sets.loc[~(feature_sets.all(axis=1)), :]
     if not feature_sets.any(axis=None):
         _logger.warning(f"No feature sets with unique annotations for view {view_name}, skipping view.")
         return None
