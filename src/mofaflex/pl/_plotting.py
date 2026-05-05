@@ -852,7 +852,7 @@ def _prepare_weights_df(
                 how="left",
                 on=["factor", "feature"],
             )
-            cdf.fillna({"annotation": False}, inplace=True)
+            cdf["annotation"] = cdf["annotation"].fillna(False).astype(bool)
             have_annot = True
         else:
             cdf = cdf.assign(annotation=False)

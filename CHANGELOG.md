@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning][].
 ## [0.1.2] (Unreleased)
 
 ### Fixed
-- Using a MuData `.obs` column as a guiding variable now works
+- Using a MuData `.obs` column as a guiding variable now works.
 - When using guiding variables together with annotations, the data frame returned by `get_annotations` now has a correct row index.
+- Compatibility with Pandas 3.
 
 ## [0.1.1]
 
@@ -35,5 +36,6 @@ and this project adheres to [Semantic Versioning][].
 
 - Initial release
 
+[0.1.2]: https://github.com/bioFAM/mofaflex/releases/tag/v0.1.2
 [0.1.1]: https://github.com/bioFAM/mofaflex/releases/tag/v0.1.1
 [0.1.0]: https://github.com/bioFAM/mofaflex/releases/tag/v0.1.0
