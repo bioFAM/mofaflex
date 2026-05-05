@@ -390,7 +390,7 @@ class MuDataDataset(MofaFlexDataset):
                     if obskey in mod.obs:
                         ccov = self._align_array_to_samples(mod.obs[obskey].to_numpy(), modname, subdata)[:, None]
                     elif obskey in subdata.obs.columns:
-                        ccov = subdata.obs[obskey].to_numpy()
+                        ccov = subdata.obs[obskey].to_numpy()[:, None]
                     if ccov is not None:
                         ccovs[modname] = ccov
 
