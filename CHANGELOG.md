@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Fixed
 - Using a MuData `.obs` column as a guiding variable now works
+- When using guiding variables together with annotations, the data frame returned by `get_annotations` now has a correct row index.
 
 ## [0.1.1]
 

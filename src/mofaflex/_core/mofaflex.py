@@ -1326,7 +1326,7 @@ class MOFAFLEX:
             return_type: Format of the returned object.
             ordered: Whether to return the factors ordered by explained variance (highest to lowest).
         """
-        informed_factors = slice(self.n_uninformed_factors, self.n_uninformed_factors + self.n_informed_factors)
+        informed_factors = slice(self.n_uninformed_factors + self.n_guided_factors, self.n_factors)
         annotations = {
             k: pd.DataFrame(v, index=self.factor_names[informed_factors], columns=self.feature_names[k])
             .astype(bool)
