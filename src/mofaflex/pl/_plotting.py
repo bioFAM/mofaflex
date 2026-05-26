@@ -1137,9 +1137,9 @@ def top_weights(
             + p9.labs(x="", y="", color="")
             + p9.facet_wrap("factor")
         )
-    composition = p9.composition.Wrap(plots) + p9.composition.plot_layout(nrow=nrow, ncol=ncol, guides="collect") & p9.theme(
-        figure_size=figsize, **_no_axis_ticks_y
-    )
+    composition = p9.composition.Wrap(plots) + p9.composition.plot_layout(
+        nrow=nrow, ncol=ncol, guides="collect"
+    ) & p9.theme(figure_size=figsize, **_no_axis_ticks_y)
     composition.layout._setup(composition)  # calculates ncol and nrow
     if len(composition) % composition.layout.ncol > 0:
         composition += p9.composition.guide_area()
