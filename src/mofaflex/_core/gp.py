@@ -119,6 +119,7 @@ class GP(ApproximateGP):
         covariates = tuple(covariates)
         self._inducing_points_idx = get_inducing_points_idx(covariates, n_inducing, n_factors)
         self._n_inducing = n_inducing
+        self._n_factors = n_factors
 
         inducing_points = setup_inducing_points(covariates, self._inducing_points_idx, n_inducing)
         if inducing_points.shape[-3] != n_factors:
@@ -175,7 +176,10 @@ class GP(ApproximateGP):
     def __call__(self, input: tuple[torch.Tensor | None, torch.Tensor | None], prior: bool = False, **kwargs):
         group_idx, inputs = input
         if group_idx is not None and inputs is not None:
-            inputs = torch.cat((group_idx, inputs), dim=-1)
+            inputs = torch.cat(
+                (group_idx.expand(self._n_factors, *group_idx.shape), inputs.expand(self._n_factors, *inputs.shape)),
+                dim=-1,
+            )
         return super().__call__(inputs, prior, **kwargs)
 
     def forward(self, x):
