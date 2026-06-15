@@ -8,7 +8,7 @@
 [badge-pypi]: https://img.shields.io/pypi/v/mofaflex
 [badge-tests]: https://github.com/bioFAM/mofaflex/actions/workflows/test.yaml/badge.svg
 [badge-codecov]: https://codecov.io/gh/bioFAM/mofaflex/graph/badge.svg?token=IJP1IA4JEU
-[badge-docs]: https://img.shields.io/readthedocs/mofaflex
+[badge-docs]: https://app.readthedocs.org/projects/mofaflex/badge/?version=latest
 
 
 ![graphical abstract](https://raw.githubusercontent.com/bioFAM/mofaflex/main/docs/_static/img/mofaflex_schematic.svg)
