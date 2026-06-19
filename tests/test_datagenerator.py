@@ -91,7 +91,7 @@ def test_generate(generator, view_feature_indices):
 
     active_factors = np.zeros(generator.n_factors, dtype=int)
     for startidx, endidx in zip(*view_feature_indices, strict=False):
-        active_factors += ~np.all(~generator.w_mask[:, startidx:endidx], axis=1)
+        active_factors += np.any(generator.w_mask[:, startidx:endidx], axis=1)
     assert np.sum(active_factors == generator.n_views) == generator.n_fully_shared_factors
     assert np.sum((active_factors > 1) & (active_factors < generator.n_views)) == generator.n_partially_shared_factors
     assert np.sum(active_factors == 1) == generator.n_private_factors

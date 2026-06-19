@@ -139,6 +139,14 @@ def factors_scatter(
         + p9.theme(figure_size=figsize)
     )
 
+    guides_kwargs = {}
+    if color is not None and not pd.api.types.is_float_dtype(df_factors[color]):
+        guides_kwargs["color"] = p9.guide_legend(override_aes={"size": 5})
+    if shape is not None:
+        guides_kwargs["shape"] = p9.guide_legend(override_aes={"size": 5})
+    if len(guides_kwargs) > 0:
+        plot += p9.guides(**guides_kwargs)
+
     return plot
 
 
