@@ -37,7 +37,7 @@ dependencies = [
   "packaging",
   "pandas>=2.2",
   "platformdirs",
-  "plotnine",
+  "plotnine>=0.16",
   "pyro-ppl",
   "scikit-learn",
   "scipy>=1.8",

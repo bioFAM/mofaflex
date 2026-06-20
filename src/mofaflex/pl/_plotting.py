@@ -1081,7 +1081,7 @@ def _prepare_weights_df(
                     x.factor, categories=model.factor_names
                 ).remove_unused_categories(),  # need categorical for proper ordering of factors in the plot, need to remove unused categories due to https://github.com/has2k1/plotnine/issues/930
                 inferred=lambda x: ~x.annotation & x.weightabs > 0,
-            )
+            ).assign(inferred=lambda x: pd.Categorical(x.inferred))
         )
 
     df = pd.concat(df, axis=0, ignore_index=False)
@@ -1101,7 +1101,7 @@ def top_weights(
     figsize: tuple[int, int] = (5, 5),
     nrow: int | None = None,
     ncol: int | None = None,
-) -> p9.ggplot:
+) -> p9.composition.Compose:
     """Plot the top weights for a given factor and view.
 
     Args:
@@ -1127,26 +1127,35 @@ def top_weights(
         and (df.groupby("factor", observed=True)["feature"].aggregate(lambda x: x.duplicated().sum()) > 0).any()
     ):
         df = df.assign(feature=lambda x: x.feature.str + "_" + x.view.str)
-    df = df.assign(feature=lambda x: pd.Categorical(x.feature, categories=x.feature.unique()))
 
     aes_kwargs = {}
     if have_annot:
         aes_kwargs["color"] = "inferred"
 
-    plot = (
-        p9.ggplot(df, p9.aes("weightabs", "feature", xend=0, yend="feature", shape="weightsgn", **aes_kwargs))
-        + p9.geom_segment()
-        + p9.geom_point(size=5, stroke=0)
-        + p9.scale_shape_manual(values=("$\\oplus$", "$\\ominus$"), breaks=(True, False), guide=None)
-        + _weights_inferred_color_scale
-        + p9.scale_x_continuous(expand=(0, 0, 0.05, 0))
-        + p9.labs(x="| Weight |", y="", color="")
-        + p9.theme(figure_size=figsize, **_no_axis_ticks_y)
-    )
+    plots = []
+    for _, subdf in df.groupby("factor", observed=True):
+        subdf = subdf.assign(feature=lambda x: pd.Categorical(x.feature, categories=x.feature.unique()))
+        plots.append(
+            p9.ggplot(subdf, p9.aes("weightabs", "feature", xend=0, yend="feature", shape="weightsgn", **aes_kwargs))
+            + p9.geom_segment()
+            + p9.geom_point(size=5, stroke=0)
+            + p9.scale_shape_manual(values=("$\\oplus$", "$\\ominus$"), breaks=(True, False), guide=None)
+            + _weights_inferred_color_scale
+            + p9.scale_x_continuous(expand=(0, 0, 0.05, 0))
+            + p9.labs(x="", y="", color="")
+            + p9.facet_wrap("factor")
+        )
+    composition = p9.composition.Wrap(plots) + p9.composition.plot_layout(
+        nrow=nrow, ncol=ncol, guides="collect"
+    ) & p9.theme(figure_size=figsize, **_no_axis_ticks_y)
+    composition.layout._setup(composition)  # calculates ncol and nrow
+    if len(composition) % composition.layout.ncol > 0:
+        composition += p9.composition.guide_area()
 
-    plot += p9.facet_wrap("factor", scales="free", nrow=nrow, ncol=ncol)
+    for i in range(len(composition) - composition.ncol, len(composition)):
+        composition[i] += p9.labs(x="| Weight |")
 
-    return plot
+    return composition
 
 
 def weights(
@@ -1158,7 +1167,7 @@ def weights(
     figsize: tuple[int, int] | None = None,
     nrow: int | None = None,
     ncol: int | None = None,
-) -> p9.ggplot:
+) -> p9.composition.Compose:
     """Plot the weights for a given factor and view.
 
     Args:
@@ -1173,11 +1182,6 @@ def weights(
         ncol: Number of columns in the faceted plot. If None, plotnine will determine automatically.
     """
     views, factors, df, have_annot = _prepare_weights_df(model, n_features, views, factors)
-    if figsize is None:
-        figsize = (3 * len(factors), 3 * len(views))
-        if p9.options.limitsize:
-            figsize = (min(figsize[0], 25), min(figsize[1], 25))
-
     grp = df.groupby(["factor", "view"], observed=True)
     df["rank"] = grp["weight"].rank(ascending=False, method="min")
     df["absrank"] = grp["weightabs"].rank(ascending=False, method="min")
@@ -1187,52 +1191,89 @@ def weights(
     if have_annot:
         aes_kwargs["color"] = "inferred"
 
-    labeled_data = df[df.annotate].assign(ha=lambda x: np.where(x["weight"] > 0, "left", "right"))
-    y_max = labeled_data.groupby("view", observed=True)["weight"].max()
-    y_min = labeled_data.groupby("view", observed=True)["weight"].min()
-
-    labeled_groups = []
-    for (view, _), cdf in labeled_data.groupby(["view", "factor"], observed=True):
-        n_positive = (cdf["weight"] > 0).sum()
-        n_negative = n_features - n_positive
-
-        cdf.sort_values("rank", inplace=True)
-        cdf["y_text_pos"] = np.concatenate(
-            [
-                np.linspace(y_max[view], 0.1 * y_max[view], num=n_positive),
-                np.linspace(0.1 * y_min[view], y_min[view], num=n_negative),
-            ]
-        )
-        labeled_groups.append(cdf)
-    labeled_data = pd.concat(labeled_groups, axis=0, ignore_index=True)
-
-    labeled_data["x_text_pos"] = df["rank"].max() / 2
-
-    plot = (
-        p9.ggplot(df, p9.aes("rank", "weight", label="feature", **aes_kwargs))
-        + p9.geom_point(p9.aes(size="annotate"), stroke=0)
-        + p9.scale_size_manual(breaks=(True, False), values=(pointsize, 0.25 * pointsize), guide=None)
-        + _weights_inferred_color_scale
-        + p9.labs(x="Rank", y="Weight", color="")
-        + p9.theme(figure_size=figsize)
-        + p9.geom_text(
-            data=labeled_data,
-            mapping=p9.aes(x="x_text_pos", y="y_text_pos", label="feature", ha="ha"),
-            size=10,
-            va="center",
-            show_legend=False,
-        )
-        + p9.geom_segment(
-            data=labeled_data, mapping=p9.aes(x="rank", y="weight", xend="x_text_pos", yend="y_text_pos"), color="gray"
-        )
-    )
-
-    if nrow is not None or ncol is not None:
-        plot += p9.facet_wrap(["view", "factor"], scales="free_y", nrow=nrow, ncol=ncol)
+    plots = []
+    if nrow is None and ncol is None:
+        grouping_vars = "view"
     else:
-        plot += p9.facet_grid("view", "factor", scales="free_y")
+        grouping_vars = ["view", "factor"]
 
-    return plot
+    def make_labels_coords(df, y_max, y_min):
+        n_positive = (df["weight"] > 0).sum()
+        n_negative = n_features - n_positive
+        df.sort_values("rank", inplace=True)
+        df["y_text_pos"] = np.concatenate(
+            (np.linspace(y_max, 0.1 * y_max, num=n_positive), np.linspace(0.1 * y_min, y_min, num=n_negative))
+        )
+        return df
+
+    for _, subdf in df.groupby(grouping_vars, observed=True):
+        labeled_data = subdf[subdf["annotate"]].assign(ha=lambda x: np.where(x["weight"] > 0, "left", "right"))
+        y_max = labeled_data["weight"].max()
+        y_min = labeled_data["weight"].min()
+        labeled_data = (
+            labeled_data.groupby("factor", observed=True)
+            .apply(make_labels_coords, y_max, y_min, include_groups=False)
+            .reset_index(level=0)
+        )
+        labeled_data["x_text_pos"] = subdf["rank"].max() / 2
+
+        plots.append(
+            p9.ggplot(subdf, p9.aes("rank", "weight", label="feature", **aes_kwargs))
+            + p9.geom_point(p9.aes(size="annotate"), stroke=0)
+            + p9.scale_size_manual(breaks=(True, False), values=(pointsize, 0.25 * pointsize), guide=None)
+            + _weights_inferred_color_scale
+            + p9.geom_text(
+                data=labeled_data,
+                mapping=p9.aes(x="x_text_pos", y="y_text_pos", label="feature", ha="ha"),
+                size=10,
+                va="center",
+                show_legend=False,
+            )
+            + p9.geom_segment(
+                data=labeled_data,
+                mapping=p9.aes(x="rank", y="weight", xend="x_text_pos", yend="y_text_pos"),
+                color="gray",
+            )
+        )
+
+    if nrow is None and ncol is None:
+        composition = (
+            p9.composition.Stack(plots)
+            & p9.facet_grid("view", "factor")
+            & p9.labs(x="", y="Weight", color="") + p9.composition.plot_layout(guides="collect")
+        )
+        composition.last_plot += p9.labs(x="Rank")
+
+        for row in range(1, len(composition)):
+            composition[row] += p9.theme(
+                strip_background_x=p9.element_blank(), strip_text_x=p9.element_blank(), plot_margin_top=0
+            )
+
+        if figsize is None:
+            figsize = (3 * len(factors), 3 * len(views))
+    else:
+        composition = (
+            p9.composition.Wrap(plots) + p9.composition.plot_layout(nrow=nrow, ncol=ncol, guides="collect")
+            & p9.facet_wrap(["view", "factor"])
+            & p9.labs(x="", y="", color="")
+        )
+
+        composition.layout._setup(composition)  # calculates ncol and nrow
+        if len(composition) % composition.layout.ncol > 0:
+            composition += p9.composition.guide_area()
+
+        if figsize is None:
+            figsize = (3 * composition.ncol, 3 * composition.nrow)
+
+        for i in range(0, len(composition), composition.ncol):
+            composition[i] += p9.labs(y="Weight")
+        for i in range(len(composition) - composition.ncol, len(composition)):
+            composition[i] += p9.labs(x="Rank")
+
+    if p9.options.limitsize:
+        figsize = (min(figsize[0], 25), min(figsize[1], 25))
+
+    return composition & p9.theme(figure_size=figsize)
 
 
 def _plot_sparse_probabilities_histogram(
