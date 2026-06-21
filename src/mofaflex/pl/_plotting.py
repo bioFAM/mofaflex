@@ -464,6 +464,7 @@ def variance_explained(
     model: MOFAFLEX,
     group_by: Literal["group", "view"] = "group",
     term: str | None = None,
+    annotated_only: bool = False,
     figsize: tuple[float, float] | None = None,
 ) -> p9.ggplot:
     """Plot the fraction of variance explained per factor in each group and view.
@@ -474,6 +475,9 @@ def variance_explained(
         term: The name of the additive term to plot the variance explained for. If `None` and the model has only one additive term,
             will plot the fraction of variance explained per factor for this term. If `None` and the model has multiple terms, will
             plot the fraction of variance explained per term.
+        annotated_only: If `True`, only plot the factors that are informed by prior annotations (e.g. the gene-set factors of an
+            :class:`~mofaflex.priors.InformedHorseshoe` prior), dropping the uninformed dense factors. Requires the model to
+            have an informed prior.
         figsize: Figure size in inches.
     """
     if group_by == "group":
@@ -487,10 +491,18 @@ def variance_explained(
         figsize = (len(model.group_names) * 3, 5)
 
     byterm = term is None and model.n_terms > 1
+    if annotated_only and byterm:
+        raise ValueError("`annotated_only` is only supported at the factor level. Specify a single `term`.")
     col = "term" if byterm else "component"
-    df_r2 = model.get_r2("byterm" if byterm else "term", ordered=True, term=term).assign(
-        factor=lambda x: pd.Categorical(x[col], categories=x[col].unique())
-    )
+    df_r2 = model.get_r2("byterm" if byterm else "term", ordered=True, term=term)
+    if annotated_only:
+        try:
+            annotations = model.get_annotations()
+        except AttributeError as e:
+            raise ValueError("`annotated_only=True` requires a model with an informed prior providing annotations.") from e
+        informed_factors = set().union(*(annot.columns for annot in annotations.values()))
+        df_r2 = df_r2[df_r2[col].isin(informed_factors)]
+    df_r2 = df_r2.assign(factor=lambda x: pd.Categorical(x[col], categories=x[col].unique()))
     heatmap = (
         p9.ggplot(df_r2, p9.aes(x=x, y="factor", fill="R2"))
         + p9.geom_tile()
@@ -564,7 +576,10 @@ def factor_significance(
     annotations = pd.concat(
         {view_name: vannot.sum(axis=0) for view_name, vannot in model.get_annotations().items()}, axis=0
     ).rename_axis(index=("view", "annotation"))
-    factor_order = model.factor_names[model.factor_order]
+    # Rank factors by the variance they explain within the selected views/groups, rather than overall, so that
+    # restricting `views` reorders the plot accordingly.
+    ranking = r2[r2["view"].isin(views) & r2["group"].isin(groups)].groupby("component", observed=True)["R2"].sum()
+    factor_order = ranking.sort_values(ascending=False).index.to_numpy()
 
     combined_df = (
         pcgse_results.loc[pcgse_results.groupby(["view", "annotation"])["padj"].idxmin()]
@@ -1127,7 +1142,15 @@ def top_weights(
         and (df.groupby("factor", observed=True)["feature"].aggregate(lambda x: x.duplicated().sum()) > 0).any()
     ):
         df = df.assign(feature=lambda x: x.feature.str + "_" + x.view.str)
-    df = df.assign(feature=lambda x: pd.Categorical(x.feature, categories=x.feature.unique()))
+    # A feature can be among the top features of several factors. With a single global feature category, those
+    # shared features share one y position, scrambling the per-facet ordering. Make the category unique per facet
+    # (factor) so each facet is ordered by its own |weight|, and strip the suffix again for the axis labels.
+    _sep = "\x1f"
+    df = df.assign(
+        feature=lambda x: pd.Categorical(
+            keys := x.feature.astype(str) + _sep + x.factor.astype(str), categories=keys.unique()
+        )
+    )
 
     aes_kwargs = {}
     if have_annot:
@@ -1138,6 +1161,7 @@ def top_weights(
         + p9.geom_segment()
         + p9.geom_point(size=5, stroke=0)
         + p9.scale_shape_manual(values=("$\\oplus$", "$\\ominus$"), breaks=(True, False), guide=None)
+        + p9.scale_y_discrete(labels=lambda breaks: [b.rsplit(_sep, 1)[0] for b in breaks])
         + _weights_inferred_color_scale
         + p9.scale_x_continuous(expand=(0, 0, 0.05, 0))
         + p9.labs(x="| Weight |", y="", color="")

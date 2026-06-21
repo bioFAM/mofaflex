@@ -26,6 +26,11 @@ def test_variance_explained(cll_model):
     return mfl.pl.variance_explained(cll_model)
 
 
+@pytest.mark.baseline_images("variance_explained_annotated-only")
+def test_variance_explained_annotated_only(mousebrain_model):
+    return mfl.pl.variance_explained(mousebrain_model, annotated_only=True)
+
+
 @pytest.mark.baseline_images("factor_significance", "factor_significance_nfactors-5", "factor_significance_alpha-1e-42")
 def test_factor_significance(mousebrain_model):
     return (

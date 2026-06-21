@@ -336,6 +336,7 @@ def test_integration_dynamicapi_multiple_priors(anndata_dict, tmp_path, n_partic
             "view_bernoulli": priors.Normal(),
         },
     )
+    save_path = tmp_path / "informedhs_model.h5"
     with chdir(tmp_path):
         model.fit(
             anndata_dict,
@@ -344,11 +345,16 @@ def test_integration_dynamicapi_multiple_priors(anndata_dict, tmp_path, n_partic
             seed=42,
             batch_size=batch_size,
             n_particles=n_particles,
+            save_path=save_path,
         )
     signif = model.get_significant_annotations()
     assert len(signif) == 1
     assert next(iter(signif.keys())) == "view_normal"
     assert signif["view_normal"]["factor"].cat.categories.size == 11
+
+    # Loading without an explicit map_location must still set a usable device so PCGSE works.
+    reloaded = MOFAFLEX.load(save_path)
+    assert reloaded.get_significant_annotations().keys() == signif.keys()
 
 
 @pytest.mark.parametrize("n_particles", [1, 5])

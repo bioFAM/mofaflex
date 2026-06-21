@@ -785,7 +785,9 @@ class MofaFlex(Term):
         )
 
         self._prior_api_properties = {}
-        self._device = map_location
+        # map_location may be None (e.g. MOFAFLEX.load without an explicit device); fall back to the
+        # default device so methods that need it (e.g. PCGSE in get_significant_annotations) still work.
+        self._device = default_torch_device(map_location)
         self._init_api()
 
     def _get_postprocessed_factors(
