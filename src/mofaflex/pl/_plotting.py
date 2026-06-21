@@ -499,7 +499,9 @@ def variance_explained(
         try:
             annotations = model.get_annotations()
         except AttributeError as e:
-            raise ValueError("`annotated_only=True` requires a model with an informed prior providing annotations.") from e
+            raise ValueError(
+                "`annotated_only=True` requires a model with an informed prior providing annotations."
+            ) from e
         informed_factors = set().union(*(annot.columns for annot in annotations.values()))
         df_r2 = df_r2[df_r2[col].isin(informed_factors)]
     df_r2 = df_r2.assign(factor=lambda x: pd.Categorical(x[col], categories=x[col].unique()))
