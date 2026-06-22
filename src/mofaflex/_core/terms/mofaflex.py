@@ -115,7 +115,7 @@ class MofaFlex(Term):
 
     def _results_to_df(
         self,
-        results: Mapping[str, np.ndarray],
+        results: Mapping[str, np.ndarray | pd.DataFrame],
         axis: Literal[0, 1],
         ordered: bool = False,
         factors_subset: slice = slice(None),
@@ -124,14 +124,18 @@ class MofaFlex(Term):
         ret = {}
         for name, res in results.items():
             fnames = factor_names
+            index = (
+                res.index
+                if isinstance(res, pd.DataFrame)
+                else (self._sample_names[name] if axis == 0 else self._feature_names[name])
+            )
+            values = res.to_numpy() if isinstance(res, pd.DataFrame) else res
             if ordered:
                 factor_order = self.factor_order[factors_subset].copy()
                 factor_order[np.argsort(factor_order)] = np.arange(len(factor_order))
-                res = res[:, factor_order]
+                values = values[:, factor_order]
                 fnames = fnames[factor_order]
-            ret[name] = pd.DataFrame(
-                res, index=self._sample_names[name] if axis == 0 else self._feature_names[name], columns=fnames
-            )
+            ret[name] = pd.DataFrame(values, index=index, columns=fnames)
         return ret
 
     def _wrap_api_method(self, axis: Literal[0, 1], prior: Prior, api: PriorDynamicAPI):
@@ -785,9 +789,7 @@ class MofaFlex(Term):
         )
 
         self._prior_api_properties = {}
-        # map_location may be None (e.g. MOFAFLEX.load without an explicit device); fall back to the
-        # default device so methods that need it (e.g. PCGSE in get_significant_annotations) still work.
-        self._device = default_torch_device(map_location)
+        self._device = map_location
         self._init_api()
 
     def _get_postprocessed_factors(
