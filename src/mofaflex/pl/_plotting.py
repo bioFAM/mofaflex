@@ -79,7 +79,6 @@ def factors_scatter(
         model: The term to plot the factor correlation for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
         x: The factor to plot on the x-axis.
         y: The factor to plot on the y-axis.
-            only one additive term.
         groups: The groups to plot. If `None`, all groups are shown.
         color: The covariate name to color by.
         shape: The covariate name to shape by.
