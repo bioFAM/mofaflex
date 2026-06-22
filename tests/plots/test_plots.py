@@ -110,10 +110,14 @@ def test_weights_annotations(mousebrain_model):
     return mfl.pl.weights(mousebrain_model, factors=["Factor 1", "Factor 2", "Astrocytes", "Interneurons"])
 
 
-@pytest.mark.baseline_images("factors_scatter", "factors_scatter-color")
+@pytest.mark.baseline_images("factors_scatter", "factors_scatter-color", "factors_scatter-color-categorical")
 def test_factors_scatter(mousebrain_model, mousebrain_data):
-    return mfl.pl.factors_scatter(mousebrain_model, 1, "Astrocytes"), mfl.pl.factors_scatter(
-        mousebrain_model, 1, "Astrocytes", color="log1p_total_counts", data=mousebrain_data
+    return (
+        mfl.pl.factors_scatter(mousebrain_model, 1, "Astrocytes"),
+        mfl.pl.factors_scatter(mousebrain_model, 1, "Astrocytes", color="log1p_total_counts", data=mousebrain_data),
+        mfl.pl.factors_scatter(
+            mousebrain_model, 1, "Astrocytes", color="test_categorical", size=1, alpha=0.3, data=mousebrain_data
+        ),
     )
 
 
@@ -123,6 +127,7 @@ def test_factors_scatter(mousebrain_model, mousebrain_data):
     "covariates_factor_scatter_cov0_color-Astrocytes",
     "covariates_factor_scatter_cov0_color-log1p_total_counts",
     "covariates_factor_scatter_cov1-cov0",
+    "covariates_factor_scatter_cov0_color-categorical",
 )
 def test_covariates_factor_scatter(mousebrain_model, mousebrain_data):
     return (
@@ -135,6 +140,9 @@ def test_covariates_factor_scatter(mousebrain_model, mousebrain_data):
             mousebrain_model, 1, covariate_dims=0, color="log1p_total_counts", data=mousebrain_data, size=2
         ),
         mfl.pl.covariates_factor_scatter(mousebrain_model, 1, covariate_dims=(1, 0), size=2),
+        mfl.pl.covariates_factor_scatter(
+            mousebrain_model, 1, covariate_dims=0, color="test_categorical", size=1, alpha=0.3, data=mousebrain_data
+        ),
     )
 
 

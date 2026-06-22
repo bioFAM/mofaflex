@@ -102,7 +102,10 @@ def mousebrain_model():
 
 @pytest.fixture(scope="session")
 def mousebrain_data():
-    return {"group_1": {"view_1": ad.read_h5ad(Path(__file__).parent / "data" / "mouse_brain.h5ad")}}
+    data = ad.read_h5ad(Path(__file__).parent / "data" / "mouse_brain.h5ad")
+    bins = np.asarray([1, 15, 30, 45, 60, 76])
+    data.obs["test_categorical"] = pd.Categorical(np.digitize(data.obs["array_row"], bins))
+    return {"group_1": {"view_1": data}}
 
 
 @pytest.fixture(scope="session")

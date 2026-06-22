@@ -139,10 +139,14 @@ def factors_scatter(
     )
 
     guides_kwargs = {}
-    if color is not None and not pd.api.types.is_float_dtype(df_factors[color]):
-        guides_kwargs["color"] = p9.guide_legend(override_aes={"size": 5})
+    if (
+        color is not None
+        and not pd.api.types.is_float_dtype(df_factors[color])
+        and not pd.api.types.is_integer_dtype(df_factors[color])
+    ):
+        guides_kwargs["color"] = p9.guide_legend(override_aes={"size": 5, "alpha": 1})
     if shape is not None:
-        guides_kwargs["shape"] = p9.guide_legend(override_aes={"size": 5})
+        guides_kwargs["shape"] = p9.guide_legend(override_aes={"size": 5, "alpha": 1})
     if len(guides_kwargs) > 0:
         plot += p9.guides(**guides_kwargs)
 
@@ -236,6 +240,17 @@ def _plot_covariates_scatter(
         + p9.facet_wrap("group")
         + p9.theme(figure_size=figsize)
     )
+    guides_kwargs = {}
+    if (
+        color is not None
+        and not pd.api.types.is_float_dtype(df[color])
+        and not pd.api.types.is_integer_dtype(df[color])
+    ):
+        guides_kwargs["color"] = p9.guide_legend(override_aes={"size": 5, "alpha": 1})
+    if shape is not None:
+        guides_kwargs["shape"] = p9.guide_legend(override_aes={"size": 5, "alpha": 1})
+    if len(guides_kwargs) > 0:
+        plot += p9.guides(**guides_kwargs)
 
     return plot
 
