@@ -101,7 +101,7 @@ class GP(Prior):
                 zip(
                     self._names,
                     torch.split(
-                        pyro.sample("z", dist.Normal(f, 1 - outputscale)),
+                        pyro.sample("z", dist.Normal(f, torch.sqrt(1 - outputscale))),
                         tuple(covariates[g].shape[0] for g in gnames),
                         dim=self._nonfactor_dim,
                     ),
