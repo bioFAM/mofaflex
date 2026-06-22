@@ -1200,7 +1200,7 @@ def weights(
         cdf["y_text_pos"] = np.concatenate(
             [
                 np.linspace(y_max[view], 0.1 * y_max[view], num=n_positive),
-                np.linspace(0.1 * y_min[view], y_min[view], num=n_negative),
+                np.linspace(y_min[view], 0.1 * y_min[view], num=n_negative)[::-1],
             ]
         )
         labeled_groups.append(cdf)
