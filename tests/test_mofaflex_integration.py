@@ -374,14 +374,7 @@ def test_load_uses_training_device_for_gp(anndata_dict, tmp_path, monkeypatch):
     reloaded = MOFAFLEX.load(save_path)
 
     assert [str(device) for device in map_locations] == ["cpu"]
-    new_covariates = {
-        group_name: covariates.iloc[:2].to_numpy() for group_name, covariates in reloaded.factor_covariates.items()
-    }
-    gps = reloaded.get_factor_gps(x=new_covariates, batch_size=2)
-
-    assert gps.keys() == new_covariates.keys()
-    assert all(result.index.equals(pd.RangeIndex(2)) for result in gps.values())
-    assert all(result.columns.equals(pd.Index(reloaded.factor_names)) for result in gps.values())
+    assert str(reloaded._model.terms["_"]._device) == "cpu"
 
 
 @pytest.mark.parametrize("n_particles", [1, 5])

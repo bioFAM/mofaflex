@@ -115,7 +115,7 @@ class MofaFlex(Term):
 
     def _results_to_df(
         self,
-        results: Mapping[str, np.ndarray | pd.DataFrame],
+        results: Mapping[str, np.ndarray],
         axis: Literal[0, 1],
         ordered: bool = False,
         factors_subset: slice = slice(None),
@@ -124,18 +124,14 @@ class MofaFlex(Term):
         ret = {}
         for name, res in results.items():
             fnames = factor_names
-            index = (
-                res.index
-                if isinstance(res, pd.DataFrame)
-                else (self._sample_names[name] if axis == 0 else self._feature_names[name])
-            )
-            values = res.to_numpy() if isinstance(res, pd.DataFrame) else res
             if ordered:
                 factor_order = self.factor_order[factors_subset].copy()
                 factor_order[np.argsort(factor_order)] = np.arange(len(factor_order))
-                values = values[:, factor_order]
+                res = res[:, factor_order]
                 fnames = fnames[factor_order]
-            ret[name] = pd.DataFrame(values, index=index, columns=fnames)
+            ret[name] = pd.DataFrame(
+                res, index=self._sample_names[name] if axis == 0 else self._feature_names[name], columns=fnames
+            )
         return ret
 
     def _wrap_api_method(self, axis: Literal[0, 1], prior: Prior, api: PriorDynamicAPI):
