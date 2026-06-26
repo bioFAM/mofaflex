@@ -895,7 +895,7 @@ class MuDataAxis1Dataset(MuDataDataset):
             subdata = data[:, view_idx]
             for modname in group_names:
                 ccret = func(subdata.mod[modname], modname, view_name, **kwargs, **gvkwargs[modname][view_name])
-                ret.get(modname, {})[view_name] = ccret
+                ret.setdefault(modname, {})[view_name] = ccret
         return ret
 
     def _apply_by_view(
