@@ -340,7 +340,7 @@ class MuDataDataset(MofaFlexDataset):
             if self._data.axis == axis and filter_names is not None and group_name not in filter_names:
                 continue
             for modname in self._data.mod.keys():
-                if self._data.axis == axis and filter_names is not None and modname not in filter_names:
+                if self._data.axis != axis and filter_names is not None and modname not in filter_names:
                     continue
                 subdata = self._data[(group_idx, self.get_names(1 - self._data.axis)[modname])[self._subset_reorder]]
                 mod = subdata.mod[modname]
