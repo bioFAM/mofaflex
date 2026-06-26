@@ -346,22 +346,6 @@ class AnnDataDictDataset(MofaFlexDataset):
         idx = map.d2g[idx]
         return idx - np.cumsum(map.g2d < 0)[idx]  # this is for use_obs="intersection"
 
-    def _get_attr(self, attr: Literal["obs", "var"]) -> dict[str, pd.DataFrame]:
-        return {
-            group_name: {
-                view_name: getattr(view, attr)
-                .reindex(
-                    getattr(self, f"_aligned_{attr}")[group_name if attr == "obs" else view_name], fill_value=pd.NA
-                )
-                .apply(lambda x: x.astype("string") if x.dtype == "O" else x, axis=1)
-                for view_name, view in group.items()
-            }
-            for group_name, group in self._data.items()
-        }
-
-    def get_obs(self) -> dict[str, pd.DataFrame]:
-        return self._get_attr("obs")
-
     def get_missing_obs(self) -> pd.DataFrame:
         dfs = []
         for group_name, group in self._data.items():

@@ -653,18 +653,6 @@ class MuDataAxis0Dataset(MuDataDataset):
     ) -> NDArray[int]:
         return self._map_global_indices_to_local(idx, group_name, view_name, align_to, "obs")
 
-    def get_obs(self) -> dict[str, pd.DataFrame]:
-        fakemudata = self._push_obs()
-        return {
-            group_name: {
-                modname: mod.obs.reindex(self._data[group_idx, :].obs_names, fill_value=pd.NA).apply(
-                    lambda x: x.astype("string") if x.dtype == "O" else x, axis=1
-                )
-                for modname, mod in fakemudata.mod.items()
-            }
-            for group_name, group_idx in self._groups.items()
-        }
-
     def _apply_to_view(
         self, view_name: str, func: ApplyToCallable[T], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
@@ -865,10 +853,6 @@ class MuDataAxis1Dataset(MuDataDataset):
         self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
     ) -> NDArray[int]:
         return self._map_global_indices_to_local(idx, view_name, group_name, align_to, "var")
-
-    def get_obs(self) -> dict[str, pd.DataFrame]:
-        fakemudata = self._push_obs()
-        return {modname: dict.fromkeys(self._groups.keys(), mod.obs) for modname, mod in fakemudata.mod.items()}
 
     def _apply_to_view(
         self, view_name: str, func: ApplyToCallable[T], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs

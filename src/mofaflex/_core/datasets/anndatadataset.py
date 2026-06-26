@@ -195,16 +195,6 @@ class AnnDataDataset(MofaFlexDataset):
     ) -> NDArray[int]:
         return idx
 
-    def get_obs(self) -> dict[str, pd.DataFrame]:
-        return {
-            group_name: {
-                self._view_name: self._data[group_idx, :].obs.apply(
-                    lambda x: x.astype("string") if x.dtype == "O" else x, axis=1
-                )
-            }
-            for group_name, group_idx in self._groups.items()
-        }
-
     def get_missing_obs(self) -> pd.DataFrame:
         if issparse(self._data.X):
             missing = self._data.X.copy()

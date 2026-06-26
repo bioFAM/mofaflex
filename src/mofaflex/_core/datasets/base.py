@@ -332,11 +332,6 @@ class MofaFlexDataset(Dataset, ABC):
         pass
 
     @abstractmethod
-    def get_obs(self) -> dict[str, pd.DataFrame]:
-        """Get observation metadata for each group."""
-        pass
-
-    @abstractmethod
     def get_missing_obs(self) -> pd.DataFrame:
         """Determine which observations are missing where.
 
