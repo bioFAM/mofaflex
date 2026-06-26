@@ -99,7 +99,7 @@ class MuDataDataset(MofaFlexDataset):
     ) -> pd.Index | slice | None:
         namesattr = f"{attr}_names"
         if names is not None and (
-            self._groups is None
+            self._group_by is None
             or any(
                 names[group_name].size != group_idx.size
                 or np.any(names[group_name] != getattr(self._data, namesattr)[group_idx])
@@ -820,7 +820,7 @@ class MuDataAxis1Dataset(MuDataDataset):
             for view_name, view_idx in self._groups.items():
                 cnonmissing_var = self._nonmissing_var[view_name].get(group_name, slice(None))
                 arr, gnonmissing_obs[view_name], gnonmissing_var[view_name] = self.preprocessor(
-                    self._data[:, view_idx][group_name].X[group_idx, :],
+                    self._data[:, view_idx][group_name][group_idx, :].X,
                     slice(None),
                     cnonmissing_var,
                     group_name,
