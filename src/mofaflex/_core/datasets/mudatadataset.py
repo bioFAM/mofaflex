@@ -145,7 +145,7 @@ class MuDataDataset(MofaFlexDataset):
 
     def _get_groups(self, df: pd.DataFrame, group_by: str | None = None):
         if group_by is None:
-            group_by = self._group_by
+            group_by = getattr(self, "_group_by", None)
         return df.groupby(
             pd.Categorical(df[group_by]).rename_categories(lambda x: str(x))
             if group_by is not None
