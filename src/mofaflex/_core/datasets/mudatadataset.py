@@ -99,7 +99,7 @@ class MuDataDataset(MofaFlexDataset):
     ) -> pd.Index | slice | None:
         namesattr = f"{attr}_names"
         if names is not None and (
-            self._group_by is None
+            self._groups is None
             or any(
                 names[group_name].size != group_idx.size
                 or np.any(names[group_name] != getattr(self._data, namesattr)[group_idx])
