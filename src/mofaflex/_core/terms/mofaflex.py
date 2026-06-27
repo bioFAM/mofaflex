@@ -243,7 +243,7 @@ class MofaFlex(Term):
 
     @component_order.setter
     def component_order(self, order: NDArray[int]):
-        order = order.squeeze()
+        order = np.atleast_1d(order.squeeze())
         if order.ndim != 1:
             raise ValueError(f"`order` must be 1-dimensional, got {order.ndim}-dimensional array.")
         if order.size != self.n_total_factors:
