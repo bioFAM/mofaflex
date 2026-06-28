@@ -321,7 +321,6 @@ class MOFAFLEX:
         if self._data_opts.remove_constant_features:
             filter_constant_features(data)
 
-        self._metadata = data.get_obs()
         self._view_names = data.view_names
         self._group_names = data.group_names
         self._sample_names = data.sample_names
@@ -515,7 +514,6 @@ class MOFAFLEX:
             "view_names": self._view_names,
             "feature_names": self._feature_names,
             "sample_names": self._sample_names,
-            "metadata": self._metadata,
             "data_opts": self._data_opts.asdict(),
             "train_opts": self._train_opts.asdict(),
             "model": self._model.save(),
@@ -545,7 +543,6 @@ class MOFAFLEX:
         model._view_names = state["view_names"]
         model._feature_names = state["feature_names"]
         model._sample_names = state["sample_names"]
-        model._metadata = state["metadata"]
         model._data_opts = _DataOptions(**state["data_opts"])
         model._train_opts = _TrainingOptions(**state["train_opts"])
 

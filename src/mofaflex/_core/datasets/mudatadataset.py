@@ -145,7 +145,7 @@ class MuDataDataset(MofaFlexDataset):
 
     def _get_groups(self, df: pd.DataFrame, group_by: str | None = None):
         if group_by is None:
-            group_by = self._group_by
+            group_by = getattr(self, "_group_by", None)
         return df.groupby(
             pd.Categorical(df[group_by]).rename_categories(lambda x: str(x))
             if group_by is not None
@@ -340,7 +340,7 @@ class MuDataDataset(MofaFlexDataset):
             if self._data.axis == axis and filter_names is not None and group_name not in filter_names:
                 continue
             for modname in self._data.mod.keys():
-                if self._data.axis == axis and filter_names is not None and modname not in filter_names:
+                if self._data.axis != axis and filter_names is not None and modname not in filter_names:
                     continue
                 subdata = self._data[(group_idx, self.get_names(1 - self._data.axis)[modname])[self._subset_reorder]]
                 mod = subdata.mod[modname]
@@ -653,18 +653,6 @@ class MuDataAxis0Dataset(MuDataDataset):
     ) -> NDArray[int]:
         return self._map_global_indices_to_local(idx, group_name, view_name, align_to, "obs")
 
-    def get_obs(self) -> dict[str, pd.DataFrame]:
-        fakemudata = self._push_obs()
-        return {
-            group_name: {
-                modname: mod.obs.reindex(self._data[group_idx, :].obs_names, fill_value=pd.NA).apply(
-                    lambda x: x.astype("string") if x.dtype == "O" else x, axis=1
-                )
-                for modname, mod in fakemudata.mod.items()
-            }
-            for group_name, group_idx in self._groups.items()
-        }
-
     def _apply_to_view(
         self, view_name: str, func: ApplyToCallable[T], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
@@ -820,7 +808,7 @@ class MuDataAxis1Dataset(MuDataDataset):
             for view_name, view_idx in self._groups.items():
                 cnonmissing_var = self._nonmissing_var[view_name].get(group_name, slice(None))
                 arr, gnonmissing_obs[view_name], gnonmissing_var[view_name] = self.preprocessor(
-                    self._data[:, view_idx][group_name].X[group_idx, :],
+                    self._data[:, view_idx][group_name][group_idx, :].X,
                     slice(None),
                     cnonmissing_var,
                     group_name,
@@ -866,10 +854,6 @@ class MuDataAxis1Dataset(MuDataDataset):
     ) -> NDArray[int]:
         return self._map_global_indices_to_local(idx, view_name, group_name, align_to, "var")
 
-    def get_obs(self) -> dict[str, pd.DataFrame]:
-        fakemudata = self._push_obs()
-        return {modname: dict.fromkeys(self._groups.keys(), mod.obs) for modname, mod in fakemudata.mod.items()}
-
     def _apply_to_view(
         self, view_name: str, func: ApplyToCallable[T], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
@@ -895,7 +879,7 @@ class MuDataAxis1Dataset(MuDataDataset):
             subdata = data[:, view_idx]
             for modname in group_names:
                 ccret = func(subdata.mod[modname], modname, view_name, **kwargs, **gvkwargs[modname][view_name])
-                ret.get(modname, {})[view_name] = ccret
+                ret.setdefault(modname, {})[view_name] = ccret
         return ret
 
     def _apply_by_view(

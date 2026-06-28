@@ -79,7 +79,6 @@ def factors_scatter(
         model: The term to plot the factor correlation for. Can also be a :class:`~mofaflex.MOFAFLEX` object if it has only one term.
         x: The factor to plot on the x-axis.
         y: The factor to plot on the y-axis.
-            only one additive term.
         groups: The groups to plot. If `None`, all groups are shown.
         color: The covariate name to color by.
         shape: The covariate name to shape by.
@@ -140,10 +139,14 @@ def factors_scatter(
     )
 
     guides_kwargs = {}
-    if color is not None and not pd.api.types.is_float_dtype(df_factors[color]):
-        guides_kwargs["color"] = p9.guide_legend(override_aes={"size": 5})
+    if (
+        color is not None
+        and not pd.api.types.is_float_dtype(df_factors[color])
+        and not pd.api.types.is_integer_dtype(df_factors[color])
+    ):
+        guides_kwargs["color"] = p9.guide_legend(override_aes={"size": 5, "alpha": 1})
     if shape is not None:
-        guides_kwargs["shape"] = p9.guide_legend(override_aes={"size": 5})
+        guides_kwargs["shape"] = p9.guide_legend(override_aes={"size": 5, "alpha": 1})
     if len(guides_kwargs) > 0:
         plot += p9.guides(**guides_kwargs)
 
@@ -237,6 +240,17 @@ def _plot_covariates_scatter(
         + p9.facet_wrap("group")
         + p9.theme(figure_size=figsize)
     )
+    guides_kwargs = {}
+    if (
+        color is not None
+        and not pd.api.types.is_float_dtype(df[color])
+        and not pd.api.types.is_integer_dtype(df[color])
+    ):
+        guides_kwargs["color"] = p9.guide_legend(override_aes={"size": 5, "alpha": 1})
+    if shape is not None:
+        guides_kwargs["shape"] = p9.guide_legend(override_aes={"size": 5, "alpha": 1})
+    if len(guides_kwargs) > 0:
+        plot += p9.guides(**guides_kwargs)
 
     return plot
 
@@ -1208,7 +1222,7 @@ def weights(
         cdf["y_text_pos"] = np.concatenate(
             [
                 np.linspace(y_max[view], 0.1 * y_max[view], num=n_positive),
-                np.linspace(0.1 * y_min[view], y_min[view], num=n_negative),
+                np.linspace(y_min[view], 0.1 * y_min[view], num=n_negative)[::-1],
             ]
         )
         labeled_groups.append(cdf)

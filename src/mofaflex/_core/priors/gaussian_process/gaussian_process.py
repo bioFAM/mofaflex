@@ -336,7 +336,7 @@ class GaussianProcess(Prior):
                 zip(
                     self._names,
                     torch.split(
-                        pyro.sample(f"{id}_z", dist.Normal(f, 1 - self._gp.outputscale)),
+                        pyro.sample(f"{id}_z", dist.Normal(f, torch.sqrt(1 - self._gp.outputscale))),
                         tuple(gp_covariates[g].shape[0] for g in gnames),
                         dim=-2,
                     ),
