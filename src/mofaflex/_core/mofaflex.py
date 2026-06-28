@@ -535,6 +535,7 @@ class MOFAFLEX:
 
         if map_location is not None:
             state["train_opts"]["device"] = map_location
+        map_location = state["train_opts"]["device"]
 
         model = cls.__new__(cls)
         model._train_loss_elbo = state["train_loss_elbo"]

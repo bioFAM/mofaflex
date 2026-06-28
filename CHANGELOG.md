@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning][].
 - Single AnnData objects can now be used as input data. MOFA-FLEX will assume exactly one view for this type of input.
 - MuData objects with `axis=1` can now be used as input data. MOFA-FLEX will treat each modality as a group and use the `group_by`
   argument, if given, to select a column in `.var` to split the data into views.
+- `pl.variance_explained` gained a `factor_filter` argument to plot only factors whose names satisfy a predicate
+  (e.g. the annotation-informed factors of an `InformedHorseshoe` prior, dropping the uninformed dense ones).
 
 ### Changed
 - The `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does.
@@ -26,6 +28,12 @@ and this project adheres to [Semantic Versioning][].
 - The Gaussian process prior can now also be used for weights.
 - The spike and slab prior now has option to make the background distribution a Gaussian.
 - Training with sparse inputs and minibatching is about 1.5 times faster.
+- `pl.factor_significance` now ranks factors by the variance they explain within the selected `views`/`groups`,
+  rather than the overall variance, so restricting `views` reorders the plot accordingly.
+
+### Fixed
+- `MOFAFLEX.load` without an explicit `map_location` now uses the device the model was trained on (stored in the
+  file), so methods that need it (e.g. `pl.factor_significance`/PCGSE, GP priors) work on reloaded models.
 
 ### Removed
 - The MOFA compatibility mode for saving a trained model.

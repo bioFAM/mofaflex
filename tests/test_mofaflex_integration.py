@@ -12,6 +12,7 @@ import pytest
 from scipy.sparse import SparseEfficiencyWarning, csc_array, csc_matrix, csr_array, csr_matrix, issparse
 
 from mofaflex import MOFAFLEX, likelihoods, priors, settings, terms
+from mofaflex._core.priors.gaussian_process import gaussian_process as gaussian_process_module
 
 
 def compare_nested(data1, data2):
@@ -336,19 +337,44 @@ def test_integration_dynamicapi_multiple_priors(anndata_dict, tmp_path, n_partic
             "view_bernoulli": priors.Normal(),
         },
     )
-    with chdir(tmp_path):
-        model.fit(
-            anndata_dict,
-            plot_data_overview=False,
-            max_epochs=2,
-            seed=42,
-            batch_size=batch_size,
-            n_particles=n_particles,
-        )
+    save_path = tmp_path / "informedhs_model.h5"
+    model.fit(
+        anndata_dict,
+        plot_data_overview=False,
+        max_epochs=2,
+        seed=42,
+        batch_size=batch_size,
+        n_particles=n_particles,
+        save_path=save_path,
+    )
     signif = model.get_significant_annotations()
     assert len(signif) == 1
     assert next(iter(signif.keys())) == "view_normal"
     assert signif["view_normal"]["factor"].cat.categories.size == 11
+
+    # Loading without an explicit map_location uses the serialized training device.
+    reloaded = MOFAFLEX.load(save_path)
+    assert reloaded.get_significant_annotations().keys() == signif.keys()
+
+
+def test_load_uses_training_device_for_gp(anndata_dict, tmp_path, monkeypatch):
+    save_path = tmp_path / "gp_model.h5"
+    terms.MofaFlex(n_factors=2, factor_prior=priors.GaussianProcess(covariates_key="covar", mefisto_kernel=False)).fit(
+        anndata_dict, plot_data_overview=False, device="cpu", max_epochs=2, seed=42, save_path=save_path
+    )
+
+    map_locations = []
+    unpickle_torch_state = gaussian_process_module.unpickle_torch_state
+
+    def record_map_location(state, map_location=None):
+        map_locations.append(map_location)
+        return unpickle_torch_state(state, map_location=map_location)
+
+    monkeypatch.setattr(gaussian_process_module, "unpickle_torch_state", record_map_location)
+    reloaded = MOFAFLEX.load(save_path)
+
+    assert [str(device) for device in map_locations] == ["cpu"]
+    assert str(reloaded._model.terms["_"]._device) == "cpu"
 
 
 @pytest.mark.parametrize("n_particles", [1, 5])

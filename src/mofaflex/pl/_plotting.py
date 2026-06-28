@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING, Literal
@@ -478,6 +478,7 @@ def variance_explained(
     model: MOFAFLEX,
     group_by: Literal["group", "view"] = "group",
     term: str | None = None,
+    factor_filter: Callable[[str], bool] | None = None,
     figsize: tuple[float, float] | None = None,
 ) -> p9.ggplot:
     """Plot the fraction of variance explained per factor in each group and view.
@@ -488,6 +489,7 @@ def variance_explained(
         term: The name of the additive term to plot the variance explained for. If `None` and the model has only one additive term,
             will plot the fraction of variance explained per factor for this term. If `None` and the model has multiple terms, will
             plot the fraction of variance explained per term.
+        factor_filter: Predicate applied to factor names. Only factors for which the predicate returns `True` are plotted.
         figsize: Figure size in inches.
     """
     if group_by == "group":
@@ -501,10 +503,13 @@ def variance_explained(
         figsize = (len(model.group_names) * 3, 5)
 
     byterm = term is None and model.n_terms > 1
+    if factor_filter is not None and byterm:
+        raise ValueError("`factor_filter` is only supported at the factor level. Specify a single `term`.")
     col = "term" if byterm else "component"
-    df_r2 = model.get_r2("byterm" if byterm else "term", ordered=True, term=term).assign(
-        factor=lambda x: pd.Categorical(x[col], categories=x[col].unique())
-    )
+    df_r2 = model.get_r2("byterm" if byterm else "term", ordered=True, term=term)
+    if factor_filter is not None:
+        df_r2 = df_r2[df_r2[col].map(factor_filter)]
+    df_r2 = df_r2.assign(factor=lambda x: pd.Categorical(x[col], categories=x[col].unique()))
     heatmap = (
         p9.ggplot(df_r2, p9.aes(x=x, y="factor", fill="R2"))
         + p9.geom_tile()
@@ -578,7 +583,10 @@ def factor_significance(
     annotations = pd.concat(
         {view_name: vannot.sum(axis=0) for view_name, vannot in model.get_annotations().items()}, axis=0
     ).rename_axis(index=("view", "annotation"))
-    factor_order = model.factor_names[model.factor_order]
+    # Rank factors by the variance they explain within the selected views/groups, rather than overall, so that
+    # restricting `views` reorders the plot accordingly.
+    ranking = r2[r2["view"].isin(views) & r2["group"].isin(groups)].groupby("component", observed=True)["R2"].sum()
+    factor_order = ranking.sort_values(ascending=False).index.to_numpy()
 
     combined_df = (
         pcgse_results.loc[pcgse_results.groupby(["view", "annotation"])["padj"].idxmin()]
