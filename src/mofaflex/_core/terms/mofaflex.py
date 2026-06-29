@@ -217,7 +217,7 @@ class MofaFlex(Term):
 
     @property
     def _guiding_vars_factors(self) -> range:
-        return range(self.n_total_factors - self.n_guided_factors, self.n_total_factors)
+        return range(self.n_factors, self.n_factors + self.n_guided_factors)
 
     @Term._api
     @property
