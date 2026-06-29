@@ -196,7 +196,7 @@ class PyroLikelihood(ABC, PyroModule, metaclass=_PyroMeta):
             else:
                 cdist = variational_dist
             if not hasattr(cdist, "sample"):
-                cdist = cdist(self)  # double indirection for lazy access to PyroParam attributes
+                cdist = cdist()  # double indirection for lazy access to PyroParam attributes
             return cdist
 
         return PyroSample(dist)
@@ -224,9 +224,10 @@ class PyroLikelihoodWithDispersion(PyroLikelihood):
         self._scale = PyroParam(
             torch.full(size=shape, fill_value=init_scale), constraint=dist.constraints.softplus_positive
         )
-        self._dispersion = self._random_attr(
-            dist.Gamma(1e-3, 1e-3), lambda self: dist.LogNormal(self._loc, self._scale)
-        )
+        self._dispersion = self._random_attr(dist.Gamma(1e-3, 1e-3), self._variational_dist)
+
+    def _variational_dist(self):
+        return dist.LogNormal(self._loc, self._scale)
 
     @pyro_method
     def _model_dispersion(
@@ -271,5 +272,7 @@ class PyroLikelihoodWithDispersion(PyroLikelihood):
         squeezedims = list(range(self._loc.ndim))
         del squeezedims[self._feature_dim]
 
-        # TODO: use actual mean and std of LogNormal
-        return MeanStd(self._loc.squeeze(squeezedims).cpu().numpy(), self._scale.squeeze(squeezedims).cpu().numpy())
+        dist = self._variational_dist()
+        return MeanStd(
+            dist.mean.squeeze(squeezedims).cpu().numpy(), torch.sqrt(dist.variance.squeeze(squeezedims)).cpu().numpy()
+        )
