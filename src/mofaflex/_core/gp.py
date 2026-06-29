@@ -125,7 +125,7 @@ class GP(ApproximateGP):
         if inducing_points.shape[-3] != n_factors:
             raise ValueError("The first dimension of inducing_points must be n_factors.")
 
-        n_dims = inducing_points.shape[-1]
+        n_dims = inducing_points.shape[-1] - 1  # first dim is for group index
 
         variational_distribution = CholeskyVariationalDistribution(n_inducing, batch_shape=(n_factors,))
 
@@ -137,7 +137,7 @@ class GP(ApproximateGP):
 
         self.mean_module = ZeroMean(batch_shape=(n_factors,))
 
-        max_dist = torch.pdist(inducing_points.flatten(0, 1), p=n_dims).max()
+        max_dist = torch.pdist(inducing_points[..., 1:].flatten(0, 1), p=n_dims).max()
 
         kernel_kwargs = {"batch_shape": (n_factors,), "lengthscale_constraint": Interval(max_dist / 20, max_dist)}
         init_shape = (n_factors,)
