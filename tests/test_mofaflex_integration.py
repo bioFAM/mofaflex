@@ -135,7 +135,12 @@ def model_api_untrained_only():
         ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_key="covar", kernel="Matern")),
         ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_key="covar", mefisto_kernel=False)),
         ("term_mofaflex", "weight_prior", priors.GaussianProcess(covariates_key="covar", kernel="Matern")),
-        ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_mkey="covar_array", mefisto_kernel=False)),
+        ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_mkey="covar_array", mefisto_kernel=True)),
+        (
+            "term_mofaflex",
+            "factor_prior",
+            priors.GaussianProcess(covariates_mkey="covar_array", mefisto_kernel=True, independent_lengthscales=True),
+        ),
         ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_mkey="covar_sparse", mefisto_kernel=False)),
         (
             "term_mofaflex",
