@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning][].
   argument, if given, to select a column in `.var` to split the data into views.
 - `pl.variance_explained` gained a `factor_filter` argument to plot only factors whose names satisfy a predicate
   (e.g. the annotation-informed factors of an `InformedHorseshoe` prior, dropping the uninformed dense ones).
+- It is now possible to disable the progress bar during training and to control its update interval.
 
 ### Changed
 - The `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does.
