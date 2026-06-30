@@ -261,7 +261,7 @@ class MOFAFLEX:
         num_workers: int = 0,
         pin_memory: bool = False,
         n_particles: int = 1,
-        update_every: float | Literal[False] = 0.1,
+        update_every: float = 0.1,
     ):
         """Fit the model using the provided data.
 
@@ -297,7 +297,7 @@ class MOFAFLEX:
             num_workers: Number of data loader workers.
             pin_memory: Whether to use pinned memory in the data loader.
             n_particles: Number of particles for ELBO estimation.
-            update_every: Minimum interval between progress bar updates in seconds. Set to `False` to disable the progressbar.
+            update_every: Minimum interval between progress bar updates in seconds. Set to a negative value to disable the progressbar.
         """
         self._data_opts = _DataOptions(
             group_by=group_by,
@@ -403,7 +403,7 @@ class MOFAFLEX:
             )
 
         tqdm_kwargs = {}
-        if update_every is False:
+        if update_every < 0:
             tqdm_kwargs["disable"] = True
         else:
             tqdm_kwargs["mininterval"] = update_every
