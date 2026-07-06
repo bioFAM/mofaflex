@@ -43,11 +43,8 @@ def setup(app):
     ):
         getter_doc = get_doc(getters[axis])
         getter_signature_params = inspect.signature(getters[axis]).parameters
-        getter_sections = getter_doc.sections
-        getter_params_section_idx, getter_params = next(
-            (i, section.parameters)
-            for i, section in enumerate(getter_doc.sections)
-            if section.kind == SectionKind.PARAMETERS
+        getter_params = next(
+            section.parameters for section in getter_doc.sections if section.kind == SectionKind.PARAMETERS
         )
         seen_getter_params = {param.names[0] for param in getter_params}
 
@@ -64,20 +61,16 @@ def setup(app):
                 else:
                     desc = f".. important::\n   This method is only available when using the :class:`~.priors.{prior}` prior.\n\n{desc}"
                     if api.has_factors:
-                        sections = doc.sections
                         param = Parameter(
                             names=["ordered"],
                             description="Whether to return the factors ordered by explained variance (highest to lowest).",
                         )
-                        for s, section in enumerate(sections):
+                        for section in doc.sections:
                             if section.kind == SectionKind.PARAMETERS:
-                                params = section.parameters
-                                params.append(param)
-                                sections[s] = Section(section.kind, parameters=params)
+                                section.parameters.append(param)
                                 break
                         else:
-                            sections.append(Section(SectionKind.PARAMETERS, parameters=[param]))
-                        doc.sections = sections
+                            doc.sections.append(Section(SectionKind.PARAMETERS, parameters=[param]))
 
                     wrapper2 = lambda self, *args, **kwargs: None
                     wrapper2.__signature__ = wrappedapi.__signature__
@@ -102,8 +95,6 @@ def setup(app):
                         desc += f"\n\n.. important::\n   This argument is only available when using the :class:`~.priors.{prior}` prior."
                         param.description = desc
                         getter_params.append(param)
-        getter_sections[getter_params_section_idx] = Section(SectionKind.PARAMETERS, parameters=getter_params)
-        getter_doc.sections = getter_sections
         getters[axis].__doc__ = emit_google(getter_doc)
 
     # terms
