@@ -8,12 +8,13 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.1.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [0.1.2] (Unreleased)
+## [0.1.2]
 
 ### Fixed
 - Using a MuData `.obs` column as a guiding variable now works.
 - When using guiding variables together with annotations, the data frame returned by `get_annotations` now has a correct row index.
 - Compatibility with Pandas 3.
+- Using independent lengthscales in the GP prior now works.
 
 ## [0.1.1]
 
