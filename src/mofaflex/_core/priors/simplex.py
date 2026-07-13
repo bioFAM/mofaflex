@@ -66,9 +66,7 @@ class Simplex(Prior, weights=False):
 
     @staticmethod
     def _slice_init_tensor(
-        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None,
-        start: int,
-        stop: int | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None, start: int, stop: int | None = None
     ) -> dict[str, dict[Literal["loc", "scale"], NDArray]] | None:
         if init_tensor is None:
             return None
@@ -173,9 +171,7 @@ class Simplex(Prior, weights=False):
             if self._remainder_prior is None:
                 raise ValueError("remainder_prior cannot be None when non-simplex factors are present.")
             self._remainder_prior.on_train_start(
-                self._n_remainder_factors,
-                n_nonfactors,
-                self._slice_init_tensor(init_tensor, self._n_simplex_factors),
+                self._n_remainder_factors, n_nonfactors, self._slice_init_tensor(init_tensor, self._n_simplex_factors)
             )
 
     def on_train_epoch_start(self, epoch: int):
@@ -197,12 +193,7 @@ class Simplex(Prior, weights=False):
     ):
         if self._has_remainder:
             self._remainder_prior.on_train_end(
-                data,
-                factor_names[self._n_simplex_factors :],
-                nonfactor_names,
-                results,
-                results_nonnegative,
-                batch_size,
+                data, factor_names[self._n_simplex_factors :], nonfactor_names, results, results_nonnegative, batch_size
             )
 
     def _remainder_factor_plate(self, id: str, factor_plate: pyro.plate) -> pyro.plate:
@@ -292,20 +283,9 @@ class Simplex(Prior, weights=False):
         return combined
 
     def _save(self) -> dict:
-        return {
-            "simplex_block": {},
-            "remainder_prior": self._remainder_prior.save() if self._has_remainder else None,
-        }
+        return {"simplex_block": {}, "remainder_prior": self._remainder_prior.save() if self._has_remainder else None}
 
-    def _load(
-        self,
-        state: Mapping,
-        *,
-        map_location=None,
-        n_factors: int,
-        n_nonfactors: Mapping[str, int],
-        **kwargs,
-    ):
+    def _load(self, state: Mapping, *, map_location=None, n_factors: int, n_nonfactors: Mapping[str, int], **kwargs):
         if not hasattr(self, "_n_simplex_factors_config"):
             self._n_simplex_factors_config = self._n_simplex_factors
         self._resolve_n_simplex_factors(n_factors)
