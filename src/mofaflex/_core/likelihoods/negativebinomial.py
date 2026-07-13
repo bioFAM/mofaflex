@@ -2,10 +2,12 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
+from scipy.stats import nbinom
 
 from ..datasets import MofaFlexDataset
+from ..settings import settings
 from ..utils import Matrix, Vector, nanmean, nanmin
-from .base import R2, Likelihood
+from .base import R2, Likelihood, LogLikelihoods
 from .pyro import Likelihood as PyroLikelihood
 from .pyro import NegativeBinomial as PyroNegativeBinomial
 
@@ -66,7 +68,7 @@ class NegativeBinomial(Likelihood):
 
     def _r2_impl(
         self,
-        y_true: Matrix,
+        y_true: Matrix[np.number],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
@@ -79,6 +81,33 @@ class NegativeBinomial(Likelihood):
         ss_tot = np.nansum(self._dV_square(y_true, truemean, nu2, 1))
 
         return R2(ss_res, ss_tot)
+
+    def _deviance_explained_impl(
+        self,
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> LogLikelihoods:
+        truemean = self._shift[group_name][feature_idx]
+        variance = np.nanvar(y_true, axis=0, mean=truemean)
+
+        # use estimated dispersion for saturated model
+        # naive variance is most likely overestimated since the minimum of the data is used instead of the mean
+        loglik_saturated = nbinom.logpmf(
+            y_true,
+            p=1 / (1 + self._dispersion.mean[feature_idx] * y_true),
+            n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
+        ).sum()
+        loglik_null = nbinom.logpmf(y_true, p=truemean / variance, n=truemean**2 / (variance - truemean)).sum()
+        loglik_model = nbinom.logpmf(
+            y_true,
+            p=1 / (1 + self._dispersion.mean[feature_idx] * y_pred),
+            n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
+        ).sum()
+
+        return LogLikelihoods(loglik_saturated, loglik_null, loglik_model)
 
     def transform_prediction(
         self,

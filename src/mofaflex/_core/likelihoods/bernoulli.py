@@ -1,11 +1,12 @@
 import numpy as np
 from anndata import AnnData
 from scipy.special import expit, logit
+from scipy.stats import bernoulli
 
 from ..datasets import MofaFlexDataset
 from ..settings import settings
 from ..utils import Matrix, Vector, nanmean
-from .base import R2, Likelihood
+from .base import R2, Likelihood, LogLikelihoods
 from .pyro import Bernoulli as PyroBernoulli
 from .pyro import Likelihood as PyroLikelihood
 
@@ -60,6 +61,22 @@ class Bernoulli(Likelihood):
         ss_res = np.nansum(self._dV_square(y_true, y_pred, -1, 1))
         ss_tot = np.nansum(self._dV_square(y_true, expit(self._shift[group_name][feature_idx]), -1, 1))
         return R2(ss_res, ss_tot)
+
+    def _deviance_explained_impl(
+        self,
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> LogLikelihoods:
+        truemean = expit(self._shift[group_name][feature_idx])
+
+        loglik_saturated = bernoulli.logpmf(y_true, y_true).sum()
+        loglik_null = bernoulli.logpmf(y_true, truemean).sum()
+        loglik_model = bernoulli.logpmf(y_true, y_pred).sum()
+
+        return LogLikelihoods(loglik_saturated, loglik_null, loglik_model)
 
     def transform_prediction(
         self,

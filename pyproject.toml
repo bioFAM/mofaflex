@@ -33,7 +33,7 @@ dependencies = [
   "h5py",
   "mizani",
   "mudata>=0.3.2",
-  "numpy",
+  "numpy>=2",
   "packaging",
   "pandas>=2.2",
   "platformdirs",

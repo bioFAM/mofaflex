@@ -483,6 +483,12 @@ def variance_explained(
 ) -> p9.ggplot:
     """Plot the fraction of variance explained per factor in each group and view.
 
+    For views that allow negative values (at least one of factors and weights can be negative), this will be the
+    fraction of variance explained, calculated using the generalized coefficient of determination :cite:p:`10.2307/45118439`.
+
+    For nonnegative views, (both factors and weights are nonnegative), this will be the fraction of deviance explained,
+    as defined in :cite:t:`hastie2015`.
+
     Args:
         model: The MOFA-FLEX model.
         group_by: The grouping to use for the plots.

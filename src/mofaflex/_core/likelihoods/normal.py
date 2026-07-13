@@ -101,6 +101,9 @@ class Normal(Likelihood):
         ss_tot = np.nansum(np.square(y_true - self._shift[group_name][feature_idx]))
         return R2(ss_res, ss_tot)
 
+    _deviance_explained_impl = _r2_impl
+    # fraction of deviance explained reduces to standard R2 for Gaussian likelihood
+
     def transform_prediction(
         self,
         prediction: Matrix[np.floating],
