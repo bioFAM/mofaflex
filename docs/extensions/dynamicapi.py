@@ -1,7 +1,8 @@
 import inspect
 from functools import update_wrapper
 
-from pydocstring import Docstring, Parameter, Section, SectionKind, emit_google, parse_google
+from pydocstring import emit_google, parse_google
+from pydocstring.model import Docstring, Parameter, Section, SectionKind, Block
 
 import mofaflex as mfl
 from mofaflex._core.api.utils import APIType
@@ -44,9 +45,9 @@ def setup(app):
         getter_doc = get_doc(getters[axis])
         getter_signature_params = inspect.signature(getters[axis]).parameters
         getter_params = next(
-            section.parameters for section in getter_doc.sections if section.kind == SectionKind.PARAMETERS
+            section.blocks for section in getter_doc.sections if section.kind == SectionKind.PARAMETERS
         )
-        seen_getter_params = {param.names[0] for param in getter_params}
+        seen_getter_params = {param.value.names[0] for param in getter_params}
 
         for prior, priorcls in priors.items():
             for api in priorcls.api():
@@ -61,16 +62,18 @@ def setup(app):
                 else:
                     desc = f".. important::\n   This method is only available when using the :class:`~.priors.{prior}` prior.\n\n{desc}"
                     if api.has_factors:
-                        param = Parameter(
-                            names=["ordered"],
-                            description="Whether to return the factors ordered by explained variance (highest to lowest).",
+                        param = Block.Parameter(
+                            Parameter(
+                                names=["ordered"],
+                                description="Whether to return the factors ordered by explained variance (highest to lowest).",
+                            )
                         )
                         for section in doc.sections:
                             if section.kind == SectionKind.PARAMETERS:
-                                section.parameters.append(param)
+                                section.blocks.append(param)
                                 break
                         else:
-                            doc.sections.append(Section(SectionKind.PARAMETERS, parameters=[param]))
+                            doc.sections.append(Section(SectionKind.PARAMETERS, blocks=[param]))
 
                     wrapper2 = lambda self, *args, **kwargs: None
                     wrapper2.__signature__ = wrappedapi.__signature__
@@ -84,16 +87,16 @@ def setup(app):
 
             postprocess_doc = get_doc(priorcls.postprocess_results)
             if params := next(
-                (section.parameters for section in postprocess_doc.sections if section.kind == SectionKind.PARAMETERS),
-                None,
+                (section.blocks for section in postprocess_doc.sections if section.kind == SectionKind.PARAMETERS), None
             ):
                 for param in params:
-                    if param.names[0] not in seen_getter_params and param.names[0] in getter_signature_params:
-                        desc = param.description
+                    val = param.value
+                    if val.names[0] not in seen_getter_params and val.names[0] in getter_signature_params:
+                        desc = val.description
                         if desc is None:
                             desc = ""
                         desc += f"\n\n.. important::\n   This argument is only available when using the :class:`~.priors.{prior}` prior."
-                        param.description = desc
+                        val.description = desc
                         getter_params.append(param)
         getters[axis].__doc__ = emit_google(getter_doc)
 

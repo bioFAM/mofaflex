@@ -68,7 +68,7 @@ doc = [
   "ipykernel",
   "ipython",
   "myst-nb>=1.1",
-  "pydocstring-rs>=0.1.14",
+  "pydocstring-rs>=0.4",
   "sphinx>=8.1",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
