@@ -72,11 +72,11 @@ class Bernoulli(Likelihood):
     ) -> LogLikelihoods:
         truemean = expit(self._shift[group_name][feature_idx])
 
-        loglik_saturated = bernoulli.logpmf(y_true, y_true).sum()
         loglik_null = bernoulli.logpmf(y_true, truemean).sum()
         loglik_model = bernoulli.logpmf(y_true, y_pred).sum()
 
-        return LogLikelihoods(loglik_saturated, loglik_null, loglik_model)
+        # saturated model has deviance 0
+        return R2(loglik_model, loglik_null)
 
     def transform_prediction(
         self,
