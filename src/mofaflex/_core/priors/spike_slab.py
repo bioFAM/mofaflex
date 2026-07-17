@@ -6,14 +6,13 @@ import numpy as np
 import pyro
 import pyro.distributions as dist
 import torch
-from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroParam
 
 from ..datasets import MofaFlexDataset
 from ..dist import ReinMaxBernoulli
 from ..settings import settings
-from ..utils import MeanStd, PyroParameterDict
+from ..utils import Matrix, MeanStd, PyroParameterDict
 from .base import Prior
 
 
@@ -66,7 +65,7 @@ class SpikeSlab(Prior):
         self,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], Matrix[np.floating]]] | None = None,
     ):
         init_loc: float = 0.0
         init_scale: float = 0.1
@@ -215,7 +214,7 @@ class SpikeSlab(Prior):
 
     @Prior._api(has_factors=True)
     @property
-    def sparse_a̲x̲i̲s̲_probabilities(self) -> Mapping[str, NDArray[np.floating]]:
+    def sparse_a̲x̲i̲s̲_probabilities(self) -> Mapping[str, Matrix[np.floating]]:
         r"""The posterior probabilities :math:`\theta` that the value is sampled from the foreground distribution."""
         return MappingProxyType(self._probabilities)
 
@@ -256,7 +255,7 @@ class SpikeSlab(Prior):
         name: str | None = None,
         sparse_type: Literal["raw", "mix", "thresh"] = "mix",
         **kwargs,
-    ) -> dict[str, NDArray[np.number]] | NDArray[np.number] | None:
+    ) -> dict[str, Matrix[np.number]] | Matrix[np.number] | None:
         """Args:
         sparse_type: How to handle sparsity when using the spike and slab prior.
 

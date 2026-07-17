@@ -9,11 +9,9 @@ from typing import Any, Concatenate, Literal, TypeAlias, TypeVar, Union
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from numpy.typing import NDArray
-from scipy.sparse import sparray, spmatrix
 from torch.utils.data import Dataset
 
-from ..utils import checked_baseclass
+from ..utils import PossiblySparseMatrix, Vector, checked_baseclass
 
 T = TypeVar("T")
 ApplyCallable: TypeAlias = Callable[Concatenate[AnnData, str, str, ...], T]
@@ -25,12 +23,12 @@ class Preprocessor:
 
     def __call__(
         self,
-        arr: NDArray | sparray | spmatrix,
-        nonmissing_samples: NDArray[bool] | slice,
-        nonmissing_features: NDArray[bool] | slice,
+        arr: PossiblySparseMatrix,
+        nonmissing_samples: Vector[bool] | slice,
+        nonmissing_features: Vector[bool] | slice,
         group: str,
         view: str,
-    ) -> tuple[NDArray | sparray | spmatrix, NDArray[int] | slice, NDArray[int] | slice]:
+    ) -> tuple[PossiblySparseMatrix, Vector[int] | slice, Vector[int] | slice]:
         """Will be called by subclasses of MofaFlexDataset on each minibatch.
 
         Args:
@@ -86,13 +84,7 @@ class MofaFlexDataset(Dataset, ABC):
         cast_to: Data type to cast the data to. If `None`, no casting shall be performed.
     """
 
-    def __init__(
-        self,
-        data,
-        *,
-        preprocessor: Preprocessor | None = None,
-        cast_to: Union[np.ScalarType] | None = np.float32,  # noqa UP007
-    ):
+    def __init__(self, data, *, preprocessor: Preprocessor | None = None, cast_to: np.floating | None = np.float32):
         super().__init__()
 
         self._data = data
@@ -186,30 +178,30 @@ class MofaFlexDataset(Dataset, ABC):
 
     @property
     @abstractmethod
-    def view_names(self) -> NDArray[str]:
+    def view_names(self) -> Vector[str]:
         """View names."""
         pass
 
     @property
     @abstractmethod
-    def group_names(self) -> NDArray[str]:
+    def group_names(self) -> Vector[str]:
         """Group names."""
         pass
 
     @property
     @abstractmethod
-    def sample_names(self) -> dict[str, NDArray[str]]:
+    def sample_names(self) -> dict[str, Vector[str]]:
         """Sample names for each group."""
         pass
 
     @property
     @abstractmethod
-    def feature_names(self) -> dict[str, NDArray[str]]:
+    def feature_names(self) -> dict[str, Vector[str]]:
         """Feature names for each view."""
         pass
 
     @_axis_arg("axis")
-    def get_names(self, axis: Literal[0, 1]) -> dict[str, NDArray[str]]:
+    def get_names(self, axis: Literal[0, 1]) -> dict[str, Vector[str]]:
         if axis == 0:
             return self.sample_names
         else:
@@ -243,7 +235,7 @@ class MofaFlexDataset(Dataset, ABC):
         pass
 
     @abstractmethod
-    def reindex_samples(self, sample_names: dict[str, NDArray[str]] | None = None):
+    def reindex_samples(self, sample_names: dict[str, Vector[str]] | None = None):
         """Realign the samples.
 
         Args:
@@ -252,7 +244,7 @@ class MofaFlexDataset(Dataset, ABC):
         pass
 
     @abstractmethod
-    def reindex_features(self, feature_names: dict[str, NDArray[str]] | None = None):
+    def reindex_features(self, feature_names: dict[str, Vector[str]] | None = None):
         """Realign the features.
 
         Args:
@@ -264,13 +256,13 @@ class MofaFlexDataset(Dataset, ABC):
     @_axis_arg("align_to")
     def align_local_array_to_global(
         self,
-        arr: NDArray[T],
+        arr: np.ndarray,
         group_name: str,
         view_name: str,
         align_to: Literal[0, 1],
         axis: int = 0,
         fill_value: np.ScalarType = np.nan,
-    ) -> NDArray[T]:
+    ) -> np.ndarray:
         """Align an array corresponding to local samples/features to global samples/features by inserting filler values for missing observations.
 
         Args:
@@ -286,8 +278,8 @@ class MofaFlexDataset(Dataset, ABC):
     @abstractmethod
     @_axis_arg("align_to")
     def align_global_array_to_local(
-        self, arr: NDArray[T], group_name: str, view_name: str, align_to: Literal[0, 1], axis: int = 0
-    ) -> NDArray[T]:
+        self, arr: np.ndarray, group_name: str, view_name: str, align_to: Literal[0, 1], axis: int = 0
+    ) -> np.ndarray:
         """Align an array corresponding to global samples/features to a local samples/features by omitting observations not present in that view.
 
         Args:
@@ -302,8 +294,8 @@ class MofaFlexDataset(Dataset, ABC):
     @abstractmethod
     @_axis_arg("align_to")
     def map_local_indices_to_global(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         """Map indices corresponding to local samples/features to the corresponding global indices.
 
         Args:
@@ -317,8 +309,8 @@ class MofaFlexDataset(Dataset, ABC):
     @abstractmethod
     @_axis_arg("align_to")
     def map_global_indices_to_local(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         """Map indices corresponding to global samples/features to the corresponding local indices.
 
         The returned array will have values of -1 for global indices missing in the local view.

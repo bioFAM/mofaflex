@@ -15,7 +15,6 @@ import pyro.distributions as dist
 import torch
 from anndata import AnnData
 from array_api_compat import array_namespace
-from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroModuleList, PyroParam, pyro_method
 from scipy import stats
@@ -27,7 +26,15 @@ from ..api.utils import APIType
 from ..datasets import CovariatesDataset, MofaFlexDataset, StackDataset, df_to_array, merge_covariates
 from ..likelihoods.pyro import Likelihood
 from ..priors import FactorPriorType, Prior, PriorDynamicAPI, WeightPriorType
-from ..utils import MeanStd, PyroModuleDict, PyroParameterDict, change_pyro_plate_dim, default_torch_device
+from ..utils import (
+    Matrix,
+    MeanStd,
+    PyroModuleDict,
+    PyroParameterDict,
+    Vector,
+    change_pyro_plate_dim,
+    default_torch_device,
+)
 from .base import Term
 
 _logger = logging.getLogger(__name__)
@@ -233,16 +240,16 @@ class MofaFlex(Term):
 
     @Term._api
     @property
-    def factor_names(self) -> NDArray[str | np.str_]:
+    def factor_names(self) -> Vector[str | np.str_]:
         """Factor names."""
         return self._factor_names
 
     @property
-    def component_order(self) -> NDArray[int]:
+    def component_order(self) -> Vector[int]:
         return self._factor_order
 
     @component_order.setter
-    def component_order(self, order: NDArray[int]):
+    def component_order(self, order: Vector[int]):
         order = np.atleast_1d(order.squeeze())
         if order.ndim != 1:
             raise ValueError(f"`order` must be 1-dimensional, got {order.ndim}-dimensional array.")
@@ -254,12 +261,12 @@ class MofaFlex(Term):
 
     @Term._api
     @property
-    def factor_order(self) -> NDArray[int]:
+    def factor_order(self) -> Vector[int]:
         """Ordering of factors by explained variance (highest to lowest)."""
         return self.component_order
 
     @factor_order.setter
-    def factor_order(self, order: NDArray[int]):
+    def factor_order(self, order: Vector[int]):
         self.component_order = order
 
     def _init(self, data: MofaFlexDataset):
@@ -430,10 +437,10 @@ class MofaFlex(Term):
         if not isinstance(self._init_factors, str):
             for group_name, n in data.n_samples.items():
                 init_tensor[group_name]["loc"] = np.full(
-                    shape=(n, self.n_total_factors), fill_value=self._init_factors, dtype=np.float32
+                    shape=(n, self.n_total_factors), fill_value=self._init_factors, dtype=data.cast_to
                 )
                 init_tensor[group_name]["scale"] = np.full(
-                    shape=(n, self.n_total_factors), fill_value=self._init_scale, dtype=np.float32
+                    shape=(n, self.n_total_factors), fill_value=self._init_scale, dtype=data.cast_to
                 )
             return init_tensor
         match self._init_factors:
@@ -472,9 +479,9 @@ class MofaFlex(Term):
                 q = 2.0 * (q - np.min(q)) / (np.max(q) - np.min(q)) - 1
 
             # Add artifical dimension at dimension -2 for broadcasting
-            init_tensor[group_name]["loc"] = q.astype(np.float32, copy=False)
+            init_tensor[group_name]["loc"] = q.astype(data.cast_to, copy=False)
             init_tensor[group_name]["scale"] = np.full(
-                shape=(n, self.n_total_factors), fill_value=self._init_scale, dtype=np.float32
+                shape=(n, self.n_total_factors), fill_value=self._init_scale, dtype=data.cast_to
             )
 
         return init_tensor
@@ -715,10 +722,10 @@ class MofaFlex(Term):
         self,
         group_name: str,
         view_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
         idx_cartesian_product: bool = True,
-    ) -> NDArray[np.floating]:
+    ) -> Matrix[np.floating]:
         if idx_cartesian_product:
             return (
                 self._get_postprocessed_factors("mean", group_name)[sample_idx]
@@ -734,10 +741,10 @@ class MofaFlex(Term):
         self,
         group_name: str,
         view_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
+        sample_idx: Matrix[int] | slice = slice(None),
+        feature_idx: Matrix[int] | slice = slice(None),
         idx_cartesian_product: bool = True,
-    ) -> Iterable[tuple[str, NDArray[np.floating]]]:
+    ) -> Iterable[tuple[str, Matrix[np.floating]]]:
         if idx_cartesian_product:
             yield from (
                 (
@@ -766,8 +773,8 @@ class MofaFlex(Term):
     def _load(
         self,
         state: Mapping[str, Any],
-        sample_names: Mapping[str, NDArray[str]],
-        feature_names: Mapping[str, NDArray[str]],
+        sample_names: Mapping[str, Matrix[str]],
+        feature_names: Mapping[str, Matrix[str]],
         n_samples: Mapping[str, int],
         n_features: Mapping[str, int],
         map_location=None,
@@ -898,8 +905,11 @@ def _init_api():
                 apinames[(axis, prior, api.name)] = name
 
                 if api.type == APIType.property and not api.has_factors:
-                    attr = property(make_dummy_function(name, prior, True))
-                    attr.__doc__ = getattr(priorcls, api.name).__doc__
+                    prop = getattr(priorcls, api.name)
+                    wrapper = make_dummy_function(name, prior, True)
+                    wrapper.__doc__ = prop.__doc__
+                    wrapper.__annotations__ = prop.fget.__annotations__
+                    attr = property(wrapper)
                     setattr(MofaFlex, name, attr)
                     MofaFlex._api(name, hidden=True)
                     continue

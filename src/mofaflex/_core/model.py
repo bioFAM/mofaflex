@@ -10,7 +10,6 @@ import pandas as pd
 import pyro
 import torch
 from anndata import AnnData
-from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 from scipy.sparse import issparse
 
@@ -19,7 +18,7 @@ from .datasets import MofaFlexDataset, StackDataset
 from .likelihoods import Likelihood, LikelihoodType
 from .settings import settings
 from .terms import Term
-from .utils import PyroModuleDict, SaveStateMixin, wherenan
+from .utils import Matrix, PyroModuleDict, SaveStateMixin, Vector, wherenan
 
 _logger = logging.getLogger(__name__)
 
@@ -445,10 +444,10 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         self,
         group_name: str,
         view_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
         idx_cartesian_product: bool = True,
-    ):
+    ) -> Matrix[np.floating]:
         """Create a prediction for a given group and view.
 
         Args:
@@ -470,7 +469,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
 
     def _impute(
         self, data: AnnData, group_name, view_name, sample_names, feature_names, likelihood, missingonly, preprocessor
-    ):
+    ) -> AnnData:
         havemissing = data.n_obs < self._n_samples[group_name] or data.n_vars < self._n_features[view_name]
         if issparse(data.X):
             have_missing_cells = np.isnan(data.X.data).sum() > 0
@@ -541,8 +540,8 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
     def _load(
         self,
         state: Mapping[str, Any],
-        sample_names: Mapping[str, NDArray[str]],
-        feature_names: Mapping[str, NDArray[str]],
+        sample_names: Mapping[str, Vector[str]],
+        feature_names: Mapping[str, Vector[str]],
         n_samples: Mapping[str, int],
         n_features: Mapping[str, int],
         map_location=None,

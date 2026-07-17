@@ -14,7 +14,7 @@ from pyro.nn import PyroModule, pyro_method
 
 from ..api.utils import DynamicAPI, DynamicAPIDecorator, DynamicAPIMixin
 from ..datasets import MofaFlexDataset
-from ..utils import MeanStd, PyroMeta, SaveStateMixin, checked_baseclass
+from ..utils import Matrix, MeanStd, PyroMeta, SaveStateMixin, checked_baseclass
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -117,7 +117,7 @@ class Prior(
 
     def get_datasets(
         self, data: MofaFlexDataset, axis: Literal[0, 1], n_factors: int, n_nonfactors: Mapping[str, int]
-    ) -> dict[str, dict[str, pd.DataFrame | np.ndarray]] | None:
+    ) -> dict[str, dict[str, pd.DataFrame | Matrix]] | None:
         """Hook that is called prior to training.
 
         If a prior requires any additional covariates during training, it should return a dict of datasets. The keys of
@@ -150,7 +150,7 @@ class Prior(
 
     def postprocess_results(
         self, results: MeanStd, moment: Literal["mean", "std"] = "mean", name: str | None = None, **kwargs
-    ) -> dict[str, NDArray[np.number]] | NDArray[np.number] | None:
+    ) -> dict[str, Matrix[np.number]] | Matrix[np.number] | None:
         """Hook that is called by the user-facing `get_factors` and `get_weights` methods.
 
         Subclasses may apply additional postprocessing to the estimated factor and weight values. Any additional arguments in the

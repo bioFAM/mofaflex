@@ -1,13 +1,13 @@
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
+import numpy as np
 import pyro
 import torch
-from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroParam
 
-from ..utils import MeanStd, PyroParameterDict
+from ..utils import Matrix, MeanStd, PyroParameterDict
 from .base import Prior
 
 
@@ -21,7 +21,7 @@ class _SimpleLocationScale(Prior):
         self,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], Matrix[np.floating]]] | None = None,
     ):
         init_loc: float = 0.0
         init_scale: float = 0.1

@@ -7,12 +7,11 @@ from types import MappingProxyType
 import numpy as np
 import pyro
 import torch
-from numpy.typing import NDArray
 from pyro.nn import PyroModule, pyro_method
 
 from ..api.utils import DynamicAPIMixin
 from ..datasets import CovariatesDataset, MofaFlexDataset
-from ..utils import PyroMeta, SaveStateMixin, checked_baseclass
+from ..utils import Matrix, PyroMeta, SaveStateMixin, Vector, checked_baseclass
 
 
 @checked_baseclass(registry="dict")
@@ -86,10 +85,10 @@ class Term(DynamicAPIMixin, SaveStateMixin, ABC, PyroModule, metaclass=PyroMeta)
         self,
         group_name: str,
         view_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
         idx_cartesian_product: bool = True,
-    ) -> NDArray[np.floating]:
+    ) -> Matrix[np.floating]:
         """Predict the value of the term for a given group and view.
 
         Args:
@@ -107,10 +106,10 @@ class Term(DynamicAPIMixin, SaveStateMixin, ABC, PyroModule, metaclass=PyroMeta)
         self,
         group_name: str,
         view_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
+        sample_idx: Matrix[int] | slice = slice(None),
+        feature_idx: Matrix[int] | slice = slice(None),
         idx_cartesian_product: bool = True,
-    ) -> Iterable[tuple[str, NDArray[np.floating]]]:
+    ) -> Iterable[tuple[str, Matrix[np.floating]]]:
         """Predict individual components of this term.
 
         If the term itself has some additive components, e.g. factors in a factor model, predict each component individually.
@@ -127,7 +126,7 @@ class Term(DynamicAPIMixin, SaveStateMixin, ABC, PyroModule, metaclass=PyroMeta)
         pass
 
     @property
-    def component_order(self) -> NDArray[int]:
+    def component_order(self) -> Vector[int]:
         """Ordering of individual components of this term.
 
         If the term itself has some additive components, e.g. factors in a factor model, this property specifies the ordering
@@ -136,7 +135,7 @@ class Term(DynamicAPIMixin, SaveStateMixin, ABC, PyroModule, metaclass=PyroMeta)
         pass
 
     @component_order.setter
-    def component_order(self, order: NDArray[int]):
+    def component_order(self, order: Vector[int]):
         pass
 
     def get_datasets(

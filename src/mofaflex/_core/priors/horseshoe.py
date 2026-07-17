@@ -9,13 +9,12 @@ import pandas as pd
 import pyro
 import pyro.distributions as dist
 import torch
-from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroParam
 
 from ..datasets import MofaFlexDataset
 from ..pcgse import pcgse_test
-from ..utils import MeanStd, PyroParameterDict
+from ..utils import Matrix, MeanStd, PyroParameterDict
 from .base import Prior
 
 
@@ -26,7 +25,7 @@ class Horseshoe(Prior):
         self,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], Matrix[np.floating]]] | None = None,
     ):
         init_loc: float = 0.0
         init_scale: float = 0.1
@@ -170,7 +169,7 @@ class InformedHorseshoe(Horseshoe, factors=False):
         self,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], Matrix[np.floating]]] | None = None,
     ):
         super().on_train_start(n_factors, n_nonfactors, init_tensor)
         self._uninformed_scale = torch.as_tensor(self._uninformed_scale)[None, :]

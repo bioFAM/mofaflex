@@ -10,7 +10,6 @@ from types import MappingProxyType
 from typing import Literal
 
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 import pyro
 import torch
@@ -32,7 +31,13 @@ from .io import load_model, save_model
 from .likelihoods import LikelihoodType
 from .model import MofaFlexModel
 from .training import EarlyStopper
-from .utils import convert_to_tensor, default_torch_device, filter_constant_features, sample_all_data_as_one_batch
+from .utils import (
+    Vector,
+    convert_to_tensor,
+    default_torch_device,
+    filter_constant_features,
+    sample_all_data_as_one_batch,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -147,7 +152,7 @@ class MOFAFLEX:
 
     @property
     @_check_trained
-    def group_names(self) -> npt.NDArray[str]:
+    def group_names(self) -> Vector[str]:
         """Group names."""
         return self._group_names
 
@@ -159,7 +164,7 @@ class MOFAFLEX:
 
     @property
     @_check_trained
-    def view_names(self) -> npt.NDArray[str]:
+    def view_names(self) -> Vector[str]:
         """View names."""
         return self._view_names
 
@@ -171,7 +176,7 @@ class MOFAFLEX:
 
     @property
     @_check_trained
-    def feature_names(self) -> Mapping[str, npt.NDArray[str]]:
+    def feature_names(self) -> Mapping[str, Vector[str]]:
         """Feature names for each view."""
         return MappingProxyType(self._feature_names)
 
@@ -189,7 +194,7 @@ class MOFAFLEX:
 
     @property
     @_check_trained
-    def sample_names(self) -> Mapping[str, npt.NDArray[str]]:
+    def sample_names(self) -> Mapping[str, Vector[str]]:
         """Sample names for each group."""
         return MappingProxyType(self._sample_names)
 
@@ -207,7 +212,7 @@ class MOFAFLEX:
 
     @property
     @_check_trained
-    def training_loss(self) -> npt.NDArray[np.float32]:
+    def training_loss(self) -> Vector[np.floating]:
         """Total loss (negative ELBO) for each training epoch."""
         return self._train_loss_elbo
 
@@ -455,7 +460,7 @@ class MOFAFLEX:
     def get_r2(
         self, type: Literal["total", "byterm", "term"] | None = None, ordered: bool = False, term: str | None = None
     ) -> pd.DataFrame:
-        """Get the fraction of explained variance for each view and group.
+        """Get the fraction of variance explained for each view and group.
 
         Args:
             type: How fine-grained the fraction of explained variance should be split up.

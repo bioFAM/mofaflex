@@ -6,12 +6,12 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 from mudata import MuData
-from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
 from .._core import MOFAFLEX, MofaFlexDataset, pcgse_test
 from .._core.api import types
+from .._core.utils import Vector
 
 _logger = logging.getLogger(__name__)
 
@@ -89,7 +89,9 @@ def factor_correlation(model: types.terms.MofaFlex | MOFAFLEX) -> dict[str, pd.D
     }
 
 
-def match(reference: NDArray, permutable: NDArray, axis: int) -> tuple[NDArray[int], NDArray[int], NDArray[np.uint8]]:
+def match(
+    reference: np.ndarray, permutable: np.ndarray, axis: int
+) -> tuple[Vector[int], Vector[int], Vector[np.uint8]]:
     """Find optimal permutation and signs to match two tensors along specified axis.
 
     Finds the permutation and sign of permutable along one axis to maximize

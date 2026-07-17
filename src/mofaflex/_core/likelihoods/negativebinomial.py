@@ -2,10 +2,9 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
-from numpy.typing import NDArray
 
-from .. import utils
 from ..datasets import MofaFlexDataset
+from ..utils import Matrix, Vector, nanmean, nanmin
 from .base import R2, Likelihood
 from .pyro import Likelihood as PyroLikelihood
 from .pyro import NegativeBinomial as PyroNegativeBinomial
@@ -19,10 +18,8 @@ class NegativeBinomial(Likelihood):
 
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
         super().__init__(view_name, data, nonnegative)
-        sample_means = data.apply_to_view(
-            view_name, lambda adata, group_name: utils.nanmean(adata.X, axis=1, keepdims=True)
-        )
-        statfun = utils.nanmean if not nonnegative else utils.nanmin
+        sample_means = data.apply_to_view(view_name, lambda adata, group_name: nanmean(adata.X, axis=1, keepdims=True))
+        statfun = nanmean if not nonnegative else nanmin
         self._shift = data.apply_to_view(
             view_name,
             lambda adata, group_name: align_local_array_to_global(  # noqa: F821
@@ -60,7 +57,7 @@ class NegativeBinomial(Likelihood):
         self._dispersion = self._pyro_likelihood.dispersion
 
     @classmethod
-    def _validate(cls, data: NDArray, xp) -> bool:
+    def _validate(cls, data: Matrix, xp) -> bool:
         return xp.allclose(data, xp.round(data)) and data.min() >= 0
 
     @classmethod
@@ -69,27 +66,27 @@ class NegativeBinomial(Likelihood):
 
     def _r2_impl(
         self,
-        y_true: NDArray,
-        y_pred: NDArray[np.floating],
+        y_true: Matrix,
+        y_pred: Matrix[np.floating],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
-    ):
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> R2:
         ss_res = np.nansum(self._dV_square(y_true, y_pred, self._dispersion.mean[feature_idx], 1))
 
         truemean = self._shift[group_name][feature_idx]
-        nu2 = (np.nanvar(y_true, axis=0) - truemean) / truemean**2  # method of moments estimator
+        nu2 = (np.nanvar(y_true, axis=0, mean=truemean) - truemean) / truemean**2  # method of moments estimator
         ss_tot = np.nansum(self._dV_square(y_true, truemean, nu2, 1))
 
         return R2(ss_res, ss_tot)
 
     def transform_prediction(
         self,
-        prediction: NDArray[np.floating],
+        prediction: Matrix[np.floating],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
-    ):
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> Matrix[np.floating]:
         prediction = prediction + self._shift[group_name][feature_idx]
         prediction = np.maximum(0, prediction)  # ReLU
         prediction *= self._sample_means[group_name][sample_idx]
@@ -97,11 +94,11 @@ class NegativeBinomial(Likelihood):
 
     def transform_data(
         self,
-        data: NDArray[np.number],
+        data: Matrix[np.number],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
-    ):
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> Matrix[np.floating]:
         data = data / self._sample_means[group_name][sample_idx]
         data -= self._shift[group_name][feature_idx]
         return data

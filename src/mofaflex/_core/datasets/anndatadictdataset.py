@@ -7,10 +7,10 @@ from typing import Any, Literal, TypeVar, Union
 import anndata as ad
 import numpy as np
 import pandas as pd
-from numpy.typing import NDArray
 from scipy import sparse
 
 from ..settings import settings
+from ..utils import Vector
 from .base import ApplyCallable, ApplyToCallable, MofaFlexDataset, Preprocessor
 from .utils import (
     AlignmentMap,
@@ -62,10 +62,10 @@ class AnnDataDictDataset(MofaFlexDataset):
         use_obs: Literal["union", "intersection"] = "union",
         use_var: Literal["union", "intersection"] = "union",
         preprocessor: Preprocessor | None = None,
-        cast_to: np.number | None = np.float32,
+        cast_to: np.floating | None = np.float32,
         subset_var: str | None = "highly_variable",
-        sample_names: Mapping[str, NDArray[str]] | None = None,
-        feature_names: Mapping[str, NDArray[str]] | None = None,
+        sample_names: Mapping[str, Vector[str]] | None = None,
+        feature_names: Mapping[str, Vector[str]] | None = None,
         **kwargs,
     ):
         super().__init__(data, preprocessor=preprocessor, cast_to=cast_to)
@@ -120,7 +120,7 @@ class AnnDataDictDataset(MofaFlexDataset):
         use = getattr(self, f"_use_{attr}")
         return (lambda x, y: x.union(y, sort=False)) if use == "union" else (lambda x, y: x.intersection(y))
 
-    def _reindex_attr(self, attr: Literal["obs", "var"], aligned: Mapping[str, NDArray[str]] | None = None):
+    def _reindex_attr(self, attr: Literal["obs", "var"], aligned: Mapping[str, Vector[str]] | None = None):
         if aligned is None:
             aligned = getattr(self, f"_aligned_{attr}")
         map = {}
@@ -137,7 +137,7 @@ class AnnDataDictDataset(MofaFlexDataset):
             map[group_name] = gmap
         setattr(self, f"_{attr}map", map)
 
-    def reindex_samples(self, sample_names: Mapping[str, NDArray[str]] | None = None):
+    def reindex_samples(self, sample_names: Mapping[str, Vector[str]] | None = None):
         func = self._combine_func("obs")
         aligned = {}
         if sample_names is not None:
@@ -165,7 +165,7 @@ class AnnDataDictDataset(MofaFlexDataset):
         self._aligned_obs = aligned
         self._reindex_attr("obs", aligned)
 
-    def reindex_features(self, feature_names: Mapping[str, NDArray[str]] | None = None):
+    def reindex_features(self, feature_names: Mapping[str, Vector[str]] | None = None):
         func = self._combine_func("var")
         aligned = {}
         if feature_names is not None:
@@ -201,7 +201,7 @@ class AnnDataDictDataset(MofaFlexDataset):
         self._reindex_attr("var", aligned)
 
     @staticmethod
-    def _accepts_input(data):
+    def _accepts_input(data) -> bool:
         return isinstance(data, Mapping) and all(
             isinstance(group, Mapping) and all(isinstance(view, ad.AnnData) for view in group.values())
             for group in data.values()
@@ -216,19 +216,19 @@ class AnnDataDictDataset(MofaFlexDataset):
         return {group_name: obs.size for group_name, obs in self._aligned_obs.items()}
 
     @property
-    def view_names(self) -> NDArray[str]:
+    def view_names(self) -> Vector[str]:
         return np.asarray(tuple(reduce(lambda x, y: x | y, (group.keys() for group in self._data.values()))))
 
     @property
-    def group_names(self) -> NDArray[str]:
+    def group_names(self) -> Vector[str]:
         return np.asarray(tuple(self._data.keys()))
 
     @property
-    def sample_names(self) -> dict[str, NDArray[str]]:
+    def sample_names(self) -> dict[str, Vector[str]]:
         return {group_name: obs.to_numpy() for group_name, obs in self._aligned_obs.items()}
 
     @property
-    def feature_names(self) -> dict[str, NDArray[str]]:
+    def feature_names(self) -> dict[str, Vector[str]]:
         return {view_name: var.to_numpy() for view_name, var in self._aligned_var.items()}
 
     def __getitems__(self, idx: Mapping[str, int | Sequence[int]]) -> dict[str, dict]:
@@ -282,11 +282,11 @@ class AnnDataDictDataset(MofaFlexDataset):
 
     def _align_array_to_global(
         self,
-        arr: NDArray[T],
+        arr: np.ndarray,
         group_name: str,
         view_name: str,
         align_to: Literal[0, 1],
-        local_indexer: Callable[[AlignmentMap], NDArray[int]],
+        local_indexer: Callable[[AlignmentMap], Vector[int]],
         axis: int = 0,
         fill_value: np.ScalarType = np.nan,
     ):
@@ -306,7 +306,7 @@ class AnnDataDictDataset(MofaFlexDataset):
     @MofaFlexDataset._axis_arg("align_to")
     def align_local_array_to_global(
         self,
-        arr: NDArray[T],
+        arr: np.ndarray,
         group_name: str,
         view_name: str,
         align_to: Literal[0, 1],
@@ -319,8 +319,8 @@ class AnnDataDictDataset(MofaFlexDataset):
 
     @MofaFlexDataset._axis_arg("align_to")
     def align_global_array_to_local(
-        self, arr: NDArray[T], group_name: str, view_name: str, align_to: Literal[0, 1], axis: int = 0
-    ) -> NDArray[T]:
+        self, arr: np.ndarray, group_name: str, view_name: str, align_to: Literal[0, 1], axis: int = 0
+    ) -> np.ndarray:
         map = (self._obsmap if align_to == 0 else self._varmap)[group_name].get(view_name)
         if map is None:
             return arr
@@ -329,8 +329,8 @@ class AnnDataDictDataset(MofaFlexDataset):
 
     @MofaFlexDataset._axis_arg("align_to")
     def map_local_indices_to_global(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         map = (self._obsmap if align_to == 0 else self._varmap)[group_name].get(view_name)
         if map is None:
             return idx
@@ -338,8 +338,8 @@ class AnnDataDictDataset(MofaFlexDataset):
 
     @MofaFlexDataset._axis_arg("align_to")
     def map_global_indices_to_local(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         map = (self._obsmap if align_to == 0 else self._varmap)[group_name].get(view_name)
         if map is None:
             return idx

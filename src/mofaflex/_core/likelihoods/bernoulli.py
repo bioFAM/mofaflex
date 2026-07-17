@@ -1,11 +1,10 @@
 import numpy as np
 from anndata import AnnData
-from numpy.typing import NDArray
 from scipy.special import expit, logit
 
-from .. import utils
 from ..datasets import MofaFlexDataset
 from ..settings import settings
+from ..utils import Matrix, Vector, nanmean
 from .base import R2, Likelihood
 from .pyro import Bernoulli as PyroBernoulli
 from .pyro import Likelihood as PyroLikelihood
@@ -19,7 +18,7 @@ class Bernoulli(Likelihood):
 
     @staticmethod
     def _calc_shift(adata: AnnData):
-        shift = logit(utils.nanmean(adata.X, axis=0))
+        shift = logit(nanmean(adata.X, axis=0))
         shift[~np.isfinite(shift)] = 0
         return shift
 
@@ -43,7 +42,7 @@ class Bernoulli(Likelihood):
         )
 
     @classmethod
-    def _validate(cls, data: NDArray, xp) -> bool:
+    def _validate(cls, data: Matrix[np.number], xp) -> bool:
         return xp.all(xp.isclose(data, 0) | xp.isclose(data, 1))  # TODO: set correct atol value
 
     @classmethod
@@ -52,11 +51,11 @@ class Bernoulli(Likelihood):
 
     def _r2_impl(
         self,
-        y_true: NDArray,
-        y_pred: NDArray[np.floating],
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
         ss_res = np.nansum(self._dV_square(y_true, y_pred, -1, 1))
         ss_tot = np.nansum(self._dV_square(y_true, expit(self._shift[group_name][feature_idx]), -1, 1))
@@ -64,18 +63,18 @@ class Bernoulli(Likelihood):
 
     def transform_prediction(
         self,
-        prediction: NDArray[np.floating],
+        prediction: Matrix[np.floating],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
-    ):
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> Matrix[np.floating]:
         return expit(prediction + self._shift[group_name][feature_idx])
 
     def transform_data(
         self,
-        data: NDArray[np.number],
+        data: Matrix[np.number],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
-    ):
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> Matrix[np.floating]:
         return logit(np.clip(data, settings.eps, 1 - settings.eps)) - self._shift[group_name][feature_idx]

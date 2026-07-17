@@ -8,20 +8,10 @@ from typing import Any, Union
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from numpy.typing import NDArray
-from scipy.sparse import (
-    coo_array,
-    coo_matrix,
-    csc_array,
-    csc_matrix,
-    csr_array,
-    csr_matrix,
-    issparse,
-    sparray,
-    spmatrix,
-)
+from scipy.sparse import coo_array, coo_matrix, csc_array, csc_matrix, csr_array, csr_matrix, issparse
 
 from ..settings import settings
+from ..utils import PossiblySparseMatrix
 
 AlignmentMap = namedtuple("AlignmentMap", ["d2g", "g2d"])
 
@@ -35,7 +25,7 @@ def have_dask():
 _warned_sparse = False
 
 
-def array_to_dask(arr: NDArray | spmatrix | sparray | pd.DataFrame):
+def array_to_dask(arr: PossiblySparseMatrix | pd.DataFrame):
     import dask.array as da
     import dask.dataframe as dd
 

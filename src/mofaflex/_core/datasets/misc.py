@@ -3,9 +3,9 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 import pandas as pd
 import torch
-from numpy.typing import NDArray
 from torch.utils.data import BatchSampler, Dataset, RandomSampler, Sampler
 
+from ..utils import Matrix
 from .utils import dataframe_to_numpy_dtypes
 
 
@@ -98,7 +98,9 @@ def df_to_array(df: pd.DataFrame, cast_to=None):
 
 class CovariatesDataset(Dataset):
     def __init__(
-        self, covariates: Mapping[str, Mapping[str, pd.DataFrame | np.ndarray]], cast_to: np.number | None = np.float32
+        self,
+        covariates: Mapping[str, Mapping[str, pd.DataFrame | np.ndarray]],
+        cast_to: np.floating | None = np.float32,
     ):
         super().__init__()
         self._covariates = covariates
@@ -108,7 +110,7 @@ class CovariatesDataset(Dataset):
     def __len__(self):
         return self._n_samples
 
-    def __getitem__(self, idx: dict[str, int | list[int]]) -> dict[str, NDArray]:
+    def __getitem__(self, idx: dict[str, int | list[int]]) -> dict[str, Matrix]:
         ret = {}
         for group_name, group_idx in idx.items():
             if group_name in self._covariates:

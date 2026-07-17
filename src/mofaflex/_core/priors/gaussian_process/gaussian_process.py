@@ -10,12 +10,11 @@ import pyro
 import pyro.distributions as dist
 import torch
 from dtw import dtw
-from numpy.typing import NDArray
 from pyro.distributions import constraints
 from pyro.nn import PyroParam, pyro_method
 
 from ...datasets import MofaFlexDataset, merge_covariates
-from ...utils import MeanStd, pickle_torch_state, unpickle_torch_state
+from ...utils import Matrix, MeanStd, Vector, pickle_torch_state, unpickle_torch_state
 from .. import Prior
 from .gp import GP
 
@@ -124,7 +123,7 @@ class GaussianProcess(Prior):
         self,
         n_factors: int,
         n_nonfactors: Mapping[str, int],
-        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], NDArray]] | None = None,
+        init_tensor: Mapping[str, Mapping[Literal["loc", "scale"], Matrix[np.floating]]] | None = None,
     ):
         init_loc: float = 0.0
         init_scale: float = 0.1
@@ -199,7 +198,7 @@ class GaussianProcess(Prior):
         self._gps = self._get_gps({g: covar.to_numpy() for g, covar in self._covariates.items()}, batch_size)
 
     @torch.inference_mode()
-    def _get_gps(self, x: Mapping[str, np.ndarray | torch.Tensor], batch_size: int):
+    def _get_gps(self, x: Mapping[str, Matrix | torch.Tensor], batch_size: int):
         gps = MeanStd({}, {})
         for group_idx, group_name in enumerate(self._names):
             gidx = torch.as_tensor(group_idx)
@@ -223,13 +222,13 @@ class GaussianProcess(Prior):
 
     @Prior._api
     @property
-    def a̲x̲i̲s̲_covariates_names(self) -> dict[str, NDArray[str | np.str_]]:
+    def a̲x̲i̲s̲_covariates_names(self) -> dict[str, Matrix[str | np.str_]]:
         """Covariate names for each group where they could be inferred from the input."""
         return {group_name: covar.columns.to_numpy() for group_name, covar in self.covariates.items()}
 
     @Prior._api
     @property
-    def a̲x̲i̲s̲_covariates(self) -> Mapping[str, NDArray[np.float32]]:
+    def a̲x̲i̲s̲_covariates(self) -> Mapping[str, Matrix[np.floating]]:
         """Covariates for each group."""
         return (
             MappingProxyType(self._orig_covariates)
@@ -239,25 +238,25 @@ class GaussianProcess(Prior):
 
     @Prior._api
     @property
-    def warped_a̲x̲i̲s̲_covariates(self) -> Mapping[str, NDArray[np.float32]] | None:
+    def warped_a̲x̲i̲s̲_covariates(self) -> Mapping[str, Matrix[np.floating]] | None:
         """Time-warped covariates for each group, if dynamic time warping was enabled."""
         return MappingProxyType(self._covariates) if hasattr(self, "_orig_covariates") else None
 
     @Prior._api
     @property
-    def a̲x̲i̲s̲_gp_lengthscale(self) -> NDArray[np.float32]:
+    def a̲x̲i̲s̲_gp_lengthscale(self) -> Vector[np.floating] | Matrix[np.floating]:
         """Inferred lengthscales for each factor."""
         return self._gp.lengthscale.detach().cpu().numpy()
 
     @Prior._api
     @property
-    def a̲x̲i̲s̲_gp_scale(self) -> NDArray[np.float32]:
+    def a̲x̲i̲s̲_gp_scale(self) -> Vector[np.floating]:
         """Inferred variance scales (smoothness) for each factor."""
         return self._gp.outputscale.detach().cpu().numpy()
 
     @Prior._api
     @property
-    def a̲x̲i̲s̲_gp_group_correlation(self) -> NDArray[np.float32]:
+    def a̲x̲i̲s̲_gp_group_correlation(self) -> Matrix[np.floating]:
         """Between-group correlation for each factor."""
         return self._gp.group_corr.detach().cpu().numpy()
 
@@ -265,7 +264,7 @@ class GaussianProcess(Prior):
     def get_a̲x̲i̲s̲_gps(
         self,
         moment: Literal["mean", "std"] = "mean",
-        x: Mapping[str, np.ndarray | torch.Tensor] | None = None,
+        x: Mapping[str, Matrix | torch.Tensor] | None = None,
         batch_size: int | None = None,
     ) -> Mapping[str, pd.DataFrame]:
         """Get all latent functions.
