@@ -1,6 +1,6 @@
 name: Feature request
-description: Propose a new feature for prismo
-type: Enhancement
+description: Propose a new feature for mofaflex
+labels: enhancement
 body:
   - type: textarea
     id: description
