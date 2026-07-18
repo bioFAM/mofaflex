@@ -56,7 +56,7 @@ urls.Source = "https://github.com/bioFAM/mofaflex"
 
 [dependency-groups]
 dev = [
-  "pre-commit",
+  "prek",
   "twine>=4.0.2",
 ]
 test = [
@@ -68,12 +68,14 @@ doc = [
   "ipykernel",
   "ipython",
   "myst-nb>=1.1",
+  "pandas",
   "pydocstring-rs>=0.4",
+  "scverse-misc[sphinx]>=0.1.3",
   "sphinx>=8.1",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
   "sphinx-copybutton",
-  "sphinx-tabs",
+  "sphinx-design",
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
@@ -160,6 +162,7 @@ run.source = [ "mofaflex" ]
 
 [tool.cruft]
 skip = [
+  ".git",
   "tests",
   "src/**/__init__.py",
   "src/**/basic.py",

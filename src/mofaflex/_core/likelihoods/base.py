@@ -7,12 +7,11 @@ from typing import Any, NamedTuple
 import numpy as np
 from anndata import AnnData
 from array_api_compat import array_namespace
-from numpy.typing import NDArray
 from scipy.sparse import issparse
 
 from ..api.utils import DynamicAPIMixin
 from ..datasets import MofaFlexDataset
-from ..utils import SaveStateMixin, checked_baseclass
+from ..utils import Matrix, SaveStateMixin, Vector, checked_baseclass
 from .pyro import Likelihood as PyroLikelihood
 
 _logger = logging.getLogger(__name__)
@@ -98,7 +97,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     @classmethod
     @abstractmethod
-    def _validate(cls, data: NDArray, xp) -> bool:
+    def _validate(cls, data: Matrix[np.number], xp) -> bool:
         """Validate that the current likelihood is suitable for the given data.
 
         Args:
@@ -144,11 +143,17 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
         return lklhdcls
 
     @staticmethod
-    def _Vprime(mu: NDArray[np.floating], nu2: float, nu1: float):
+    def _Vprime(mu: np.ndarray[tuple[Any, ...], np.floating], nu2: float, nu1: float):
         return 2 * nu2 * mu + nu1
 
     @classmethod
-    def _dV_square(cls, a: NDArray[np.floating], b: NDArray[np.floating], nu2: float, nu1: float):
+    def _dV_square(
+        cls,
+        a: np.ndarray[tuple[Any, ...], np.floating],
+        b: np.ndarray[tuple[Any, ...], np.floating],
+        nu2: float,
+        nu1: float,
+    ):
         # this is based on Zhang: A Coefficient of Determination for Generalized Linear Models (2017)
         dVb = cls._Vprime(b, nu2, nu1)
         dVa = cls._Vprime(a, nu2, nu1)
@@ -158,7 +163,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     @abstractmethod
     def _r2_impl(
-        self, y_true: NDArray, y_pred: NDArray[np.floating], alignment_idx: NDArray[int], group_name: str
+        self, y_true: Matrix[np.number], y_pred: Matrix[np.floating], alignment_idx: Vector[int], group_name: str
     ) -> R2:
         """Implementation of R2 calculation.
 
@@ -173,11 +178,11 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
     @abstractmethod
     def transform_prediction(
         self,
-        prediction: NDArray[np.floating],
+        prediction: Matrix[np.floating],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
-    ):
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> Matrix[np.floating]:
         """Transform the raw model prediction into something compatible with the data, a.k.a. inverse link function.
 
         Args:
@@ -191,11 +196,11 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
     @abstractmethod
     def transform_data(
         self,
-        data: NDArray[np.number],
+        data: Matrix[np.number],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
-    ):
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> Matrix[np.number]:
         """Transform the data into something compatible with the raw model prediction, a.k.a. link function.
 
         Args:
@@ -207,12 +212,12 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     def r2(
         self,
-        y_true: NDArray,
-        y_pred: NDArray[np.floating],
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
         group_name: str,
-        sample_idx: NDArray[int] | slice = slice(None),
-        feature_idx: NDArray[int] | slice = slice(None),
-    ) -> tuple[float, NDArray[np.floating]]:
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> float:
         """Calculate R2 (fraction of explained variance) for a factor model.
 
         Args:
@@ -231,7 +236,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
         )
         return max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
 
-    def _load(self, state: Mapping[str, Any], feature_names: NDArray[str], **kwargs):
+    def _load(self, state: Mapping[str, Any], feature_names: Vector[str], **kwargs):
         self._feature_names = feature_names
 
     @classmethod

@@ -8,10 +8,10 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from mudata import MuData
-from numpy.typing import NDArray
 from scipy import sparse
 
 from ..settings import settings
+from ..utils import Vector
 from .base import ApplyCallable, ApplyToCallable, MofaFlexDataset, Preprocessor
 from .utils import (
     align_dataframe,
@@ -77,11 +77,11 @@ class MuDataDataset(MofaFlexDataset):
         layer: Mapping[str, str | None] | str | None = None,
         group_by: str | Sequence[str] | None = None,
         preprocessor: Preprocessor | None = None,
-        cast_to: np.number | None = np.float32,
+        cast_to: np.floating | None = np.float32,
         subset_var: str | None = "highly_variable",
-        sample_names: Mapping[str, NDArray[str]] | None = None,
-        feature_names: Mapping[str, NDArray[str]] | None = None,
-        groups: Mapping[str, NDArray[int]] | None = None,
+        sample_names: Mapping[str, Vector[str]] | None = None,
+        feature_names: Mapping[str, Vector[str]] | None = None,
+        groups: Mapping[str, Vector[int]] | None = None,
         **kwargs,
     ):
         super().__init__(mudata, preprocessor=preprocessor, cast_to=cast_to)
@@ -95,7 +95,7 @@ class MuDataDataset(MofaFlexDataset):
         self.reindex_features(feature_names)
 
     def _reindex_with_groups(
-        self, attr: str, names: Mapping[str, NDArray[str]] | None = None
+        self, attr: str, names: Mapping[str, Vector[str]] | None = None
     ) -> pd.Index | slice | None:
         namesattr = f"{attr}_names"
         if names is not None and (
@@ -154,7 +154,7 @@ class MuDataDataset(MofaFlexDataset):
         ).indices
 
     def _reindex(
-        self, attr: str, axisattr: str, names: Mapping[str, NDArray[str]] | None = None
+        self, attr: str, axisattr: str, names: Mapping[str, Vector[str]] | None = None
     ) -> pd.Index | slice | None:
         namesattr = f"{attr}_names"
 
@@ -198,7 +198,7 @@ class MuDataDataset(MofaFlexDataset):
 
     def _align_local_array_to_global_impl(
         self,
-        arr: NDArray[T],
+        arr: np.ndarray,
         name1: str | None,
         name2: str,
         subdata: MuData | None,
@@ -207,7 +207,7 @@ class MuDataDataset(MofaFlexDataset):
         fill_value: np.ScalarType,
         attr: str,
         param: str,
-    ) -> NDArray[T]:
+    ) -> np.ndarray:
         if self._data.axis == 1 - align_to:
             return arr
 
@@ -230,21 +230,21 @@ class MuDataDataset(MofaFlexDataset):
     @MofaFlexDataset._axis_arg("align_to")
     def align_local_array_to_global(
         self,
-        arr: NDArray[T],
+        arr: np.ndarray,
         group_name: str,
         view_name: str,
         align_to: Literal[0, 1],
         axis: int = 0,
         fill_value: np.ScalarType = np.nan,
-    ):
+    ) -> np.ndarray:
         return self._align_local_array_to_global(
             arr, view_name, group_name=group_name, align_to=align_to, axis=axis, fill_value=fill_value
         )
 
     @MofaFlexDataset._axis_arg("align_to")
     def align_global_array_to_local(
-        self, arr: NDArray[T], group_name: str, view_name: str, align_to: Literal[0, 1], axis: int = 0
-    ) -> NDArray[T]:
+        self, arr: np.ndarray, group_name: str, view_name: str, align_to: Literal[0, 1], axis: int = 0
+    ) -> np.ndarray:
         if self._data.axis == align_to:
             idx = self.map_local_indices_to_global(slice(None), group_name, view_name, align_to)
             return np.take(arr, idx, axis=axis)
@@ -252,8 +252,8 @@ class MuDataDataset(MofaFlexDataset):
             return arr
 
     def _map_local_indices_to_global(
-        self, idx: NDArray[int], name1: str, name2: str, align_to: Literal[0, 1], attr: str
-    ) -> NDArray[int]:
+        self, idx: Vector[int], name1: str, name2: str, align_to: Literal[0, 1], attr: str
+    ) -> Vector[int]:
         if self._data.axis == align_to:
             subdata = self._data[(self._groups[name1], slice(None))[self._subset_reorder]]
             map = getattr(subdata, f"{attr}map")[name2]
@@ -267,8 +267,8 @@ class MuDataDataset(MofaFlexDataset):
             return idx
 
     def _map_global_indices_to_local(
-        self, idx: NDArray[int], name1: str, name2: str, align_to: Literal[0, 1], attr: str
-    ) -> NDArray[int]:
+        self, idx: Vector[int], name1: str, name2: str, align_to: Literal[0, 1], attr: str
+    ) -> Vector[int]:
         if self._data.axis == align_to:
             subdata = self._data[(self._groups[name1], slice(None))[self._subset_reorder]]
             return getattr(subdata, f"{attr}map")[name2][idx].astype(int) - 1
@@ -525,8 +525,8 @@ class MuDataAxis0Dataset(MuDataDataset):
         preprocessor: Preprocessor | None = None,
         cast_to: np.number | None = np.float32,
         subset_var: str | None = "highly_variable",
-        sample_names: Mapping[str, NDArray[str]] | None = None,
-        feature_names: Mapping[str, NDArray[str]] | None = None,
+        sample_names: Mapping[str, Vector[str]] | None = None,
+        feature_names: Mapping[str, Vector[str]] | None = None,
         **kwargs,
     ):
         if feature_names is None and subset_var is not None:
@@ -549,14 +549,14 @@ class MuDataAxis0Dataset(MuDataDataset):
             feature_names=feature_names,
         )
 
-    def reindex_samples(self, sample_names: Mapping[str, NDArray[str]] | None = None):
+    def reindex_samples(self, sample_names: Mapping[str, Vector[str]] | None = None):
         selection = self._reindex_with_groups("obs", sample_names)
         if selection is not None:
             self._data = self._orig_data[selection, self._feature_selection]
             self._sample_selection = selection
         self._calc_groups("obs")
 
-    def reindex_features(self, feature_names: Mapping[str, NDArray[str]] | None = None):
+    def reindex_features(self, feature_names: Mapping[str, Vector[str]] | None = None):
         selection = self._reindex("var", "feature", feature_names)
         if selection is not None:
             self._data = self._orig_data[self._sample_selection, selection]
@@ -579,19 +579,19 @@ class MuDataAxis0Dataset(MuDataDataset):
         return {groupname: len(groupidx) for groupname, groupidx in self._groups.items()}
 
     @property
-    def view_names(self) -> NDArray[str]:
+    def view_names(self) -> Vector[str]:
         return np.asarray(tuple(self._data.mod.keys()))
 
     @property
-    def group_names(self) -> NDArray[str]:
+    def group_names(self) -> Vector[str]:
         return np.asarray(tuple(self._groups.keys()))
 
     @property
-    def sample_names(self) -> dict[str, NDArray[str]]:
+    def sample_names(self) -> dict[str, Vector[str]]:
         return {groupname: self._data.obs_names[groupidx].to_numpy() for groupname, groupidx in self._groups.items()}
 
     @property
-    def feature_names(self) -> dict[str, NDArray[str]]:
+    def feature_names(self) -> dict[str, Vector[str]]:
         return {viewname: mod.var_names.to_numpy() for viewname, mod in self._data.mod.items()}
 
     def __getitems__(self, idx: Mapping[str, int | Sequence[int]]) -> dict[str, dict]:
@@ -629,28 +629,28 @@ class MuDataAxis0Dataset(MuDataDataset):
 
     def _align_local_array_to_global(
         self,
-        arr: NDArray[T],
+        arr: np.ndarray,
         view_name: str,
         subdata: MuData | None = None,
         group_name: str | None = None,
         align_to: Literal[0, 1] = 0,
         axis: int = 0,
         fill_value: np.ScalarType = np.nan,
-    ) -> NDArray[T]:
+    ) -> np.ndarray:
         return self._align_local_array_to_global_impl(
             arr, group_name, view_name, subdata, align_to, axis, fill_value, "obs", "group_name"
         )
 
     @MofaFlexDataset._axis_arg("align_to")
     def map_local_indices_to_global(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         return self._map_local_indices_to_global(idx, group_name, view_name, align_to, "obs")
 
     @MofaFlexDataset._axis_arg("align_to")
     def map_global_indices_to_local(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         return self._map_global_indices_to_local(idx, group_name, view_name, align_to, "obs")
 
     def _apply_to_view(
@@ -706,8 +706,8 @@ class MuDataAxis1Dataset(MuDataDataset):
         preprocessor: Preprocessor | None = None,
         cast_to: np.number | None = np.float32,
         subset_var: str | None = "highly_variable",
-        sample_names: Mapping[str, NDArray[str]] | None = None,
-        feature_names: Mapping[str, NDArray[str]] | None = None,
+        sample_names: Mapping[str, Vector[str]] | None = None,
+        feature_names: Mapping[str, Vector[str]] | None = None,
         **kwargs,
     ):
         if feature_names is None and subset_var is not None:
@@ -746,13 +746,13 @@ class MuDataAxis1Dataset(MuDataDataset):
             groups=groups,
         )
 
-    def reindex_samples(self, sample_names: Mapping[str, NDArray[str]] | None = None):
+    def reindex_samples(self, sample_names: Mapping[str, Vector[str]] | None = None):
         selection = self._reindex("obs", "sample", sample_names)
         if selection is not None:
             self._data = self._orig_data[selection, self._feature_selection]
             self._sample_selection = selection
 
-    def reindex_features(self, feature_names: Mapping[str, NDArray[str]] | None = None):
+    def reindex_features(self, feature_names: Mapping[str, Vector[str]] | None = None):
         selection = self._reindex_with_groups("var", feature_names)
         if selection is not None:
             self._data = self._orig_data[self._sample_selection, selection]
@@ -782,19 +782,19 @@ class MuDataAxis1Dataset(MuDataDataset):
         return {viewname: len(groupidx) for viewname, groupidx in self._groups.items()}
 
     @property
-    def group_names(self) -> NDArray[str]:
+    def group_names(self) -> Vector[str]:
         return np.asarray(tuple(self._data.mod.keys()))
 
     @property
-    def view_names(self) -> NDArray[str]:
+    def view_names(self) -> Vector[str]:
         return np.asarray(tuple(self._groups.keys()))
 
     @property
-    def feature_names(self) -> dict[str, NDArray[str]]:
+    def feature_names(self) -> dict[str, Vector[str]]:
         return {viewname: self._data.var_names[groupidx].to_numpy() for viewname, groupidx in self._groups.items()}
 
     @property
-    def sample_names(self) -> dict[str, NDArray[str]]:
+    def sample_names(self) -> dict[str, Vector[str]]:
         return {groupname: mod.obs_names.to_numpy() for groupname, mod in self._data.mod.items()}
 
     def __getitems__(self, idx: Mapping[str, int | Sequence[int]]) -> dict[str, dict]:
@@ -830,28 +830,28 @@ class MuDataAxis1Dataset(MuDataDataset):
 
     def _align_local_array_to_global(
         self,
-        arr: NDArray[T],
+        arr: np.ndarray,
         view_name: str,
         subdata: MuData | None = None,
         group_name: str | None = None,
         align_to: Literal[0, 1] = 0,
         axis: int = 0,
         fill_value: np.ScalarType = np.nan,
-    ) -> NDArray[T]:
+    ) -> np.ndarray:
         return self._align_local_array_to_global_impl(
             arr, view_name, group_name, subdata, align_to, axis, fill_value, "var", "view_name"
         )
 
     @MofaFlexDataset._axis_arg("align_to")
     def map_local_indices_to_global(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         return self._map_local_indices_to_global(idx, view_name, group_name, align_to, "var")
 
     @MofaFlexDataset._axis_arg("align_to")
     def map_global_indices_to_local(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         return self._map_global_indices_to_local(idx, view_name, group_name, align_to, "var")
 
     def _apply_to_view(

@@ -6,10 +6,10 @@ from typing import Any, Literal, TypeVar, Union
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from numpy.typing import NDArray
 from scipy.sparse import issparse
 
 from ..settings import settings
+from ..utils import Vector
 from .base import ApplyCallable, ApplyToCallable, MofaFlexDataset, Preprocessor
 from .utils import anndata_to_dask, apply_to_nested, from_dask, have_dask, select_anndata_layer, warn_dask
 
@@ -27,10 +27,10 @@ class AnnDataDataset(MofaFlexDataset):
         layer: str | None = None,
         group_by: str | Sequence[str] | None = None,
         preprocessor: Preprocessor | None = None,
-        cast_to: np.number | None = np.float32,
+        cast_to: np.floating | None = np.float32,
         subset_var: str | None = "highly_variable",
-        sample_names: Mapping[str, NDArray[str]] | None = None,
-        feature_names: Mapping[str, NDArray[str]] | None = None,
+        sample_names: Mapping[str, Vector[str]] | None = None,
+        feature_names: Mapping[str, Vector[str]] | None = None,
         **kwargs,
     ):
         super().__init__(adata, preprocessor=preprocessor, cast_to=cast_to)
@@ -45,7 +45,7 @@ class AnnDataDataset(MofaFlexDataset):
         self.reindex_samples(sample_names)
         self.reindex_features(feature_names)
 
-    def reindex_samples(self, sample_names: Mapping[str, NDArray[str]] | None = None):
+    def reindex_samples(self, sample_names: Mapping[str, Vector[str]] | None = None):
         if sample_names is not None and (
             self._groups is None
             or any(
@@ -85,7 +85,7 @@ class AnnDataDataset(MofaFlexDataset):
             observed=True,
         ).indices
 
-    def reindex_features(self, feature_names: Mapping[str, NDArray[str]] | None = None):
+    def reindex_features(self, feature_names: Mapping[str, Vector[str]] | None = None):
         if (
             feature_names is not None
             and self._view_name in feature_names
@@ -109,7 +109,7 @@ class AnnDataDataset(MofaFlexDataset):
             self._feature_selection = slice(None)
 
     @staticmethod
-    def _accepts_input(data):
+    def _accepts_input(data) -> bool:
         return isinstance(data, AnnData)
 
     @property
@@ -125,19 +125,19 @@ class AnnDataDataset(MofaFlexDataset):
         return self._data.n_obs
 
     @property
-    def view_names(self) -> NDArray[str]:
+    def view_names(self) -> Vector[str]:
         return np.asarray((self._view_name,))
 
     @property
-    def group_names(self) -> NDArray[str]:
+    def group_names(self) -> Vector[str]:
         return np.asarray(tuple(self._groups.keys()))
 
     @property
-    def sample_names(self) -> dict[str, NDArray[str]]:
+    def sample_names(self) -> dict[str, Vector[str]]:
         return {groupname: self._data.obs_names[groupidx].to_numpy() for groupname, groupidx in self._groups.items()}
 
     @property
-    def feature_names(self) -> dict[str, NDArray[str]]:
+    def feature_names(self) -> dict[str, Vector[str]]:
         return {self._view_name: self._data.var_names.to_numpy()}
 
     def __getitems__(self, idx: Mapping[str, int | Sequence[int]]) -> dict[str, dict]:
@@ -168,31 +168,31 @@ class AnnDataDataset(MofaFlexDataset):
     @MofaFlexDataset._axis_arg("align_to")
     def align_local_array_to_global(
         self,
-        arr: NDArray[T],
+        arr: np.ndarray,
         group_name: str,
         view_name: str,
         align_to: Literal[0, 1],
         axis: int = 0,
         fill_value: np.ScalarType = np.nan,
-    ):
+    ) -> np.ndarray:
         return arr
 
     @MofaFlexDataset._axis_arg("align_to")
     def align_global_array_to_local(
-        self, arr: NDArray[T], group_name: str, view_name: str, align_to: Literal[0, 1], axis: int = 0
-    ) -> NDArray[T]:
+        self, arr: np.ndarray, group_name: str, view_name: str, align_to: Literal[0, 1], axis: int = 0
+    ) -> np.ndarray:
         return arr
 
     @MofaFlexDataset._axis_arg("align_to")
     def map_local_indices_to_global(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         return idx
 
     @MofaFlexDataset._axis_arg("align_to")
     def map_global_indices_to_local(
-        self, idx: NDArray[int], group_name: str, view_name: str, align_to: Literal[0, 1]
-    ) -> NDArray[int]:
+        self, idx: Vector[int], group_name: str, view_name: str, align_to: Literal[0, 1]
+    ) -> Vector[int]:
         return idx
 
     def get_missing_obs(self) -> pd.DataFrame:

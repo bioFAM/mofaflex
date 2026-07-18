@@ -8,12 +8,11 @@ from contextlib import ExitStack, contextmanager, suppress
 from inspect import isabstract, signature
 from io import BytesIO
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 import numpy as np
 import pyro
 import torch
-from numpy.typing import NDArray
 from pyro.nn import PyroModule
 from scipy.sparse import (
     coo_array,
@@ -35,7 +34,11 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
-PossiblySparseArray: TypeAlias = NDArray | spmatrix | sparray
+_NUMPY_SCALAR = TypeVar("T", *np.ScalarType)
+
+Vector: TypeAlias = np.ndarray[tuple[int], _NUMPY_SCALAR]
+Matrix: TypeAlias = np.ndarray[tuple[int, int], _NUMPY_SCALAR]
+PossiblySparseMatrix: TypeAlias = Matrix | spmatrix | sparray
 
 MeanStd = namedtuple("MeanStd", ["mean", "std"])
 ShapeRate = namedtuple("ShapeRate", ["shape", "rate"])
@@ -252,13 +255,13 @@ def change_pyro_plate_dim(plate: pyro.plate | Iterable[pyro.plate], new_dim: int
             yield plate
 
 
-def pickle_torch_state(state: dict) -> NDArray[np.uint8]:
+def pickle_torch_state(state: dict) -> np.ndarray[tuple[int], np.uint8]:
     pkl = BytesIO()
     torch.save(state, pkl)
     return np.frombuffer(pkl.getbuffer(), dtype=np.uint8)
 
 
-def unpickle_torch_state(state: NDArray[np.uint8], map_location=None):
+def unpickle_torch_state(state: np.ndarray[tuple[int], np.uint8], map_location=None):
     pkl = BytesIO(state.tobytes())
     return torch.load(pkl, map_location=map_location, weights_only=True)
 
@@ -314,7 +317,7 @@ def filter_constant_features(data: MofaFlexDataset):
     data.reindex_features(nonconstantfeatures)
 
 
-def mean(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
+def mean(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
     if issparse(arr):
         mean = np.asarray(arr.mean(axis=axis))
         if not keepdims and axis is not None and mean.ndim == arr.ndim:
@@ -356,7 +359,7 @@ def _nanmean_cs_nonaligned(arr: csr_array | csr_matrix | csc_array | csc_matrix)
     return out
 
 
-def nanmean(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
+def nanmean(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
     if issparse(arr):
         if axis is None:
             mean = np.nansum(arr.data) / (np.prod(arr.shape) - np.sum(np.isnan(arr.data)))
@@ -386,7 +389,7 @@ def nanmean(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
     return mean
 
 
-def var(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
+def var(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
     if issparse(arr):
         _mean = mean(arr, axis=axis, keepdims=True)
         var = (np.asarray(arr - _mean) ** 2).mean(axis=axis, keepdims=keepdims)
@@ -395,7 +398,7 @@ def var(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
     return var
 
 
-def nanvar(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
+def nanvar(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
     if issparse(arr):
         _mean = nanmean(arr, axis=axis, keepdims=True)
         var = np.nanmean(np.asarray(arr - _mean) ** 2, axis=axis, keepdims=keepdims)
@@ -404,23 +407,23 @@ def nanvar(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
     return var
 
 
-def min(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
+def min(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
     return _minmax(arr, method="min", axis=axis, keepdims=keepdims)
 
 
-def max(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
+def max(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
     return _minmax(arr, method="max", axis=axis, keepdims=keepdims)
 
 
-def nanmin(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
+def nanmin(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
     return _minmax(arr, method="nanmin", axis=axis, keepdims=keepdims)
 
 
-def nanmax(arr: PossiblySparseArray, axis: int | None = None, keepdims=False):
+def nanmax(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
     return _minmax(arr, method="nanmax", axis=axis, keepdims=keepdims)
 
 
-def wherenan(arr: PossiblySparseArray):
+def wherenan(arr: PossiblySparseMatrix):
     if not issparse(arr):
         return np.nonzero(np.isnan(arr))
     else:
@@ -445,7 +448,10 @@ def wherenan(arr: PossiblySparseArray):
 
 
 def _minmax(
-    arr: PossiblySparseArray, method: Literal["min", "max", "nanmin", "nanmax"], axis: int | None = None, keepdims=False
+    arr: PossiblySparseMatrix,
+    method: Literal["min", "max", "nanmin", "nanmax"],
+    axis: int | None = None,
+    keepdims=False,
 ):
     if np.prod(arr.shape) == 0:
         return arr.reshape((0,) * arr.ndim)

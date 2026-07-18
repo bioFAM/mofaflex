@@ -7,7 +7,8 @@ from typing import Literal
 import anndata as ad
 import mudata as md
 import numpy as np
-import numpy.typing as npt
+
+from .._core.utils import Matrix
 
 _logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ class DataGenerator:
             bool_masks.append(bool_mask)
         return bool_masks
 
-    def _missing_ys(self, log=True) -> list[npt.NDArray[np.float32]]:
+    def _missing_ys(self, log=True) -> list[Matrix[np.float32]]:
         if self._ys is None:
             if log:
                 _logger.warning("Generate data first by calling `generate`.")
@@ -142,32 +143,32 @@ class DataGenerator:
         return [self._ys[m] * nan_masks[m] for m in range(self.n_views)]
 
     @property
-    def missing_y(self) -> npt.NDArray[np.float32]:
+    def missing_y(self) -> Matrix[np.float32]:
         """Generated data with non-missing values replaced with `np.nan`."""
         return self._to_matrix(self._missing_ys())
 
     @property
-    def y(self) -> npt.NDArray[np.float32]:
+    def y(self) -> Matrix[np.float32]:
         """Generated data."""
         return self._attr_to_matrix("_ys")
 
     @property
-    def w(self) -> npt.NDArray[np.float32]:
+    def w(self) -> Matrix[np.float32]:
         """Generated weights."""
         return self._attr_to_matrix("_ws")
 
     @property
-    def z(self) -> npt.NDArray[np.float32]:
+    def z(self) -> Matrix[np.float32]:
         """Generated latent factors."""
         return self._z
 
     @property
-    def w_mask(self) -> npt.NDArray[np.bool_]:
+    def w_mask(self) -> Matrix[np.bool_]:
         """Gene set mask describing co-expressed genes."""
         return self._attr_to_matrix("_w_masks")
 
     @property
-    def noisy_w_mask(self) -> npt.NDArray[np.bool_]:
+    def noisy_w_mask(self) -> Matrix[np.bool_]:
         """Gene set mask describing co-expressed genes, with added noise."""
         return self._attr_to_matrix("_noisy_w_masks")
 
@@ -336,7 +337,7 @@ class DataGenerator:
         rng: np.random.Generator = np.random.default_rng(),
         noise_fraction: float = 0.1,
         informed_view_indices: Iterable[int] | None = None,
-    ) -> list[npt.NDArray[bool]]:
+    ) -> list[Matrix[bool]]:
         """Generate a noisy version of `w_mask`, the mask describing co-expressed genes.
 
         Noisy in this context means that some annotations are wrong, i.e. some genes active in a particular factor
