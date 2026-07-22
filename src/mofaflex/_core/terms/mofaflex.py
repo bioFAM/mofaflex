@@ -704,11 +704,26 @@ class MofaFlex(Term):
         for i, prior in enumerate(self._weight_priors):
             yield from ((f"_weight_priors.{i}.{pname}", mod) for pname, mod in prior.learning_rate_multipliers)
 
+    def _effective_nonnegative_factors(self) -> dict[str, bool]:
+        """Per-group factor non-negativity for likelihood construction.
+
+        Combines the user-requested ``nonnegative_factors`` with priors that are intrinsically
+        nonnegative (e.g. :class:`~mofaflex.priors.Simplex`). Intrinsic non-negativity only affects how
+        likelihoods treat the reconstruction; unlike the user setting, it does not apply a ReLU to the
+        sampled factors.
+        """
+        effective = dict(self._nonnegative_factors)
+        for prior in self._factor_priors:
+            if prior.nonnegative_factors:
+                for name in prior.names:
+                    effective[name] = True
+        return effective
+
     @property
     def nonnegative(self):
         return {
             group_name: {view_name: gfactors & vweights for view_name, vweights in self._nonnegative_weights.items()}
-            for group_name, gfactors in self._nonnegative_factors.items()
+            for group_name, gfactors in self._effective_nonnegative_factors().items()
         }
 
     def predict(

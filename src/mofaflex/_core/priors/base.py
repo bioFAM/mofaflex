@@ -115,6 +115,16 @@ class Prior(
         """The names of the groups/views that the prior is responsible for."""
         return self._names
 
+    @property
+    def nonnegative_factors(self) -> bool:
+        """Whether this prior intrinsically produces nonnegative factors.
+
+        If `True`, the model treats the corresponding factor block as nonnegative when constructing
+        likelihoods (e.g. the Normal likelihood shifts each feature by its minimum instead of its mean),
+        without applying an additional non-negativity transform to the sampled factors.
+        """
+        return False
+
     def get_datasets(
         self, data: MofaFlexDataset, axis: Literal[0, 1], n_factors: int, n_nonfactors: Mapping[str, int]
     ) -> dict[str, dict[str, pd.DataFrame | np.ndarray]] | None:
