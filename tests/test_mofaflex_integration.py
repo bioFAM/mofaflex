@@ -104,7 +104,7 @@ def model_api_untrained_only():
         ("term_mofaflex", "weight_prior", "Normal"),
         ("term_mofaflex", "weight_prior", "Laplace"),
         ("term_mofaflex", "weight_prior", "Horseshoe"),
-        ("term_mofaflex", "weight_prior", priors.InformedHorseshoe(annotations_varm_key="annot_df")),
+        ("term_mofaflex", "weight_prior", priors.InformedHorseshoe(annotations_mkey="annot_df")),
         ("term_mofaflex", "weight_prior", "SpikeSlab"),
         ("term_mofaflex", "factor_prior", {"group_1": "Normal", "group_2": priors.Laplace()}),
         ("term_mofaflex", "factor_prior", {("group_1", "group_2"): "Laplace"}),
@@ -315,7 +315,7 @@ def test_integration_dynamicapi_multiple_priors(anndata_dict, tmp_path, n_partic
     model = terms.MofaFlex(
         n_factors=1,
         weight_prior={
-            "view_normal": priors.InformedHorseshoe(annotations_varm_key="annot_df"),
+            "view_normal": priors.InformedHorseshoe(annotations_mkey="annot_df"),
             "view_negativebinomial": priors.Horseshoe(),
             "view_bernoulli": priors.Normal(),
         },
@@ -371,9 +371,9 @@ def test_integration_informedhs_guidingvars(anndata_dict, tmp_path, n_particles,
     model = terms.MofaFlex(
         n_factors=3,
         weight_prior={
-            "view_normal": priors.InformedHorseshoe(annotations_varm_key="annot_normal"),
-            "view_negativebinomial": priors.InformedHorseshoe(annotations_varm_key="annot_negativebinomial"),
-            "view_bernoulli": priors.InformedHorseshoe(annotations_varm_key="annot_bernoulli"),
+            "view_normal": priors.InformedHorseshoe(annotations_mkey="annot_normal"),
+            "view_negativebinomial": priors.InformedHorseshoe(annotations_mkey="annot_negativebinomial"),
+            "view_bernoulli": priors.InformedHorseshoe(annotations_mkey="annot_bernoulli"),
         },
         guiding_vars_obs_keys=["gvar_categorical"],
         guiding_vars_likelihoods="Categorical",

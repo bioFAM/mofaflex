@@ -139,7 +139,7 @@ class InformedHorseshoe(Horseshoe, factors=False):
     """Horseshoe prior with domain knowledge.
 
     Args:
-        annotations_varm_key: Key in `.varm` for the feature set annotations.
+        annotations_mkey: Key in `.varm` for the feature set annotations.
         annotation_confidence: Confidence in the provided feature annotation. Must be between 0 and 1.
             Smaller values make the model more likely to add features to the annotated pathways during
             training, while larger values encourage the model to more closely adhere to the provided annotations.
@@ -147,7 +147,7 @@ class InformedHorseshoe(Horseshoe, factors=False):
 
     _state_attrs = (
         "_annotation_confidence",
-        "_annotations_varm_key",
+        "_annotations_mkey",
         "_annotations",
         "_informed_factors_start_idx",
         "_n_informed_factors",
@@ -155,14 +155,11 @@ class InformedHorseshoe(Horseshoe, factors=False):
     )
 
     def __init__(
-        self,
-        names: str | Sequence[str],
-        annotations_varm_key: str | Mapping[str, str],
-        annotation_confidence: float = 0.99,
+        self, names: str | Sequence[str], annotations_mkey: str | Mapping[str, str], annotation_confidence: float = 0.99
     ):
         super().__init__(names)
 
-        self._annotations_varm_key = annotations_varm_key
+        self._annotations_mkey = annotations_mkey
         self._annotation_confidence = annotation_confidence
 
     def on_train_start(
@@ -228,7 +225,7 @@ class InformedHorseshoe(Horseshoe, factors=False):
     def extend_factors(self, data: MofaFlexDataset, axis: Literal[0, 1], n_factors: int) -> list[str]:
         annotations = data.get_covariates(
             axis,
-            mkey=self._annotations_varm_key,
+            mkey=self._annotations_mkey,
             filter_names=self.names,
             fill_value=lambda dt: False if dt == "boolean" or dt == np.bool else pd.NA,
         )
