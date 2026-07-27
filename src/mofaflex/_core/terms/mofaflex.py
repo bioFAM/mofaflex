@@ -932,7 +932,6 @@ def _init_api():
                         )
                     )
                     annots["ordered"] = bool
-                    annots["return"] = Mapping[str, pd.DataFrame]
                     wrapperfunc.__signature__ = sig.replace(parameters=params)
                     wrapperfunc.__annotations__ = annots
                     wrapperfunc.__qualname__ = f"{MofaFlex.__qualname__}.{name}"

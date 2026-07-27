@@ -106,32 +106,10 @@ def model_api_untrained_only():
         ("term_mofaflex", "weight_prior", "Horseshoe"),
         ("term_mofaflex", "weight_prior", priors.InformedHorseshoe(annotations_varm_key="annot_df")),
         ("term_mofaflex", "weight_prior", "SpikeSlab"),
-        (
-            "term_mofaflex",
-            "weight_prior",
-            priors.SpikeSlab(
-                background_is_gaussian=True,
-                init_prob=0.2,
-                psi_prior_param=1.0,
-                theta_prior_param_alpha=10.0,
-                theta_prior_param_beta=40.0,
-            ),
-        ),  # GSFA settings
         ("term_mofaflex", "factor_prior", {"group_1": "Normal", "group_2": priors.Laplace()}),
         ("term_mofaflex", "factor_prior", {("group_1", "group_2"): "Laplace"}),
         ("term_mofaflex", "factor_prior", {("group_1", "group_2"): priors.Horseshoe()}),
         ("term_mofaflex", "factor_prior", "SpikeSlab"),
-        (
-            "term_mofaflex",
-            "factor_prior",
-            priors.SpikeSlab(
-                background_is_gaussian=True,
-                init_prob=0.2,
-                psi_prior_param=1.0,
-                theta_prior_param_alpha=10.0,
-                theta_prior_param_beta=40.0,
-            ),
-        ),
         ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_key="covar", kernel="Matern")),
         ("term_mofaflex", "factor_prior", priors.GaussianProcess(covariates_key="covar", mefisto_kernel=False)),
         ("term_mofaflex", "weight_prior", priors.GaussianProcess(covariates_key="covar", kernel="Matern")),

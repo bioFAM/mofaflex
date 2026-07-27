@@ -64,19 +64,6 @@ MOFA-FLEX offers several prior options for both weights and factors, where each 
   The spike component $p$ induces sparsity for each individual value $a_{i,k,j}$, while the ARD component $\psi_{i,k}$ induces factor-wise sparsity.
   This is the same prior as used by MOFA{cite:p}`pmid29925568,pmid32393329`.
 
-  Optionally, the background distribution can be set to a Normal instead of a Dirac delta.
-  In that case, this prior is equivalent to the Normal mixture prior used in GSFA {cite:p}`pmid37770710`.
-  The full Normal mixture prior is given by
-  \begin{align*}
-  \psi_{i,k} &\sim \dGamma{10^{-3}}{10^{-3}}\\
-  \theta_{i,k} &\sim \dBeta{1}{1}\\
-  c_{i,k} &\sim \dGamma{3}{0.5}\\
-  p_{i,k,j} &\sim \dBernoulli{\theta_{i,k}}\\
-  \beta_{i,k,j} &\sim \Normal{0}{\flatfrac{1}{\psi_{i,k}^2}}\\
-  \gamma_{i,k,j} &\sim \Normal{0}{\flatfrac{1}{\psi_{i,k}^2 c_{i,k}^2}}\\
-  a_{i,k,j} &= p_{i,k,j}\beta_{i,k,j} + (1 - p_{i,k,j}) \gamma_{i,k,j}
-  \end{align*}
-
   In our experience, the ReinMax distribution typically requires higher learning rates or longer training durations than other, continuous, distributions.
 
 - Gaussian process: A smoothness-inducing prior requiring additional covariates such as time or spatial coordinates for each observation.
