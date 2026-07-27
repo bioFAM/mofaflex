@@ -11,7 +11,7 @@ import pyro
 import torch
 from anndata import AnnData
 from pyro.nn import PyroModule, pyro_method
-from scipy.sparse import issparse
+from scipy.sparse import dok_array, issparse
 
 from .api.likelihoods import Likelihood as APILikelihood
 from .datasets import MofaFlexDataset, StackDataset
@@ -468,7 +468,16 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         )
 
     def _impute(
-        self, data: AnnData, group_name, view_name, sample_names, feature_names, likelihood, missingonly, preprocessor
+        self,
+        data: AnnData,
+        group_name,
+        view_name,
+        sample_names,
+        feature_names,
+        likelihood,
+        missingonly,
+        preprocessor,
+        apply_link,
     ) -> AnnData:
         havemissing = data.n_obs < self._n_samples[group_name] or data.n_vars < self._n_features[view_name]
         if issparse(data.X):
@@ -482,6 +491,8 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
 
         if not missingonly:
             imputation = self.predict(group_name, view_name)
+            if apply_link:
+                imputation = likelihood.transform_prediction(imputation, group_name)
         else:
             missing_obs = align_local_array_to_global(  # noqa F821
                 np.broadcast_to(False, (data.n_obs,)), group_name, view_name, fill_value=True, align_to="samples"
@@ -490,33 +501,53 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
                 np.broadcast_to(False, (data.n_vars)), group_name, view_name, fill_value=True, align_to="features"
             )
 
-            preprocessed = preprocessor(data.X, slice(None), slice(None), group_name, view_name)[0]
-            if issparse(preprocessed):
-                preprocessed = preprocessed.toarray()
-
             obsidx = map_local_indices_to_global(np.arange(data.n_obs), group_name, view_name, align_to="samples")  # noqa: F821
             varidx = map_local_indices_to_global(np.arange(data.n_vars), group_name, view_name, align_to="features")  # noqa: F821
-            imputation = np.empty((sample_names.size, feature_names.size), dtype=data.X.dtype)
-            imputation[np.ix_(obsidx, varidx)] = likelihood.transform_data(preprocessed, group_name, obsidx, varidx)
 
-            imputation[missing_obs, :] = self.predict(group_name, view_name, sample_idx=missing_obs)
-            imputation[:, missing_var] = self.predict(group_name, view_name, feature_idx=missing_var)
+            if not apply_link or not issparse(data.X):
+                imputation = np.empty((sample_names.size, feature_names.size), dtype=data.X.dtype)
+            else:
+                imputation = dok_array((sample_names.size, feature_names.size), dtype=data.X.dtype)
+            if not apply_link:
+                preprocessed = preprocessor(data.X, slice(None), slice(None), group_name, view_name)[0]
+                if issparse(preprocessed):
+                    preprocessed = preprocessed.toarray()
+
+                imputation[np.ix_(obsidx, varidx)] = likelihood.transform_data(preprocessed, group_name, obsidx, varidx)
+            else:
+                imputation[np.ix_(obsidx, varidx)] = data.X
+
+            pred_obs = self.predict(group_name, view_name, sample_idx=missing_obs)
+            pred_var = self.predict(group_name, view_name, feature_idx=missing_var)
+
+            if apply_link:
+                pred_obs = likelihood.transform_prediction(pred_obs, group_name, sample_idx=missing_obs)
+                pred_var = likelihood.transform_prediction(pred_var, group_name, feature_idx=missing_var)
+            imputation[missing_obs, :] = pred_obs
+            imputation[:, missing_var] = pred_var
 
             if have_missing_cells:
                 nanobs, nanvar = wherenan(data.X)
                 nanobs, nanvar = np.atleast_1d(obsidx[nanobs]), np.atleast_1d(varidx[nanvar])
-                imputation[nanobs, nanvar] = self.predict(
-                    group_name, view_name, nanobs, nanvar, idx_cartesian_product=False
-                )
+                pred = self.predict(group_name, view_name, nanobs, nanvar, idx_cartesian_product=False)
+                if apply_link:
+                    pred = likelihood.transform_prediction(pred, group_name, sample_idx=nanobs, feature_idx=nanvar)
+                imputation[nanobs, nanvar] = pred
+
+            if issparse(imputation):
+                imputation = imputation.tocsr()
 
         return AnnData(X=imputation, obs=pd.DataFrame(index=sample_names), var=pd.DataFrame(index=feature_names))
 
-    def impute(self, data: MofaFlexDataset, missing_only=False) -> dict[dict[str, AnnData]]:
+    def impute(self, data: MofaFlexDataset, missing_only=False, apply_link=True) -> dict[dict[str, AnnData]]:
         """Impute values in the training data using the trained factorization.
 
         Args:
             data: The data the model was trained on.
             missing_only: Only impute missing values in the data.
+            apply_link: Whether to apply the likelihood-specific link function to imputed values. If `False`, the
+                returned data will be simply the matrix product of factors and weights. If `True`, the returned
+                data will be transformed using a likelihood-specific link function.
 
         Returns:
             Nested dictionary of AnnData objects with either fully imputed data or with only the missing values filled in.
@@ -529,6 +560,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
             group_kwargs={"sample_names": data.sample_names},
             missingonly=missing_only,
             preprocessor=data.preprocessor,
+            apply_link=apply_link,
         )
 
     def _save(self) -> dict[str, Any]:

@@ -41,6 +41,9 @@ class Bernoulli(Likelihood):
             shift=self._shift,
         )
 
+    def on_train_end(self, *args, **kwargs):
+        self._shift = self._impute_feature_summary_statistics(self._shift)
+
     @classmethod
     def _validate(cls, data: Matrix[np.number], xp) -> bool:
         return xp.all(xp.isclose(data, 0) | xp.isclose(data, 1))  # TODO: set correct atol value
@@ -63,11 +66,11 @@ class Bernoulli(Likelihood):
 
     def transform_prediction(
         self,
-        prediction: Matrix[np.floating],
+        prediction: Matrix[np.floating] | Vector[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
-    ) -> Matrix[np.floating]:
+    ) -> Matrix[np.floating] | Vector[np.floating]:
         return expit(prediction + self._shift[group_name][feature_idx])
 
     def transform_data(

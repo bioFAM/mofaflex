@@ -84,6 +84,7 @@ class Normal(Likelihood):
 
     def on_train_end(self, *args, **kwargs):
         self._dispersion = self._pyro_likelihood.dispersion
+        self._shift = self._impute_feature_summary_statistics(self._shift)
 
     @classmethod
     def _validate(cls, data: Matrix[np.number], xp) -> bool:
@@ -103,11 +104,11 @@ class Normal(Likelihood):
 
     def transform_prediction(
         self,
-        prediction: Matrix[np.floating],
+        prediction: Matrix[np.floating] | Vector[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
-    ) -> Matrix[np.floating]:
+    ) -> Matrix[np.floating] | Vector[np.floating]:
         try:
             scale = self._scale[group_name]
         except IndexError:

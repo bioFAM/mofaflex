@@ -448,8 +448,9 @@ def test_integration_covariates_singlegroup(anndata_dict, tmp_path, select, n_pa
     assert list(model.factor_covariates.keys()) == [selected_group]
 
 
+@pytest.mark.parametrize("apply_link", [False, True])
 @pytest.mark.parametrize("usedask", [False, True])
-def test_imputation(rng, anndata_dict, usedask):
+def test_imputation(rng, anndata_dict, usedask, apply_link):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
 
@@ -468,16 +469,16 @@ def test_imputation(rng, anndata_dict, usedask):
     with settings.override(use_dask=usedask):
         model = terms.MofaFlex(n_factors=5)
         with pytest.raises(RuntimeError, match="not yet trained"):
-            model.impute_data()
+            model.impute_data(apply_link=apply_link)
         model.fit(anndata_dict, plot_data_overview=False, max_epochs=5, seed=42, save_path=False)
 
-        imputed = model.impute_data(anndata_dict, missing_only=False)
+        imputed = model.impute_data(anndata_dict, missing_only=False, apply_link=apply_link)
 
     for group in imputed.values():
         for view in group.values():
             assert np.isnan(view.X if not issparse(view.X) else view.X.data).sum() == 0
 
-    imputed = model.impute_data(anndata_dict, missing_only=True)
+    imputed = model.impute_data(anndata_dict, missing_only=True, apply_link=apply_link)
     dataset = model._make_dataset(anndata_dict)
     preprocessor = dataset.preprocessor
     for group_name, group in imputed.items():
@@ -492,13 +493,14 @@ def test_imputation(rng, anndata_dict, usedask):
             if issparse(new_X):
                 new_X = new_X.toarray()
             nonnan = ~np.isnan(orig_X)
-            orig_X = preprocessor(orig_X, slice(None), slice(None), group_name, view_name)[0]
-            orig_X = model._model._likelihoods[view_name].transform_data(
-                orig_X,
-                group_name,
-                dataset.map_local_indices_to_global(slice(None), group_name, view_name, align_to="samples"),
-                dataset.map_local_indices_to_global(slice(None), group_name, view_name, align_to="features"),
-            )
+            if not apply_link:
+                orig_X = preprocessor(orig_X, slice(None), slice(None), group_name, view_name)[0]
+                orig_X = model._model._likelihoods[view_name].transform_data(
+                    orig_X,
+                    group_name,
+                    dataset.map_local_indices_to_global(slice(None), group_name, view_name, align_to="samples"),
+                    dataset.map_local_indices_to_global(slice(None), group_name, view_name, align_to="features"),
+                )
             assert np.allclose(orig_X[nonnan], new_X[nonnan])
 
 
