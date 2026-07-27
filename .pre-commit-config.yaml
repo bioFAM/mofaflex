@@ -7,16 +7,16 @@ default_stages:
 minimum_pre_commit_version: 2.16.0
 repos:
   - repo: https://github.com/biomejs/pre-commit
-    rev: 5bb716344fd6979d991634e7ece88f407e599ee0  # frozen: v2.5.4
+    rev: f6d5e1fa73430779cef768d00c512fa86162fe6e  # frozen: v2.5.5
     hooks:
       - id: biome-format
         exclude: ^\.cruft\.json$ # inconsistent indentation with cruft - file never to be modified manually.
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: 3632ea90e7641b574983ddf3a11ccedefff3c881  # frozen: v2.25.3
+    rev: d600c142bb19f521ae6a6a345f94a2efd7937759  # frozen: v2.26.0
     hooks:
       - id: pyproject-fmt
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: 2700fd5671c633760d912769c041bfcde2b9a01b  # frozen: v0.15.22
+    rev: cb8c523fd4835aba42af70f4cad5568db4df0b6c  # frozen: v0.16.0
     hooks:
       - id: ruff-check
         types_or: [python, pyi, jupyter]
@@ -37,7 +37,7 @@ repos:
       - id: check-merge-conflict
         args: [--assume-in-merge]
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: 64a97fb7fa63188393d3215c6e312f5f9c6d0f78  # frozen: v1.27.0
+    rev: 067260dc5fe6ea86b7551bfd6f8b3ba4e6c93129  # frozen: v1.28.0
     hooks:
     - id: zizmor
       args: [--no-progress, --fix]
