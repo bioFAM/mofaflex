@@ -198,7 +198,7 @@ class GaussianProcess(Prior):
         self._gps = self._get_gps({g: covar.to_numpy() for g, covar in self._covariates.items()}, batch_size)
 
     @torch.inference_mode()
-    def _get_gps(self, x: Mapping[str, Matrix | torch.Tensor], batch_size: int):
+    def _get_gps(self, x: Mapping[str, Matrix | torch.Tensor], batch_size: int) -> MeanStd:
         gps = MeanStd({}, {})
         for group_idx, group_name in enumerate(self._names):
             gidx = torch.as_tensor(group_idx)
@@ -222,7 +222,7 @@ class GaussianProcess(Prior):
 
     @Prior._api
     @property
-    def a̲x̲i̲s̲_covariates_names(self) -> dict[str, Matrix[str | np.str_]]:
+    def a̲x̲i̲s̲_covariates_names(self) -> dict[str, Vector[str | np.str_]]:
         """Covariate names for each group where they could be inferred from the input."""
         return {group_name: covar.columns.to_numpy() for group_name, covar in self.covariates.items()}
 
@@ -266,7 +266,7 @@ class GaussianProcess(Prior):
         moment: Literal["mean", "std"] = "mean",
         x: Mapping[str, Matrix | torch.Tensor] | None = None,
         batch_size: int | None = None,
-    ) -> Mapping[str, pd.DataFrame]:
+    ) -> Mapping[str, Matrix[np.floating]]:
         """Get all latent functions.
 
         Args:
@@ -280,10 +280,7 @@ class GaussianProcess(Prior):
         if x is None:
             return MappingProxyType(gp_old)
         else:
-            gps = getattr(self._get_gps(x, batch_size), moment)
-            for group_name_calc, gp_calc in gps.items():
-                gps[group_name_calc] = pd.DataFrame(gp_calc, columns=gp_old[group_name_calc].columns)
-            return gps
+            return getattr(self._get_gps(x, batch_size), moment)
 
     def _save(self) -> dict:
         state = {}
