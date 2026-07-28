@@ -11,6 +11,7 @@ from scipy.spatial.distance import cdist
 
 from .._core import MOFAFLEX, MofaFlexDataset, pcgse_test
 from .._core.api import types
+from .._core.settings import settings
 from .._core.utils import Vector
 
 _logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ def test_annotation_significance(
     corr_adjust: bool = True,
     p_adj_method: str = "fdr_bh",
     min_size: int = 10,
-    subsample: int = 1000,
+    subsample: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Test feature sets for significant associations with model factors.
 
@@ -38,6 +39,7 @@ def test_annotation_significance(
         min_size: Minimum size threshold for feature sets.
         subsample: Work with a random subsample of the data to speed up testing. Set to 0 to use
             all data (may use excessive amounts of memory). Only relevant if `corr_adjust=True`.
+            If `None`, will use the :attr:`settings.subsample_size <mofaflex._core.settings.Settings.subsample_size>` default.
 
     Returns:
         PCGSE results for each view.
@@ -58,6 +60,9 @@ def test_annotation_significance(
         term = next(iter(model._model.terms.values()))
     else:
         term = model._term
+
+    if subsample is None:
+        subsample = settings.subsample_size
 
     if len(annotations) > 0:
         return pcgse_test(

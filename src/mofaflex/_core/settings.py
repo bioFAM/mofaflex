@@ -6,12 +6,10 @@ from dataclasses import dataclass
 class Settings:
     """Global settings.
 
-    Example:
-        ::
-
-            settings.use_dask = True
-            with settings.override(use_dask=False):
-                pass
+    Examples:
+        >>> settings.use_dask = True
+        >>> with settings.override(use_dask=False):
+        ...     pass
     """
 
     use_dask: bool = True
@@ -22,6 +20,12 @@ class Settings:
 
     eps: float = 1e-8
     """Small epsilon for numerical stability."""
+
+    subsample_size: int = 1000
+    """Several pre- and post-training calculations use a random subsample of the data
+        to reduce memory and runtime. This setting determines the size of the data sample:
+        Larger values yield more precise calculations, but also result in higher memory
+        consumption and longer runtime. Set to 0 to disable subsampling and use all data."""
 
     def set(self, **kwargs):
         """Set settings.

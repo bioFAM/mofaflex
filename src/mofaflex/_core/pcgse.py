@@ -22,7 +22,6 @@ def _test_single_view(
     corr_adjust: bool = True,
     p_adj_method: str = "fdr_bh",
     min_size: int = 10,
-    subsample: int = 0,
 ):
     """Perform significance test of factor loadings against feature sets.
 
@@ -36,7 +35,6 @@ def _test_single_view(
         corr_adjust: Whether to adjust for correlations between features.
         p_adj_method: Method for multiple testing adjustment (e.g. "fdr_bh").
         min_size: Minimum size threshold for feature sets.
-        subsample: Work with a random subsample of the data to speed up testing, 0 means no subsampling.
 
     Returns:
         dict: Test results containing:
@@ -204,7 +202,6 @@ def pcgse_test(
                     corr_adjust=corr_adjust,
                     p_adj_method=p_adj_method,
                     min_size=min_size,
-                    subsample=subsample,
                 )
                 if cresult is not None:
                     dfs = [

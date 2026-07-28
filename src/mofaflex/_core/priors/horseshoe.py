@@ -14,6 +14,7 @@ from pyro.nn import PyroParam
 
 from ..datasets import MofaFlexDataset
 from ..pcgse import pcgse_test
+from ..settings import settings
 from ..utils import Matrix, MeanStd, PyroParameterDict
 from .base import Prior
 
@@ -281,7 +282,7 @@ class InformedHorseshoe(Horseshoe, factors=False):
                 for name, res in results.mean.items()
             },
             min_size=1,
-            subsample=1000,
+            subsample=settings.subsample_size,
         )
 
     @property

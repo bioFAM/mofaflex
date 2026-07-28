@@ -307,11 +307,9 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         for likelihood in self._likelihoods.values():
             likelihood.on_train_end(data, batch_size)
 
-        subsample = 1000  # TODO: or use the batch size
-
         def r2_wrapper(view, group_name, view_name):
-            if subsample is not None and subsample > 0 and subsample < view.n_obs:
-                sample_idx = np.random.choice(view.n_obs, subsample, replace=False)
+            if settings.subsample_size > 0 and settings.subsample_size < view.n_obs:
+                sample_idx = np.random.choice(view.n_obs, settings.subsample_size, replace=False)
             else:
                 sample_idx = slice(None)
             mapped_sample_idx = map_local_indices_to_global(sample_idx, group_name, view_name, align_to="samples")  # noqa: F821
