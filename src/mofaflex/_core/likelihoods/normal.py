@@ -125,7 +125,7 @@ class Normal(Likelihood):
             scale = self._scale[group_name]
         except IndexError:
             scale = self._scale
-        return data - self._shift[group_name][feature_idx] / scale
+        return (data - self._shift[group_name][feature_idx]) / scale
 
     @Likelihood._api
     def get_dispersion(self, moment: Literal["mean", "std"] = "mean") -> pd.Series:

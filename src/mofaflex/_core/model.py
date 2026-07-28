@@ -545,6 +545,8 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         map_location=None,
         **kwargs,
     ):
+        self._n_samples = n_samples
+        self._n_features = n_features
         self._terms = PyroModuleDict(
             {
                 name: Term.load(
