@@ -1,3 +1,4 @@
+import logging
 import operator
 from collections.abc import Mapping, Sequence
 from functools import reduce
@@ -17,6 +18,8 @@ from ..pcgse import pcgse_test
 from ..settings import settings
 from ..utils import Matrix, MeanStd, PyroParameterDict
 from .base import Prior
+
+_logger = logging.getLogger(__name__)
 
 
 class Horseshoe(Prior):
@@ -230,8 +233,10 @@ class InformedHorseshoe(Horseshoe, factors=False):
             filter_names=self.names,
             fill_value=lambda dt: False if dt == "boolean" or dt == np.bool else pd.NA,
         )
-        for name in annotations.keys():
-            annot = annotations[name]
+        if len(annotations) == 0:
+            raise ValueError(f"No annotations found for key {self._annotations_mkey!r}.")
+
+        for name, annot in annotations.items():
             if all(np.all((a.dtypes == np.bool) | (a.dtypes == "boolean")) for a in annot.values()):
                 annot = reduce(operator.or_, annot.values())
             else:
@@ -241,15 +246,27 @@ class InformedHorseshoe(Horseshoe, factors=False):
                     .mean()
                     .rename_axis(index=None)
                 )
-            if pd.api.types.is_integer_dtype(annot.columns.dtype):
-                annotations_names = [f"Informed Factor {i + 1}" for i in range(annot.shape[1])]
-            else:
-                annotations_names = annot.columns.to_list()
-            annotations[name] = annot.to_numpy()
-        if len(annotations) == 0:
-            raise ValueError("No annotations found.")
+            annotations[name] = annot
 
-        self._annotations = annotations
+        annot_names_union, annot_names_intersection = reduce(
+            lambda a, b: (a[0].union(b[0], sort=False), a[1].intersection(b[1], sort=False)),
+            ((annot.columns, annot.columns) for annot in annotations.values()),
+        )
+        if annot_names_intersection.size / annot_names_union.size < 0.7:
+            _logger.warning(
+                f"Different views contain different annotations. Using the union of all annotations. "
+                f"To create informed factors separately for each view, use different instances of {__class__.__name__}."
+            )
+
+        if pd.api.types.is_integer_dtype(annot_names_union.dtype):
+            annotations_names = [f"Informed Factor {i + 1}" for i in range(len(annot_names_union))]
+        else:
+            annotations_names = annot_names_union.to_list()
+
+        self._annotations = {
+            name: annot.reindex(columns=annot_names_union, fill_value=False).to_numpy()
+            for name, annot in annotations.items()
+        }
         self._informed_factors_start_idx = n_factors
         self._n_informed_factors = len(annotations_names)
 

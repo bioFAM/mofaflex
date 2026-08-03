@@ -436,7 +436,7 @@ class AnnDataDictDataset(MofaFlexDataset):
         for name, covar_dim in covar_dims.items():
             if len(covar_dim) > 1:
                 raise ValueError(
-                    f"Number of covariate dimensions in {outer_msg} {name} must be the same across {outer_msg}s."
+                    f"Number of covariate dimensions in {outer_msg} {name} must be the same across {inner_msg}s."
                 )
 
         return dict(covariates)
