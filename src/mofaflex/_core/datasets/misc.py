@@ -77,9 +77,9 @@ def merge_covariates(covariates: Mapping[str, Mapping[str, pd.DataFrame]]):
             or pd.api.types.is_integer_dtype(group_covariates.dtypes.iloc[0])
             and np.all(group_covariates.iloc[:, 0] >= 0)
         ):
-            cov = group_covariates.groupby("sample", observed=True).first()
+            cov = group_covariates.groupby("sample", observed=True, sort=False).first()
         else:
-            cov = group_covariates.groupby("sample", observed=True).mean()
+            cov = group_covariates.groupby("sample", observed=True, sort=False).mean()
         cov.rename_axis(index=None, inplace=True)
         merged_covariates[group_name] = dataframe_to_numpy_dtypes(cov)
     return merged_covariates
@@ -98,9 +98,7 @@ def df_to_array(df: pd.DataFrame, cast_to=None):
 
 class CovariatesDataset(Dataset):
     def __init__(
-        self,
-        covariates: Mapping[str, Mapping[str, pd.DataFrame | np.ndarray]],
-        cast_to: np.floating | None = np.float32,
+        self, covariates: Mapping[str, Mapping[str, pd.DataFrame | np.ndarray]], cast_to: np.number | None = np.float32
     ):
         super().__init__()
         self._covariates = covariates

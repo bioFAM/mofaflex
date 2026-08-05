@@ -396,6 +396,37 @@ def test_integration_informedhs_guidingvars(anndata_dict, tmp_path, n_particles,
 
 @pytest.mark.parametrize("n_particles", [1, 5])
 @pytest.mark.parametrize("batch_size", [0, 257])
+def test_integration_informedhs_unions_masks_across_views(anndata_dict, tmp_path, n_particles, batch_size):
+    for group in anndata_dict.values():
+        for view_name, cols in (
+            ("view_normal", slice(5, None)),
+            ("view_bernoulli", slice(3, 8)),
+            ("view_negativebinomial", slice(5)),
+        ):
+            group[view_name].varm["annot_df"] = group[view_name].varm["annot_df"].iloc[:, cols]
+    model = terms.MofaFlex(n_factors=3, weight_prior=priors.InformedHorseshoe(annotations_mkey="annot_df"))
+    with chdir(tmp_path):
+        model.fit(
+            anndata_dict,
+            plot_data_overview=False,
+            max_epochs=2,
+            seed=42,
+            batch_size=batch_size,
+            n_particles=n_particles,
+        )
+
+    assert model.n_total_factors == 13
+    assert model.n_informed_factors == 10
+
+    informed = [f for f in model.factor_names if f.startswith("annot_")]
+    assert sorted(informed) == [f"annot_{i}" for i in range(10)]
+
+    for view in model.get_weights().values():
+        assert view.shape[1] == len(model.factor_names) == model.n_total_factors
+
+
+@pytest.mark.parametrize("n_particles", [1, 5])
+@pytest.mark.parametrize("batch_size", [0, 257])
 @pytest.mark.parametrize("select", ["max", "min"])
 def test_integration_covariates_singlegroup(anndata_dict, tmp_path, select, n_particles, batch_size):
     selected_group = getattr(builtins, select)(
