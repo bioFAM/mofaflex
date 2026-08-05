@@ -296,7 +296,7 @@ class InformedHorseshoe(Horseshoe, factors=False):
         return self._n_informed_factors
 
     @Prior._api(has_factors=False)
-    def get_significant_annotations(self) -> Mapping[str, pd.DataFrame]:
+    def get_significant_a̲x̲i̲s̲_annotations(self) -> Mapping[str, pd.DataFrame]:
         """Get the results of significance testing of annotations against factors.
 
         The significance testing is an implementation of PCGSE :cite:p:`pmid26300978`. While
@@ -310,6 +310,6 @@ class InformedHorseshoe(Horseshoe, factors=False):
 
     @Prior._api(has_factors=True, factors_subset="factors_subset")
     @property
-    def annotations(self) -> Mapping[str, pd.DataFrame]:
+    def a̲x̲i̲s̲_annotations(self) -> Mapping[str, pd.DataFrame]:
         """Annotation matrices for each view."""
         return MappingProxyType(self._annotations)

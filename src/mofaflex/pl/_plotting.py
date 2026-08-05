@@ -548,7 +548,7 @@ def factor_significance(
         alpha: False discovery rate threshold.
         figsize: Figure size in inches.
     """
-    pcgse_results = model.get_significant_annotations()
+    pcgse_results = model.get_significant_weight_annotations()
     if pcgse_results is None:
         raise ValueError("PCGSE results not available.")
 
@@ -581,7 +581,7 @@ def factor_significance(
     )
     r2 = model.get_r2("term")
     annotations = pd.concat(
-        {view_name: vannot.sum(axis=0) for view_name, vannot in model.get_annotations().items()}, axis=0
+        {view_name: vannot.sum(axis=0) for view_name, vannot in model.get_weight_annotations().items()}, axis=0
     ).rename_axis(index=("view", "annotation"))
     # Rank factors by the variance they explain within the selected views/groups, rather than overall, so that
     # restricting `views` reorders the plot accordingly.
@@ -1056,7 +1056,7 @@ def _prepare_weights_df(
 ):
     weights = model.get_weights(ordered=False)
     try:
-        annotations = model.get_annotations(ordered=False)
+        annotations = model.get_weight_annotations(ordered=False)
     except AttributeError:
         annotations = {}
     if views is None:

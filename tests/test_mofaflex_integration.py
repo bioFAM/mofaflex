@@ -208,8 +208,8 @@ def test_integration(
         assert model.n_informed_factors > 0
         assert model.terms["_"].n_informed_factors > 0
         assert model.n_informed_factors == model.terms["_"].n_informed_factors
-        assert "get_annotations" in dir(model)
-        assert all(isinstance(annot, pd.DataFrame) for annot in model.get_annotations().values())
+        assert "get_weight_annotations" in dir(model)
+        assert all(isinstance(annot, pd.DataFrame) for annot in model.get_weight_annotations().values())
     elif argname == "guiding_vars_obs_keys":
         assert model.n_guided_factors == model.terms["_"].n_guided_factors == 3
     else:
@@ -220,9 +220,9 @@ def test_integration(
             == model.terms["_"].n_total_factors
             == 5
         )
-        assert "get_annotations" not in dir(model)
+        assert "get_weight_annotations" not in dir(model)
         with pytest.raises(AttributeError, match="is only available when using the 'InformedHorseshoe' prior"):
-            model.get_annotations()
+            model.get_weight_annotations()
 
     if fitargs.get("save_path") is not False:
         loaded_model = MOFAFLEX.load(path=next(iter(tmp_path.glob("*.h5"))))
@@ -330,14 +330,14 @@ def test_integration_dynamicapi_multiple_priors(anndata_dict, tmp_path, n_partic
         n_particles=n_particles,
         save_path=save_path,
     )
-    signif = model.get_significant_annotations()
+    signif = model.get_significant_weight_annotations()
     assert len(signif) == 1
     assert next(iter(signif.keys())) == "view_normal"
     assert signif["view_normal"]["factor"].cat.categories.size == 11
 
     # Loading without an explicit map_location uses the serialized training device.
     reloaded = MOFAFLEX.load(save_path)
-    assert reloaded.get_significant_annotations().keys() == signif.keys()
+    assert reloaded.get_significant_weight_annotations().keys() == signif.keys()
 
 
 def test_load_uses_training_device_for_gp(anndata_dict, tmp_path, monkeypatch):
