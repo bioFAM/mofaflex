@@ -101,7 +101,11 @@ class NegativeBinomial(Likelihood):
             p=1 / (1 + self._dispersion.mean[feature_idx] * y_true),
             n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
         ).sum()
-        loglik_null = nbinom.logpmf(y_true, p=truemean / variance, n=truemean**2 / (variance - truemean)).sum()
+        loglik_null = nbinom.logpmf(
+            y_true,
+            p=np.clip(truemean / variance, settings.eps, 1 - settings.eps),
+            n=np.maximum(settings.eps, truemean**2 / np.maximum(settings.eps, variance - truemean)),
+        ).sum()
         loglik_model = nbinom.logpmf(
             y_true,
             p=1 / (1 + self._dispersion.mean[feature_idx] * y_pred),
