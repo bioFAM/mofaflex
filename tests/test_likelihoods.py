@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix
 from scipy.special import expit
+from scipy.stats import bernoulli
 
 from mofaflex._core import MofaFlexDataset
 from mofaflex._core.likelihoods import Bernoulli, Likelihood, NegativeBinomial, Normal
@@ -138,6 +139,11 @@ class TestBernoulli:
         for group_name, group in result.items():
             for view_name, view in group.items():
                 assert np.allclose(np.nanmean(view - expit(likelihoods[view_name]._shift[group_name]), axis=0), 0)
+
+    def test_logpmf(self, rng):
+        logits = rng.standard_normal(size=1000)
+        targets = rng.binomial(1, 0.5, size=1000)
+        np.testing.assert_allclose(bernoulli.logpmf(targets, expit(logits)), Bernoulli._logpmf(targets, logits))
 
 
 class TestNegativeBinomial:

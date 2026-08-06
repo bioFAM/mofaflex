@@ -175,7 +175,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
         Args:
             y_true: The observed data.
-            y_pred: The predicted data.
+            y_pred: The predicted data, transformed by self.transform_prediction..
             alignment_idx: Index to use for subsetting arrays aligned to global features in order to align them to local features.
             group_name: The group name.
         """
@@ -192,7 +192,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
         Args:
             y_true: The observed data.
-            y_pred: The predicted data.
+            y_pred: The predicted data, untransformed.
             alignment_idx: Index to use for subsetting arrays aligned to global features in order to align them to local features.
             group_name: The group name.
 
@@ -254,9 +254,14 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
             feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
         """
-        y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
         if not self._nonnegative:
-            r2 = self._r2_impl(y_true, y_pred, group_name, sample_idx, feature_idx)
+            r2 = self._r2_impl(
+                y_true,
+                self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),
+                group_name,
+                sample_idx,
+                feature_idx,
+            )
         else:
             r2 = self._deviance_explained_impl(y_true, y_pred, group_name, sample_idx, feature_idx)
             if isinstance(r2, LogLikelihoods):

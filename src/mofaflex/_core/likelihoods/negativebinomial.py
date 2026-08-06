@@ -90,6 +90,7 @@ class NegativeBinomial(Likelihood):
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> LogLikelihoods:
+        y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
         truemean = self._shift[group_name][feature_idx]
         variance = np.nanvar(y_true, axis=0, mean=truemean)
 

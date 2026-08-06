@@ -1,7 +1,6 @@
 import numpy as np
 from anndata import AnnData
 from scipy.special import expit, logit
-from scipy.stats import bernoulli
 
 from ..datasets import MofaFlexDataset
 from ..settings import settings
@@ -62,6 +61,14 @@ class Bernoulli(Likelihood):
         ss_tot = np.nansum(self._dV_square(y_true, expit(self._shift[group_name][feature_idx]), -1, 1))
         return R2(ss_res, ss_tot)
 
+    @staticmethod
+    def _logpmf(y, logits):
+        m1 = np.maximum(0, -logits)
+        m2 = np.maximum(0, logits)
+        return -y * (m1 + np.log(np.exp(0 - m1) + np.exp(-logits - m1))) - (1 - y) * (
+            m2 + np.log(np.exp(0 - m2) + np.exp(logits - m2))
+        )
+
     def _deviance_explained_impl(
         self,
         y_true: Matrix[np.number],
@@ -70,10 +77,8 @@ class Bernoulli(Likelihood):
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> LogLikelihoods:
-        truemean = expit(self._shift[group_name][feature_idx])
-
-        loglik_null = bernoulli.logpmf(y_true, truemean).sum()
-        loglik_model = bernoulli.logpmf(y_true, y_pred).sum()
+        loglik_null = self._logpmf(y_true, self._shift[group_name][feature_idx]).sum()
+        loglik_model = self._logpmf(y_true, y_pred).sum()
 
         # saturated model has deviance 0
         return R2(loglik_model, loglik_null)
