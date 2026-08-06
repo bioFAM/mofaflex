@@ -77,8 +77,8 @@ class Bernoulli(Likelihood):
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> LogLikelihoods:
-        loglik_null = self._logpmf(y_true, self._shift[group_name][feature_idx]).sum()
-        loglik_model = self._logpmf(y_true, y_pred).sum()
+        loglik_null = np.nansum(self._logpmf(y_true, self._shift[group_name][feature_idx]))
+        loglik_model = np.nansum(self._logpmf(y_true, y_pred))
 
         # saturated model has deviance 0
         return R2(loglik_model, loglik_null)

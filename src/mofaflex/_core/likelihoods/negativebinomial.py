@@ -96,21 +96,27 @@ class NegativeBinomial(Likelihood):
 
         # use estimated dispersion for saturated model
         # naive variance is most likely overestimated since the minimum of the data is used instead of the mean
-        loglik_saturated = nbinom.logpmf(
-            y_true,
-            p=1 / (1 + self._dispersion.mean[feature_idx] * y_true),
-            n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
-        ).sum()
-        loglik_null = nbinom.logpmf(
-            y_true,
-            p=np.clip(truemean / variance, settings.eps, 1 - settings.eps),
-            n=np.maximum(settings.eps, truemean**2 / np.maximum(settings.eps, variance - truemean)),
-        ).sum()
-        loglik_model = nbinom.logpmf(
-            y_true,
-            p=1 / (1 + self._dispersion.mean[feature_idx] * y_pred),
-            n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
-        ).sum()
+        loglik_saturated = np.nansum(
+            nbinom.logpmf(
+                y_true,
+                p=1 / (1 + self._dispersion.mean[feature_idx] * y_true),
+                n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
+            )
+        )
+        loglik_null = np.nansum(
+            nbinom.logpmf(
+                y_true,
+                p=np.clip(truemean / variance, settings.eps, 1 - settings.eps),
+                n=np.maximum(settings.eps, truemean**2 / np.maximum(settings.eps, variance - truemean)),
+            )
+        )
+        loglik_model = np.nansum(
+            nbinom.logpmf(
+                y_true,
+                p=1 / (1 + self._dispersion.mean[feature_idx] * y_pred),
+                n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
+            )
+        )
 
         return LogLikelihoods(loglik_saturated, loglik_null, loglik_model)
 
