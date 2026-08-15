@@ -55,6 +55,9 @@ class NegativeBinomial(Likelihood):
 
     def on_train_end(self, *args, **kwargs):
         self._dispersion = self._pyro_likelihood.dispersion
+        self._shift = self._impute_feature_summary_statistics(self._shift)
+        for means in self._sample_means.values():
+            means[np.isnan(means)] = np.nanmean(means)
 
     @classmethod
     def _validate(cls, data: Matrix, xp) -> bool:
@@ -82,14 +85,17 @@ class NegativeBinomial(Likelihood):
 
     def transform_prediction(
         self,
-        prediction: Matrix[np.floating],
+        prediction: Matrix[np.floating] | Vector[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
-    ) -> Matrix[np.floating]:
+    ) -> Matrix[np.floating] | Vector[np.floating]:
         prediction = prediction + self._shift[group_name][feature_idx]
         prediction = np.maximum(0, prediction)  # ReLU
-        prediction *= self._sample_means[group_name][sample_idx]
+        sample_means = self._sample_means[group_name][sample_idx]
+        if prediction.ndim == 1 and prediction.size == sample_idx.size == feature_idx.size:
+            sample_means = sample_means.squeeze(-1)
+        prediction *= sample_means
         return prediction
 
     def transform_data(

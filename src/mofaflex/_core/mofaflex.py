@@ -500,24 +500,26 @@ class MOFAFLEX:
 
     @_check_trained
     def impute_data(
-        self, data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData, missing_only=False
+        self, data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData, missing_only=False, apply_link=True
     ) -> dict[dict[str, AnnData]]:
         """Impute values in the training data using the trained factorization.
-
-        The data will be transformed into a space compatible with model predictions. Usually that involves shifting and/or
-        scaling, e.g. Gaussian data will be mean-centered and scaled to unit variance. This also implies that only dense
-        matrices can be returned. Be aware that this can result in high memory consumption.
 
         Args:
             data: The data the model was trained on.
             missing_only: Only impute missing values in the data.
+            apply_link: Whether to apply the likelihood-specific link function to the imputed values. If `True`, predictions
+                will be transformed into data space. If `False`, predictions are simply the matrix product of factors and
+                weights. If additionally `missing_only=True`, the non-missing data will be transformed into a space compatible
+                with model predictions. Usually that involves shifting and/or scaling, e.g. Gaussian data will be mean-centered
+                and scaled to unit variance. This also implies that only dense matrices can be returned. Be aware that this
+                can result in high memory consumption.
 
         Returns:
             Nested dictionary of AnnData objects with either fully imputed data or with only the missing values filled in.
         """
         data = self._make_dataset(data)
         data.reindex_features(self.feature_names)
-        return self._model.impute(data, missing_only)
+        return self._model.impute(data, missing_only, apply_link=apply_link)
 
     def _save(self, path: str | Path):
         state = {

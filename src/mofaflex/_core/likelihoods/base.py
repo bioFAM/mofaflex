@@ -8,6 +8,9 @@ import numpy as np
 from anndata import AnnData
 from array_api_compat import array_namespace
 from scipy.sparse import issparse
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+from sklearn.impute import IterativeImputer
+from sklearn.linear_model import BayesianRidge
 
 from ..api.utils import DynamicAPIMixin
 from ..datasets import MofaFlexDataset
@@ -61,6 +64,11 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
         """
         self._pyro_likelihood = self._get_pyro_likelihood(data, sample_dim, feature_dim)
         return self._pyro_likelihood
+
+    def _impute_feature_summary_statistics(self, stats: Mapping[str, Vector[np.number]], missing_values=np.nan):
+        imputer = IterativeImputer(estimator=BayesianRidge(), missing_values=missing_values, initial_strategy="mean")
+        imputed = imputer.fit_transform(np.stack(tuple(stats.values()), axis=0))
+        return dict(zip(stats.keys(), np.unstack(imputed, axis=0), strict=True))
 
     @abstractmethod
     def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
@@ -178,11 +186,11 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
     @abstractmethod
     def transform_prediction(
         self,
-        prediction: Matrix[np.floating],
+        prediction: Matrix[np.floating] | Vector[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
-    ) -> Matrix[np.floating]:
+    ) -> Matrix[np.floating] | Vector[np.floating]:
         """Transform the raw model prediction into something compatible with the data, a.k.a. inverse link function.
 
         Args:
@@ -234,6 +242,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             sample_idx,
             feature_idx,
         )
+
         return max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
 
     def _load(self, state: Mapping[str, Any], feature_names: Vector[str], **kwargs):
