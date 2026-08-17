@@ -109,12 +109,14 @@ class Normal(Likelihood):
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
-        # fraction of deviance explained reduces to standard R2 for Gaussian likelihood, but the null model is the
-        # feature-wise mean, while self._shift used by _r2_impl is the feature-wise minimum for nonnegative views
-        y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
-        ss_res = np.nansum(np.square(y_true - y_pred))
-        ss_tot = np.nansum(np.square(y_true - nanmean(y_true, axis=0)))
-        return R2(ss_res, ss_tot)
+        # fraction of deviance explained reduces to standard R2 for Gaussian likelihood
+        return self._r2_impl(
+            y_true,
+            self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),
+            group_name,
+            sample_idx,
+            feature_idx,
+        )
 
     def transform_prediction(
         self,

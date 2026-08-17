@@ -98,13 +98,9 @@ class NegativeBinomial(Likelihood):
     ) -> LogLikelihoods:
         y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
 
-        # the null model is the feature-wise mean on the size factor-normalized scale. self._shift is the feature-wise
-        # minimum for nonnegative views, which is 0 for virtually every count feature and would make the null degenerate.
+        # the null model is the feature-wise minimum on the size factor-normalized scale
         sample_means = self._sample_means[group_name][sample_idx]
-        with np.errstate(invalid="ignore"):
-            # samples without any counts have a sample mean of 0, so the division is 0/0. Their null mean is 0
-            # regardless of the result, and they contribute nothing to any of the log-likelihoods.
-            null_mean = nanmean(y_true / sample_means, axis=0) * sample_means
+        null_mean = np.maximum(self._shift[group_name][feature_idx], settings.eps) * sample_means
 
         # use the estimated dispersion for all three models, otherwise the log-likelihoods are not comparable
         loglik_saturated = np.nansum(self._logpmf(y_true, y_true, feature_idx))
