@@ -82,6 +82,12 @@ class NegativeBinomial(Likelihood):
 
         return R2(ss_res, ss_tot)
 
+    def _logpmf(
+        self, y_true: Matrix[np.number], mean: Matrix[np.floating], feature_idx: Vector[int] | slice = slice(None)
+    ) -> Matrix[np.floating]:
+        dispersion = self._dispersion.mean[feature_idx]
+        return nbinom.logpmf(y_true, p=1 / (1 + dispersion * mean), n=1 / (dispersion + settings.eps))
+
     def _deviance_explained_impl(
         self,
         y_true: Matrix[np.number],
@@ -91,32 +97,19 @@ class NegativeBinomial(Likelihood):
         feature_idx: Vector[int] | slice = slice(None),
     ) -> LogLikelihoods:
         y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
-        truemean = self._shift[group_name][feature_idx]
-        variance = np.nanvar(y_true, axis=0, mean=truemean)
 
-        # use estimated dispersion for saturated model
-        # naive variance is most likely overestimated since the minimum of the data is used instead of the mean
-        loglik_saturated = np.nansum(
-            nbinom.logpmf(
-                y_true,
-                p=1 / (1 + self._dispersion.mean[feature_idx] * y_true),
-                n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
-            )
-        )
-        loglik_null = np.nansum(
-            nbinom.logpmf(
-                y_true,
-                p=np.clip(truemean / variance, settings.eps, 1 - settings.eps),
-                n=np.maximum(settings.eps, truemean**2 / np.maximum(settings.eps, variance - truemean)),
-            )
-        )
-        loglik_model = np.nansum(
-            nbinom.logpmf(
-                y_true,
-                p=1 / (1 + self._dispersion.mean[feature_idx] * y_pred),
-                n=1 / (self._dispersion.mean[feature_idx] + settings.eps),
-            )
-        )
+        # the null model is the feature-wise mean on the size factor-normalized scale. self._shift is the feature-wise
+        # minimum for nonnegative views, which is 0 for virtually every count feature and would make the null degenerate.
+        sample_means = self._sample_means[group_name][sample_idx]
+        with np.errstate(invalid="ignore"):
+            # samples without any counts have a sample mean of 0, so the division is 0/0. Their null mean is 0
+            # regardless of the result, and they contribute nothing to any of the log-likelihoods.
+            null_mean = nanmean(y_true / sample_means, axis=0) * sample_means
+
+        # use the estimated dispersion for all three models, otherwise the log-likelihoods are not comparable
+        loglik_saturated = np.nansum(self._logpmf(y_true, y_true, feature_idx))
+        loglik_null = np.nansum(self._logpmf(y_true, null_mean, feature_idx))
+        loglik_model = np.nansum(self._logpmf(y_true, y_pred, feature_idx))
 
         return LogLikelihoods(loglik_saturated, loglik_null, loglik_model)
 
