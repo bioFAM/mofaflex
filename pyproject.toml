@@ -154,11 +154,11 @@ strict = true
 testpaths = [ "tests" ]
 
 [tool.coverage]
+run.source = [ "mofaflex" ]
 run.omit = [
   "**/test_*.py",
 ]
 run.patch = [ "subprocess" ]
-run.source = [ "mofaflex" ]
 
 [tool.cruft]
 skip = [
