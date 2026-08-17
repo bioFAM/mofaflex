@@ -183,18 +183,28 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     @abstractmethod
     def _deviance_explained_impl(
-        self, y_true: Matrix[np.number], y_pred: Matrix[np.floating], alignment_idx: Vector[int], group_name: str
+        self,
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
     ) -> R2 | LogLikelihoods:
         """Implementation of fraction of deviance explained calculation..
 
         When `self._nonnegative` is `True`, this is used to calculate the fraction of deviance explained instead of the usual
         R2. Fraction of deviance explained is defined in Hastie, Tibsihirani, Wainwright: Statistical Learning with Sparsity (CRC Press, 2015).
 
+        In contrast to `_r2_impl`, the prediction is passed untransformed, i.e. it is the raw linear predictor. Applying
+        the inverse link (or using the linear predictor directly, if the log-likelihood is parameterized by it) is up to
+        the implementation.
+
         Args:
             y_true: The observed data.
             y_pred: The predicted data, untransformed.
-            alignment_idx: Index to use for subsetting arrays aligned to global features in order to align them to local features.
             group_name: The group name.
+            sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
+            feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
 
         Returns:
             Either an R2 object with the claculated fraction, or a LogLikelihoods object with the three required log-likelihoods, in which case the
@@ -253,6 +263,10 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             group_name: The group name.
             sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
             feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
+
+        Raises:
+            ValueError: If the deviance of the null model is not finite or is zero while the deviance of the model
+                is not, or if the deviance of the model is NaN.
         """
         if not self._nonnegative:
             r2 = self._r2_impl(
@@ -266,6 +280,18 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             r2 = self._deviance_explained_impl(y_true, y_pred, group_name, sample_idx, feature_idx)
             if isinstance(r2, LogLikelihoods):
                 r2 = R2(r2.saturated - r2.model, r2.saturated - r2.null)
+
+        # without this, max() silently turns a NaN into a plausible-looking 0. An infinite null deviance would make
+        # every model look like a perfect fit. An infinite residual deviance, on the other hand, is meaningful: the
+        # model is infinitely worse than the null model, which the clamp below turns into 0.
+        if np.isnan(r2.ss_res) or not np.isfinite(r2.ss_tot) or (r2.ss_tot == 0 and r2.ss_res != 0):
+            raise ValueError(
+                f"Cannot calculate R2 for view {self._view_name} in group {group_name}: "
+                f"ss_res={r2.ss_res}, ss_tot={r2.ss_tot}."
+            )
+        if r2.ss_tot == 0:
+            # the null model is a perfect fit and nothing is left to explain, e.g. for a group with a single sample
+            return 0.0
         return max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
 
     def _load(self, state: Mapping[str, Any], feature_names: Vector[str], **kwargs):

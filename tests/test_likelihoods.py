@@ -1,12 +1,14 @@
 import numpy as np
 import pytest
 from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix
-from scipy.special import expit
+from scipy.special import expit, logit
 from scipy.stats import bernoulli
 
+from mofaflex import settings
 from mofaflex._core import MofaFlexDataset
 from mofaflex._core.likelihoods import Bernoulli, Likelihood, NegativeBinomial, Normal
-from mofaflex._core.utils import sample_all_data_as_one_batch
+from mofaflex._core.likelihoods.base import R2, LogLikelihoods
+from mofaflex._core.utils import MeanStd, nanmean, sample_all_data_as_one_batch
 
 _sparse_arr = [csc_array, csc_matrix, csr_array, csr_matrix]
 
@@ -169,3 +171,100 @@ class TestNegativeBinomial:
                         ).mean(axis=0),
                         0,
                     )
+
+
+_group_name = "group_0"
+_view_name = "view_0"
+
+
+class TestDevianceExplained:
+    """Fixed points of the fraction of deviance explained for nonnegative views."""
+
+    @pytest.fixture(scope="class", params=[False, True], ids=["nonan", "withnan"])
+    def y_true(self, rng, likelihood, request):
+        match likelihood:
+            case "Normal":
+                arr = np.abs(rng.standard_normal(size=(50, 10)))
+            case "Bernoulli":
+                arr = rng.binomial(1, 0.3, size=(50, 10)).astype(np.float64)
+            case "NegativeBinomial":
+                # low mean, so that most features have a zero minimum, which is what breaks a shift-based null model
+                arr = rng.negative_binomial(0.5, 0.3, size=(50, 10)).astype(np.float64)
+        arr[0, 0] = 0
+        if request.param:
+            arr[rng.random(arr.shape) < 0.1] = np.nan
+        return arr
+
+    @pytest.fixture(scope="class")
+    def likelihood_obj(self, likelihood, y_true, create_adata):
+        dataset = MofaFlexDataset({_group_name: {_view_name: create_adata(y_true)}}, cast_to=None)
+        obj = Likelihood.known_likelihoods()[likelihood](_view_name, dataset, True)
+        if isinstance(obj, NegativeBinomial):
+            obj._dispersion = MeanStd(np.full(y_true.shape[1], 0.1), None)  # not trained, so set manually
+        return obj
+
+    @staticmethod
+    def _raw_prediction(obj, target):
+        """Invert transform_prediction: the raw linear predictor which predicts `target` on the scale of the data."""
+        shift = obj._shift[_group_name]
+        match obj:
+            case Normal():
+                return (target - shift) / obj._scale[_group_name]
+            case Bernoulli():
+                return logit(np.clip(target, settings.eps, 1 - settings.eps)) - shift
+            case NegativeBinomial():
+                return target / obj._sample_means[_group_name] - shift
+
+    @staticmethod
+    def _null_target(obj, y_true):
+        """The prediction of the null model, on the scale of the data."""
+        match obj:
+            case Normal():
+                return np.broadcast_to(nanmean(y_true, axis=0), y_true.shape)
+            case Bernoulli():
+                return np.broadcast_to(expit(obj._shift[_group_name]), y_true.shape)
+            case NegativeBinomial():
+                sample_means = obj._sample_means[_group_name]
+                return nanmean(y_true / sample_means, axis=0) * sample_means
+
+    @staticmethod
+    def _unclamped(obj, y_true, y_pred):
+        """The fraction of deviance explained without the clamp to nonnegative values applied by Likelihood.r2."""
+        res = obj._deviance_explained_impl(y_true, y_pred, _group_name)
+        if isinstance(res, LogLikelihoods):
+            res = R2(res.saturated - res.model, res.saturated - res.null)
+        return 1.0 - res.ss_res / res.ss_tot
+
+    def test_null_model(self, likelihood_obj, y_true):
+        y_pred = self._raw_prediction(likelihood_obj, self._null_target(likelihood_obj, y_true))
+        # the clamp in Likelihood.r2 would hide a negative value
+        assert self._unclamped(likelihood_obj, y_true, y_pred) == pytest.approx(0, abs=1e-6)
+
+    def test_saturated_model(self, likelihood_obj, y_true):
+        y_pred = self._raw_prediction(likelihood_obj, y_true)
+        assert likelihood_obj.r2(y_true, y_pred, _group_name) == pytest.approx(1, abs=1e-6)
+
+    def test_intermediate_model(self, likelihood_obj, y_true):
+        # halfway between the null and the saturated model. Guards against a degenerate null model, which makes
+        # everything score close to 1.
+        target = (self._null_target(likelihood_obj, y_true) + y_true) / 2
+        r2 = likelihood_obj.r2(y_true, self._raw_prediction(likelihood_obj, target), _group_name)
+        assert 0.05 < r2 < 0.95
+
+    @pytest.mark.parametrize(
+        "res",
+        [R2(np.nan, 1.0), R2(1.0, np.nan), R2(1.0, np.inf), R2(1.0, 0.0)],
+        ids=["nan_res", "nan_tot", "inf_tot", "zero_tot"],
+    )
+    def test_degenerate_raises(self, likelihood_obj, y_true, res, monkeypatch):
+        # a degenerate null model must not be silently turned into a plausible-looking 0 by the clamp
+        monkeypatch.setattr(likelihood_obj, "_deviance_explained_impl", lambda *args, **kwargs: res)
+        with pytest.raises(ValueError, match="Cannot calculate R2"):
+            likelihood_obj.r2(y_true, np.zeros_like(y_true), _group_name)
+
+    @pytest.mark.parametrize("res", [R2(0.0, 0.0), R2(np.inf, 1.0)], ids=["nothing_to_explain", "inf_res"])
+    def test_degenerate_clamps(self, likelihood_obj, y_true, res, monkeypatch):
+        # the null model is a perfect fit (e.g. a group with a single sample), or the model is infinitely worse
+        # than the null model (e.g. a count of zero predicted for a nonzero observation)
+        monkeypatch.setattr(likelihood_obj, "_deviance_explained_impl", lambda *args, **kwargs: res)
+        assert likelihood_obj.r2(y_true, np.zeros_like(y_true), _group_name) == 0
