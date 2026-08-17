@@ -76,9 +76,10 @@ class NegativeBinomial(Likelihood):
     ) -> R2:
         ss_res = np.nansum(self._dV_square(y_true, y_pred, self._dispersion.mean[feature_idx], 1))
 
-        truemean = self._shift[group_name][feature_idx]
-        nu2 = (np.nanvar(y_true, axis=0, mean=truemean) - truemean) / truemean**2  # method of moments estimator
-        ss_tot = np.nansum(self._dV_square(y_true, truemean, nu2, 1))
+        truemean = self._shift[group_name][feature_idx] * self._sample_means[group_name][sample_idx]
+
+        # use estimated dispersion to get R2=0 for y_pred=0
+        ss_tot = np.nansum(self._dV_square(y_true, truemean, self._dispersion.mean[feature_idx], 1))
 
         return R2(ss_res, ss_tot)
 
@@ -86,7 +87,7 @@ class NegativeBinomial(Likelihood):
         self, y_true: Matrix[np.number], mean: Matrix[np.floating], feature_idx: Vector[int] | slice = slice(None)
     ) -> Matrix[np.floating]:
         dispersion = self._dispersion.mean[feature_idx]
-        return nbinom.logpmf(y_true, p=1 / (1 + dispersion * mean), n=1 / (dispersion + settings.eps))
+        return nbinom.logpmf(y_true, p=1 / (1 + dispersion * mean + settings.eps), n=1 / dispersion)
 
     def _deviance_explained_impl(
         self,
@@ -98,9 +99,7 @@ class NegativeBinomial(Likelihood):
     ) -> LogLikelihoods:
         y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
 
-        # the null model is the feature-wise minimum on the size factor-normalized scale
-        sample_means = self._sample_means[group_name][sample_idx]
-        null_mean = np.maximum(self._shift[group_name][feature_idx], settings.eps) * sample_means
+        null_mean = self._shift[group_name][feature_idx] * self._sample_means[group_name][sample_idx]
 
         # use the estimated dispersion for all three models, otherwise the log-likelihoods are not comparable
         loglik_saturated = np.nansum(self._logpmf(y_true, y_true, feature_idx))

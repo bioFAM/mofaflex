@@ -355,7 +355,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
                         }
                 if np.isnan(r2_full):
                     _logger.warning(
-                        f"R2 for view {view_name} could not be calculated, the null model has zero deviance."
+                        f"R2 for view {view_name} could not be calculated. Verify your data and configuration, or create a minimal reproducible example and report an issue."
                     )
                 elif r2_full < settings.eps:
                     _logger.warning(

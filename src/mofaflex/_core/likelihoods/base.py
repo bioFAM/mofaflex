@@ -169,15 +169,21 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     @abstractmethod
     def _r2_impl(
-        self, y_true: Matrix[np.number], y_pred: Matrix[np.floating], alignment_idx: Vector[int], group_name: str
+        self,
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
         """Implementation of R2 calculation.
 
         Args:
             y_true: The observed data.
             y_pred: The predicted data, transformed by self.transform_prediction..
-            alignment_idx: Index to use for subsetting arrays aligned to global features in order to align them to local features.
             group_name: The group name.
+            sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
+            feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
         """
         pass
 
@@ -280,9 +286,8 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             if isinstance(r2, LogLikelihoods):
                 r2 = R2(r2.saturated - r2.model, r2.saturated - r2.null)
 
-        with np.errstate(invalid="ignore", divide="ignore"):
-            # np.max, in contrast to max, preserves NaNs, which the caller warns about
-            return np.max((0.0, 1.0 - np.divide(r2.ss_res, r2.ss_tot)))
+        # np.max, in contrast to max, preserves NaNs, which the caller warns about
+        return np.max((0.0, 1.0 - np.divide(r2.ss_res, r2.ss_tot)))
 
     def _load(self, state: Mapping[str, Any], feature_names: Vector[str], **kwargs):
         self._feature_names = feature_names

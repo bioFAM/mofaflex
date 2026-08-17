@@ -4,7 +4,7 @@ from scipy.special import expit, logit
 
 from ..datasets import MofaFlexDataset
 from ..settings import settings
-from ..utils import Matrix, Vector, nanmean, nanmin
+from ..utils import Matrix, Vector, nanmean
 from .base import R2, Likelihood
 from .pyro import Bernoulli as PyroBernoulli
 from .pyro import Likelihood as PyroLikelihood
@@ -79,8 +79,7 @@ class Bernoulli(Likelihood):
     ) -> R2:
         # the shift is part of the linear predictor, see transform_prediction
         shift = self._shift[group_name][feature_idx]
-        null_probability = np.clip(nanmin(y_true, axis=0), settings.eps, 1 - settings.eps)
-        loglik_null = np.nansum(self._logpmf(y_true, logit(null_probability)))
+        loglik_null = np.nansum(self._logpmf(y_true, shift))
         loglik_model = np.nansum(self._logpmf(y_true, y_pred + shift))
 
         # saturated model has deviance 0
