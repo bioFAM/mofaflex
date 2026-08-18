@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import plotnine
 import pytest
 from matplotlib.testing.decorators import image_comparison as mpl_image_comparison
+from matplotlib.testing.exceptions import ImageComparisonFailure
 from packaging.version import Version
 
 image_comparison = partial(
@@ -40,7 +41,10 @@ def plotnine_test(i: int, baseline_image: str):
 
         decorated = image_comparison(baseline_images=[baseline_image])(decorated)
         decorated = pytest.mark.xfail(
-            condition=Version(plotnine.__version__).is_prerelease, reason="plotnine pre-release", strict=False
+            condition=Version(plotnine.__version__).is_prerelease,
+            reason="plotnine pre-release",
+            raises=ImageComparisonFailure,
+            strict=False,
         )(decorated)
 
         decorated.pytestmark += func.pytestmark
