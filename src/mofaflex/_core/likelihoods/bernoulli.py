@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 from anndata import AnnData
 from scipy.special import expit, logit
@@ -8,6 +10,8 @@ from ..utils import Matrix, Vector, nanmean
 from .base import R2, Likelihood
 from .pyro import Bernoulli as PyroBernoulli
 from .pyro import Likelihood as PyroLikelihood
+
+_logger = logging.getLogger(__name__)
 
 
 class Bernoulli(Likelihood):
@@ -30,6 +34,11 @@ class Bernoulli(Likelihood):
                 self._calc_shift(adata), group_name, self._view_name, align_to="features"
             ),
         )
+
+        if nonnegative:
+            _logger.warning(
+                "The Bernoulli likelihood does not support nonnegative views. Your results may be suboptimal."
+            )
 
     def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
         return PyroBernoulli(
