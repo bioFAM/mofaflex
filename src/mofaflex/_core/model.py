@@ -353,7 +353,11 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
                             )
                             for component_name, component in component_iter
                         }
-                if r2_full < settings.eps:
+                if np.isnan(r2_full):
+                    _logger.warning(
+                        f"R2 for view {view_name} could not be calculated. Verify your data and configuration, or create a minimal reproducible example and report an issue."
+                    )
+                elif r2_full < settings.eps:
                     _logger.warning(
                         f"R2 for view {view_name} is 0. Adjust model parameters and/or increase the number of training epochs."
                     )

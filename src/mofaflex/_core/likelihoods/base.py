@@ -22,6 +22,12 @@ class R2(NamedTuple):
     ss_tot: float
 
 
+class LogLikelihoods(NamedTuple):
+    saturated: float
+    null: float
+    model: float
+
+
 @checked_baseclass(
     required_init_args=("view_name", "data", "nonnegative"), required_attributes="_priority", registry="dict"
 )
@@ -163,15 +169,52 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     @abstractmethod
     def _r2_impl(
-        self, y_true: Matrix[np.number], y_pred: Matrix[np.floating], alignment_idx: Vector[int], group_name: str
+        self,
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
         """Implementation of R2 calculation.
 
         Args:
             y_true: The observed data.
-            y_pred: The predicted data.
-            alignment_idx: Index to use for subsetting arrays aligned to global features in order to align them to local features.
+            y_pred: The predicted data, transformed by self.transform_prediction..
             group_name: The group name.
+            sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
+            feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
+        """
+        pass
+
+    @abstractmethod
+    def _deviance_explained_impl(
+        self,
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> R2 | LogLikelihoods:
+        """Implementation of fraction of deviance explained calculation..
+
+        When `self._nonnegative` is `True`, this is used to calculate the fraction of deviance explained instead of the usual
+        R2. Fraction of deviance explained is defined in Hastie, Tibsihirani, Wainwright: Statistical Learning with Sparsity (CRC Press, 2015).
+
+        In contrast to `_r2_impl`, the prediction is passed untransformed, i.e. it is the raw linear predictor. Applying
+        the inverse link (or using the linear predictor directly, if the log-likelihood is parameterized by it) is up to
+        the implementation.
+
+        Args:
+            y_true: The observed data.
+            y_pred: The predicted data, untransformed.
+            group_name: The group name.
+            sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
+            feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
+
+        Returns:
+            Either an R2 object with the claculated fraction, or a LogLikelihoods object with the three required log-likelihoods, in which case the
+            fraction will be calculated automatically..
         """
         pass
 
@@ -226,15 +269,25 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             group_name: The group name.
             sample_idx: The sample indices of the prediction, if only a subset of samples were predicted.
             feature_idx: The feature indices of the prediction, if only a subset of features were predicted.
+
+        Returns:
+            The fraction of explained variance, or NaN if it is undefined, e.g. if the null model has zero deviance.
         """
-        r2 = self._r2_impl(
-            y_true,
-            self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),
-            group_name,
-            sample_idx,
-            feature_idx,
-        )
-        return max(0.0, 1.0 - r2.ss_res / r2.ss_tot)
+        if not self._nonnegative:
+            r2 = self._r2_impl(
+                y_true,
+                self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),
+                group_name,
+                sample_idx,
+                feature_idx,
+            )
+        else:
+            r2 = self._deviance_explained_impl(y_true, y_pred, group_name, sample_idx, feature_idx)
+            if isinstance(r2, LogLikelihoods):
+                r2 = R2(r2.saturated - r2.model, r2.saturated - r2.null)
+
+        # np.max, in contrast to max, preserves NaNs, which the caller warns about
+        return np.max((0.0, 1.0 - np.divide(r2.ss_res, r2.ss_tot)))
 
     def _load(self, state: Mapping[str, Any], feature_names: Vector[str], **kwargs):
         self._feature_names = feature_names

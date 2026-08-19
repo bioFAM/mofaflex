@@ -460,7 +460,13 @@ class MOFAFLEX:
     def get_r2(
         self, type: Literal["total", "byterm", "term"] | None = None, ordered: bool = False, term: str | None = None
     ) -> pd.DataFrame:
-        """Get the fraction of variance explained for each view and group.
+        r"""Get the R\ :sup:`2` for each view and group.
+
+        For views that allow negative values (at least one of factors and weights can be negative), this will be the
+        fraction of variance explained, calculated using the generalized coefficient of determination :cite:p:`10.2307/45118439`.
+
+        For nonnegative views, (both factors and weights are nonnegative), this will be the fraction of deviance explained,
+        as defined in :cite:t:`hastie2015`.
 
         Args:
             type: How fine-grained the fraction of explained variance should be split up.

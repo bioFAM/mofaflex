@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 from anndata import AnnData
 from scipy.special import expit, logit
@@ -8,6 +10,8 @@ from ..utils import Matrix, Vector, nanmean
 from .base import R2, Likelihood
 from .pyro import Bernoulli as PyroBernoulli
 from .pyro import Likelihood as PyroLikelihood
+
+_logger = logging.getLogger(__name__)
 
 
 class Bernoulli(Likelihood):
@@ -30,6 +34,11 @@ class Bernoulli(Likelihood):
                 self._calc_shift(adata), group_name, self._view_name, align_to="features"
             ),
         )
+
+        if nonnegative:
+            _logger.warning(
+                "The Bernoulli likelihood does not support nonnegative views. Your results may be suboptimal."
+            )
 
     def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
         return PyroBernoulli(
@@ -60,6 +69,30 @@ class Bernoulli(Likelihood):
         ss_res = np.nansum(self._dV_square(y_true, y_pred, -1, 1))
         ss_tot = np.nansum(self._dV_square(y_true, expit(self._shift[group_name][feature_idx]), -1, 1))
         return R2(ss_res, ss_tot)
+
+    @staticmethod
+    def _logpmf(y, logits):
+        m1 = np.maximum(0, -logits)
+        m2 = np.maximum(0, logits)
+        return -y * (m1 + np.log(np.exp(0 - m1) + np.exp(-logits - m1))) - (1 - y) * (
+            m2 + np.log(np.exp(0 - m2) + np.exp(logits - m2))
+        )
+
+    def _deviance_explained_impl(
+        self,
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> R2:
+        # the shift is part of the linear predictor, see transform_prediction
+        shift = self._shift[group_name][feature_idx]
+        loglik_null = np.nansum(self._logpmf(y_true, shift))
+        loglik_model = np.nansum(self._logpmf(y_true, y_pred + shift))
+
+        # saturated model has deviance 0
+        return R2(loglik_model, loglik_null)
 
     def transform_prediction(
         self,

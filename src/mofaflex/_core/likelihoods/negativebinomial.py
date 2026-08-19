@@ -2,10 +2,12 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
+from scipy.stats import nbinom
 
 from ..datasets import MofaFlexDataset
+from ..settings import settings
 from ..utils import Matrix, Vector, nanmean, nanmin
-from .base import R2, Likelihood
+from .base import R2, Likelihood, LogLikelihoods
 from .pyro import Likelihood as PyroLikelihood
 from .pyro import NegativeBinomial as PyroNegativeBinomial
 
@@ -66,7 +68,7 @@ class NegativeBinomial(Likelihood):
 
     def _r2_impl(
         self,
-        y_true: Matrix,
+        y_true: Matrix[np.number],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
@@ -74,11 +76,37 @@ class NegativeBinomial(Likelihood):
     ) -> R2:
         ss_res = np.nansum(self._dV_square(y_true, y_pred, self._dispersion.mean[feature_idx], 1))
 
-        truemean = self._shift[group_name][feature_idx]
-        nu2 = (np.nanvar(y_true, axis=0, mean=truemean) - truemean) / truemean**2  # method of moments estimator
-        ss_tot = np.nansum(self._dV_square(y_true, truemean, nu2, 1))
+        truemean = self._shift[group_name][feature_idx] * self._sample_means[group_name][sample_idx]
+
+        # use estimated dispersion to get R2=0 for y_pred=0
+        ss_tot = np.nansum(self._dV_square(y_true, truemean, self._dispersion.mean[feature_idx], 1))
 
         return R2(ss_res, ss_tot)
+
+    def _logpmf(
+        self, y_true: Matrix[np.number], mean: Matrix[np.floating], feature_idx: Vector[int] | slice = slice(None)
+    ) -> Matrix[np.floating]:
+        dispersion = self._dispersion.mean[feature_idx]
+        return nbinom.logpmf(y_true, p=1 / (1 + dispersion * mean + settings.eps), n=1 / dispersion)
+
+    def _deviance_explained_impl(
+        self,
+        y_true: Matrix[np.number],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> LogLikelihoods:
+        y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
+
+        null_mean = self._shift[group_name][feature_idx] * self._sample_means[group_name][sample_idx]
+
+        # use the estimated dispersion for all three models, otherwise the log-likelihoods are not comparable
+        loglik_saturated = np.nansum(self._logpmf(y_true, y_true, feature_idx))
+        loglik_null = np.nansum(self._logpmf(y_true, null_mean, feature_idx))
+        loglik_model = np.nansum(self._logpmf(y_true, y_pred, feature_idx))
+
+        return LogLikelihoods(loglik_saturated, loglik_null, loglik_model)
 
     def transform_prediction(
         self,
