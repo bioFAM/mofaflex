@@ -45,16 +45,17 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         | LikelihoodType
         | APILikelihood
         | None,
+        scale_elbo: bool = True,
     ):
         super().__init__()
 
         self._terms = PyroModuleDict(terms)
         self._likelihoods = likelihoods
+        self._scale_elbo = scale_elbo
 
     def _init(self, data: MofaFlexDataset):
         self._n_samples = data.n_samples
         self._n_features = data.n_features
-        self._scale_elbo = True
         n_views = len(self._view_names)
         self._view_scales = dict.fromkeys(self._view_names, 1.0)
         if self._scale_elbo and n_views > 1:

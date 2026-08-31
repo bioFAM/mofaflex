@@ -72,6 +72,7 @@ class _TrainingOptions(_Options):
     max_epochs: int
     n_particles: int
     lr: float
+    scale_elbo: bool
     early_stopper_patience: int
     save_path: Path | str | None
     seed: int | None
@@ -260,6 +261,7 @@ class MOFAFLEX:
         batch_size: int = 0,
         max_epochs: int = 10_000,
         lr: float = 0.001,
+        scale_elbo: bool = True,
         early_stopper_patience: int = 100,
         save_path: Path | str | None = None,
         seed: int | None = None,
@@ -296,6 +298,8 @@ class MOFAFLEX:
             batch_size: Batch size.
             max_epochs: Maximum number of training epochs.
             lr: Learning rate.
+            scale_elbo: Whether to scale the ELBO for the different views. If `True`, the ELBO for views with fewer features will be
+                scaled up compared to views with more features, such that the optimization focuses on all views equally.
             early_stopper_patience: Number of steps without relevant improvement to stop training.
             save_path: Path to save model.
             seed: Seed for the pseudorandom number generator.
@@ -318,6 +322,7 @@ class MOFAFLEX:
             max_epochs=max_epochs,
             n_particles=n_particles,
             lr=lr,
+            scale_elbo=scale_elbo,
             early_stopper_patience=early_stopper_patience,
             save_path=save_path,
             seed=seed,
@@ -352,7 +357,9 @@ class MOFAFLEX:
                 pl.overview(data).show()
 
             pyro.set_rng_seed(self._train_opts.seed)
-            model = MofaFlexModel(terms=self._terms, likelihoods=likelihoods).to(self._train_opts.device)
+            model = MofaFlexModel(
+                terms=self._terms, likelihoods=likelihoods, scale_elbo=self._train_opts.scale_elbo
+            ).to(self._train_opts.device)
 
             n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
             gamma = 0.1

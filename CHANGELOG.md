@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning][].
 - `pl.variance_explained` gained a `factor_filter` argument to plot only factors whose names satisfy a predicate
   (e.g. the annotation-informed factors of an `InformedHorseshoe` prior, dropping the uninformed dense ones).
 - It is now possible to disable the progress bar during training and to control its update interval.
+- It is now possible to disable ELBO scaling.
 
 ### Changed
 - The `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does.
