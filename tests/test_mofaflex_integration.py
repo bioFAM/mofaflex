@@ -100,7 +100,11 @@ def model_api_untrained_only():
     "argfor,argname,argval",
     [
         ("likelihood_normal", "scale_per_group", False),
-        ("term_mofaflex", "guiding_vars_obs_keys", ["gvar_normal", "gvar_bernoulli", "gvar_categorical"]),
+        (
+            "term_mofaflex",
+            "guiding_vars_obs_keys",
+            ["gvar_normal", "gvar_bernoulli", "gvar_categorical", "gvar_string"],
+        ),
         ("term_mofaflex", "weight_prior", "Normal"),
         ("term_mofaflex", "weight_prior", "Laplace"),
         ("term_mofaflex", "weight_prior", "Horseshoe"),
@@ -174,6 +178,7 @@ def test_integration(
             "gvar_normal": "Normal",
             "gvar_bernoulli": "Bernoulli",
             "gvar_categorical": "Categorical",
+            "gvar_string": "Categorical",
         },
         **termargs,
     )
@@ -211,7 +216,7 @@ def test_integration(
         assert "get_weight_annotations" in dir(model)
         assert all(isinstance(annot, pd.DataFrame) for annot in model.get_weight_annotations().values())
     elif argname == "guiding_vars_obs_keys":
-        assert model.n_guided_factors == model.terms["_"].n_guided_factors == 3
+        assert model.n_guided_factors == model.terms["_"].n_guided_factors == 4
     else:
         assert (
             model.n_factors

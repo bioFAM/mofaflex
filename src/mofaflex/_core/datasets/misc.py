@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from functools import reduce
 
 import numpy as np
 import pandas as pd
@@ -54,19 +55,26 @@ def merge_covariates(covariates: Mapping[str, Mapping[str, pd.DataFrame]]):
     for group_covars in covariates.values():
         for view_covars in group_covars.values():
             dtypes = view_covars.dtypes
+            cats = None
             if dtypes.nunique() > 1:
                 raise ValueError("Mixed dtypes for a covariate are not supported.")
             if dtypes.iloc[0] == "category":
-                categories = (
-                    view_covars.iloc[0].cat.categories
-                    if categories is None
-                    else categories.union(view_covars.iloc[0].cat.categories)
+                cats = view_covars.iloc[0].cat.categories
+            elif pd.api.types.is_string_dtype(dtypes.iloc[0]):
+                cats = reduce(
+                    lambda x, y: x.union(y), (pd.Index(col.dropna().unique()) for _, col in view_covars.items())
                 )
+            if cats is not None:
+                categories = pd.Index(cats) if categories is None else categories.union(cats)
     for group_covars in covariates.values():
         for view_covars in group_covars.values():
-            if view_covars.dtypes.iloc[0] == "category":
+            dtypes = view_covars.dtypes
+            if dtypes.iloc[0] == "category":
                 for col in view_covars.columns:
                     view_covars[col] = view_covars[col].cat.set_categories(categories)
+            elif pd.api.types.is_string_dtype(dtypes.iloc[0]):
+                for col in view_covars.columns:
+                    view_covars[col] = pd.Categorical(view_covars[col], categories=categories)
 
     # ensure the covariate value is consistent across views (nanmean or first)
     merged_covariates = {}

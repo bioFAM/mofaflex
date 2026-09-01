@@ -68,6 +68,7 @@ def random_adata(rng, random_array):
         adata.obs["gvar_normal"] = rng.random(size=(nobs))
         adata.obs["gvar_bernoulli"] = rng.binomial(1, 0.5, size=(nobs))
         adata.obs["gvar_categorical"] = pd.Categorical(rng.choice(["A", "B", "C"], size=(nobs)))
+        adata.obs["gvar_string"] = rng.choice(["A", "B", "C"], size=(nobs))
         adata.varm["annot_df"] = pd.DataFrame(
             rng.choice([False, True], size=(nvar, 10)), columns=[f"annot_{i}" for i in range(10)], index=adata.var_names
         )
