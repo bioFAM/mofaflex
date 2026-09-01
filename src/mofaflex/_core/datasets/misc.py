@@ -79,15 +79,15 @@ def merge_covariates(covariates: Mapping[str, Mapping[str, pd.DataFrame]]):
     # ensure the covariate value is consistent across views (nanmean or first)
     merged_covariates = {}
     for group_name, group_covars in covariates.items():
-        group_covariates = pd.concat(group_covars, axis=0, names=["view", "sample"])
+        group_covariates = pd.concat(group_covars, axis=0, names=["___view", "___sample"])
         if (
             group_covariates.dtypes.iloc[0] == "category"
             or pd.api.types.is_integer_dtype(group_covariates.dtypes.iloc[0])
             and np.all(group_covariates.iloc[:, 0] >= 0)
         ):
-            cov = group_covariates.groupby("sample", observed=True, sort=False).first()
+            cov = group_covariates.groupby("___sample", observed=True, sort=False).first()
         else:
-            cov = group_covariates.groupby("sample", observed=True, sort=False).mean()
+            cov = group_covariates.groupby("___sample", observed=True, sort=False).mean()
         cov.rename_axis(index=None, inplace=True)
         merged_covariates[group_name] = dataframe_to_numpy_dtypes(cov)
     return merged_covariates
