@@ -1241,6 +1241,7 @@ def weights(
         + p9.geom_point(p9.aes(size="annotate"), stroke=0)
         + p9.scale_size_manual(breaks=(True, False), values=(pointsize, 0.25 * pointsize), guide=None)
         + _weights_inferred_color_scale
+        + p9.guides(color=p9.guide_legend(override_aes={"size": 5, "alpha": 1}))
         + p9.labs(x="Rank", y="Weight", color="")
         + p9.theme(figure_size=figsize)
         + p9.geom_text(
