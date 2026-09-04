@@ -54,6 +54,8 @@ See the [changelog][].
 For questions and help requests, you can reach out in the [discussions][].
 If you found a bug, please use the [issue tracker][].
 
+This is an approved [de.NBI](https://www.denbi.de/) service. Please help us improve by taking our short [user survey](https://www.surveymonkey.de/r/denbi-service?sc=hd-hub&tool=MOFA-FLEX).
+
 ## Citation
 
 If you use MOFA-FLEX in your work, please cite
