@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+from contextlib import suppress
 from typing import Literal
 
 import numpy as np
@@ -5,8 +7,8 @@ import pandas as pd
 from anndata import AnnData
 from array_api_compat import array_namespace
 
-from ..datasets import MofaFlexDataset
-from ..utils import Matrix, Vector, nanmean, nanmin, nanvar
+from ..datasets import MofaFlexDataset, merge_covariates
+from ..utils import Matrix, MeanStd, Vector, nanmean, nanmin, nanvar
 from .base import R2, Likelihood
 from .pyro import Likelihood as PyroLikelihood
 from .pyro import Normal as PyroNormal
@@ -17,29 +19,51 @@ class Normal(Likelihood):
 
     Args:
         scale_per_group: Scale data per group, otherwise across all groups.
+        stddev_var_key: The column of `.var` that contains known feature-wise standard deviations. If `None`, standard deviations
+            will be infered during training. If `scale_per_group=False`, the feature-wise standard deviation will be averaged
+            over groups.
     """
 
     _priority = 0
-    _state_attrs = ("_shift", "_scale", "_dispersion")
+    _state_attrs = ("_stddev_var_key", "_shift", "_scale", "_dispersion")
 
-    def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool, scale_per_group: bool = True):
+    def __init__(
+        self,
+        view_name: str,
+        data: MofaFlexDataset,
+        nonnegative: bool,
+        scale_per_group: bool = True,
+        stddev_var_key: str | None = None,
+    ):
         super().__init__(view_name, data, nonnegative)
         self._scale_per_group = scale_per_group
+        self._stddev_var_key = stddev_var_key
+
         statfun = nanmean if not nonnegative else nanmin
         self._shift = data.apply_to_view(view_name, lambda adata, group_name: statfun(adata.X, axis=0))
 
-        if scale_per_group:
-            self._scale = data.apply_to_view(view_name, self._calc_scale_grouped)
+        if stddev_var_key is not None:
+            scale = data.get_covariates(1, stddev_var_key, filter_names=view_name)
+            if scale_per_group:
+                self._dispersion = {
+                    group_name: group.to_numpy().squeeze() for group_name, group in scale[view_name].items()
+                }
+            else:
+                self._dispersion = merge_covariates(scale)[view_name].to_numpy().squeeze()
+            self._scale = None
         else:
-            self._scale = data.apply(
-                self._calc_scale_ungrouped, by_group=False, filter_views=view_name, groups=data.group_names
-            )[view_name]
+            self._dispersion = None
+            if scale_per_group:
+                self._scale = data.apply_to_view(view_name, self._calc_scale_grouped)
+            else:
+                self._scale = data.apply(
+                    self._calc_scale_ungrouped, by_group=False, filter_views=view_name, groups=data.group_names
+                )[view_name]
+
         self._shift = {
             group_name: data.align_local_array_to_global(shift, group_name, self._view_name, align_to="features")
             for group_name, shift in self._shift.items()
         }
-
-        self._dispersion = None
 
     def _calc_scale_ungrouped(self, adata: AnnData, group: Vector[str], view_name: str, groups: list[str]):
         if adata.n_obs <= 1:
@@ -79,6 +103,7 @@ class Normal(Likelihood):
             data.n_features[self._view_name],
             shift=self._shift,
             scale=self._scale,
+            dispersion=self._dispersion,
             init_scale=init_scale,
         )
 
@@ -125,11 +150,11 @@ class Normal(Likelihood):
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> Matrix[np.floating]:
-        try:
-            scale = self._scale[group_name]
-        except IndexError:
-            scale = self._scale
-        return prediction * scale + self._shift[group_name][feature_idx]
+        if (scale := self._scale) is not None:
+            with suppress(IndexError):
+                scale = self._scale[group_name]
+            prediction = prediction * scale
+        return prediction + self._shift[group_name][feature_idx]
 
     def transform_data(
         self,
@@ -138,17 +163,31 @@ class Normal(Likelihood):
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> Matrix[np.number]:
-        try:
-            scale = self._scale[group_name]
-        except IndexError:
-            scale = self._scale
-        return (data - self._shift[group_name][feature_idx]) / scale
+        transformed = data - self._shift[group_name][feature_idx]
+        if (scale := self._scale) is not None:
+            with suppress(IndexError):
+                scale = scale[group_name]
+            transformed /= scale
+        return transformed
 
     @Likelihood._api
-    def get_dispersion(self, moment: Literal["mean", "std"] = "mean") -> pd.Series:
+    def get_dispersion(self, moment: Literal["mean", "std"] = "mean") -> pd.Series | dict[str, pd.Series]:
         """Get the dispersion vectors for each view.
 
         Args:
-            moment: Which moment of the posterior distribution to return.
+            moment: Which moment of the posterior distribution to return. Ignored if the likelihood was instantiated with `stddev_var_key`.
+
+        Returns:
+            If the likelhood was instantiated with `stddev_var_key`, a :class:`~pandas.Series` if `scale_per_group=False`, otherwise a
+            dictionary of :class:`~pandas.Series`, one per group.
+
+            Otherwise a :class:`~pandas.Series` containing the requested moment of the inferred posterior distribution.
         """
-        return pd.Series(getattr(self._dispersion, moment), index=self._feature_names)
+        if isinstance(self._dispersion, MeanStd):
+            return pd.Series(getattr(self._dispersion, moment), index=self._feature_names)
+        elif isinstance(self._dispersion, Mapping):
+            return {
+                group_name: pd.Series(disp, index=self._feature_names) for group_name, disp in self._dispersion.items()
+            }
+        else:
+            return pd.Series(self._dispersion, index=self._feature_names)

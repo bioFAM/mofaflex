@@ -204,6 +204,9 @@ class LikelihoodWithDispersion(Likelihood):
         nsamples: dict[str, int],
         nfeatures: int,
         *,
+        dispersion: np.ndarray[tuple[int], np.floating]
+        | Mapping[str, np.ndarray[tuple[int], np.floating]]
+        | None = None,
         init_loc: float = 1.0,
         init_scale: float = 0.1,
         **kwargs,
@@ -211,11 +214,21 @@ class LikelihoodWithDispersion(Likelihood):
         super().__init__(view_name, sample_dim, feature_dim, nsamples, nfeatures, **kwargs)
 
         shape = self._nfeatures, *((1,) * (abs(self._feature_dim) - 1))
-        self._loc = PyroParam(torch.full(size=shape, fill_value=np.log(init_loc) - 0.5 * init_scale**2))
-        self._scale = PyroParam(
-            torch.full(size=shape, fill_value=init_scale), constraint=dist.constraints.softplus_positive
-        )
-        self._dispersion = self._random_attr(dist.Gamma(1e-3, 1e-3), self._variational_dist)
+        self._ndim = len(shape)
+        if dispersion is not None:
+            self._loc = self._scale = None
+            if isinstance(dispersion, Mapping):
+                self._dispersion = {
+                    group_name: torch.as_tensor(disp.reshape(shape)) for group_name, disp in dispersion.items()
+                }
+            else:
+                self._dispersion = torch.as_tensor(dispersion.reshape(shape))
+        else:
+            self._loc = PyroParam(torch.full(size=shape, fill_value=np.log(init_loc) - 0.5 * init_scale**2))
+            self._scale = PyroParam(
+                torch.full(size=shape, fill_value=init_scale), constraint=dist.constraints.softplus_positive
+            )
+            self._dispersion = self._random_attr(dist.Gamma(1e-3, 1e-3), self._variational_dist)
 
     def _variational_dist(self):
         return dist.LogNormal(self._loc, self._scale)
@@ -250,6 +263,8 @@ class LikelihoodWithDispersion(Likelihood):
         """
         with feature_plate:
             dispersion = self._dispersion
+        if isinstance(dispersion, Mapping):
+            dispersion = dispersion[group_name]
         return dispersion.movedim(self._feature_dim, 0)[nonmissing_features, ...].movedim(0, self._feature_dim)
 
     @pyro_method
@@ -260,12 +275,20 @@ class LikelihoodWithDispersion(Likelihood):
 
     @property
     @torch.inference_mode()
-    def dispersion(self) -> MeanStd:
+    def dispersion(self) -> MeanStd | dict[str, np.ndarray[tuple[int], np.floating]]:
         """The estimated dispersion."""
-        squeezedims = list(range(self._loc.ndim))
+        squeezedims = list(range(self._ndim))
         del squeezedims[self._feature_dim]
-
-        dist = self._variational_dist()
-        return MeanStd(
-            dist.mean.squeeze(squeezedims).cpu().numpy(), torch.sqrt(dist.variance.squeeze(squeezedims)).cpu().numpy()
-        )
+        if self._loc is not None and self._scale is not None:
+            dist = self._variational_dist()
+            return MeanStd(
+                dist.mean.squeeze(squeezedims).cpu().numpy(),
+                torch.sqrt(dist.variance.squeeze(squeezedims)).cpu().numpy(),
+            )
+        else:
+            if isinstance(self._dispersion, Mapping):
+                return {
+                    group_name: disp.squeeze(squeezedims).cpu().numpy() for group_name, disp in self._dispersion.items()
+                }
+            else:
+                return self._dispersion.squeeze(squeezedims).cpu().numpy()

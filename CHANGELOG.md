@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning][].
   (e.g. the annotation-informed factors of an `InformedHorseshoe` prior, dropping the uninformed dense ones).
 - It is now possible to disable the progress bar during training and to control its update interval.
 - It is now possible to disable ELBO scaling.
+- It is now possible to specify known measurement error for the Normal likelihood, which will be used instead of estimating
+  dispersion during training.
 
 ### Changed
 - The `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does.

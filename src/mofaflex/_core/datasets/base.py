@@ -349,6 +349,10 @@ class MofaFlexDataset(Dataset, ABC):
             mkey: Key in `.obsm` or `.varm` for each group/view containing the covariates.
             filter_names: List of groups (for `axis==0`) or views (for `axis==1`) to include. If `None`, will include all groups/views.
             fill_value: Function returning the alignment fill value (see `align_local_array_to_global`) for a given array dtype.
+
+        Returns:
+            Nested dictionary of covariates. If extracting observation covariates, the outer dict is indexed by groups, the inner by views.
+            If extracting feature covariates, the outer dict is indexed by views, the inner by groups.
         """
         if axis == 0:
             names = self.group_names

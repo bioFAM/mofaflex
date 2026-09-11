@@ -54,7 +54,9 @@ def adata_dict(rng, create_adata, random_array, group_names, view_names):
                 arr = random_array(likelihood, (100, 30))
                 if sparse_arr is not None:
                     arr = sparse_arr[group_name][view_name](arr)
-                cdata[view_name] = create_adata(arr, obs_names=[f"{group_name}_{i}" for i in range(arr.shape[0])])
+                adata = create_adata(arr, obs_names=[f"{group_name}_{i}" for i in range(arr.shape[0])])
+                adata.var["stddev"] = rng.gamma(1, 2)
+                cdata[view_name] = adata
             data[group_name] = cdata
         return data
 
@@ -145,9 +147,16 @@ class TestNormal(_TestLikelihood):
     def scale_per_group(self, request):
         return request.param
 
+    @pytest.fixture(scope="class", params=[None, "stddev"])
+    def stddev_var_key(self, request):
+        return request.param
+
     @pytest.fixture(scope="class")
-    def likelihoods(self, dataset, nonnegative, scale_per_group):
-        return {view_name: Normal(view_name, dataset, nn, scale_per_group) for view_name, nn in nonnegative.items()}
+    def likelihoods(self, dataset, nonnegative, scale_per_group, stddev_var_key):
+        return {
+            view_name: Normal(view_name, dataset, nn, scale_per_group, stddev_var_key)
+            for view_name, nn in nonnegative.items()
+        }
 
     @pytest.fixture(scope="class")
     def dataset(self, adata_dict):
@@ -161,17 +170,18 @@ class TestNormal(_TestLikelihood):
                 else:
                     assert np.allclose((view - likelihoods[view_name]._shift[group_name]).mean(axis=0), 0)
 
-    def test_scale_data(self, likelihoods, dataset, y_true, scale_per_group):
+    def test_scale_data(self, likelihoods, dataset, y_true, scale_per_group, stddev_var_key):
         if scale_per_group:
             for group_name, group in y_true.items():
                 for view_name, view in group.items():
-                    assert np.allclose(
-                        (
-                            (view - likelihoods[view_name]._shift[group_name])
-                            / likelihoods[view_name]._scale[group_name]
-                        ).var(),
-                        1,
-                    )
+                    scaled = view - likelihoods[view_name]._shift[group_name]
+                    if stddev_var_key is None:
+                        scaled /= likelihoods[view_name]._scale[group_name]
+                    allclose = np.allclose(scaled.var(), 1)
+                    if stddev_var_key is None:
+                        assert allclose
+                    else:
+                        assert not allclose
         else:
             for view_name in dataset.view_names:
                 concat = np.concat(
@@ -182,7 +192,13 @@ class TestNormal(_TestLikelihood):
                     ],
                     axis=0,
                 )
-                assert np.allclose((concat / likelihoods[view_name]._scale).var(), 1)
+                if stddev_var_key is None:
+                    concat /= likelihoods[view_name]._scale
+                allclose = np.allclose(concat.var(), 1)
+                if stddev_var_key is None:
+                    assert allclose
+                else:
+                    assert not allclose
 
 
 class TestBernoulli(_TestLikelihood):

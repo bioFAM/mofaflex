@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from contextlib import suppress
 
 import numpy as np
 import pyro
@@ -22,6 +23,9 @@ class Normal(LikelihoodWithDispersion):
         *,
         shift: Mapping[str, NDArray[np.floating]] | None = None,
         scale: np.floating | Mapping[str, np.floating] | None = None,
+        dispersion: np.ndarray[tuple[int], np.floating]
+        | Mapping[str, np.ndarray[tuple[int], np.floating]]
+        | None = None,
         init_loc: float = 1.0,
         init_scale: float = 0.1,
     ):
@@ -36,7 +40,14 @@ class Normal(LikelihoodWithDispersion):
             scale = None
 
         super().__init__(
-            view_name, sample_dim, feature_dim, nsamples, nfeatures, init_loc=init_loc, init_scale=init_scale
+            view_name,
+            sample_dim,
+            feature_dim,
+            nsamples,
+            nfeatures,
+            dispersion=dispersion,
+            init_loc=init_loc,
+            init_scale=init_scale,
         )
         self._shift = (
             {group_name: torch.as_tensor(gshift) for group_name, gshift in shift.items()}
@@ -59,10 +70,10 @@ class Normal(LikelihoodWithDispersion):
         dispersion = self._model_dispersion(
             id, estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
         )
-        if self._shift is not None and self.__scale is not None:
-            try:
+        if (scale := self.__scale) is not None:
+            with suppress(IndexError):
                 scale = self.__scale[group_name]
-            except IndexError:
-                scale = self.__scale
-            estimate = estimate * scale + self._shift[group_name][feature_plate.indices[nonmissing_features]]
+            estimate = estimate * scale
+        if self._shift is not None:
+            estimate += self._shift[group_name][feature_plate.indices[nonmissing_features]]
         return dist.Normal(estimate, dispersion + settings.get("eps"))

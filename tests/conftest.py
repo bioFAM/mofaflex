@@ -79,6 +79,7 @@ def random_adata(rng, random_array):
         )
         adata.varm["covar_array"] = rng.random(size=(nvar, 3))
         adata.varm["covar_sparse"] = csr_array(rng.poisson(size=(nvar, 3)))
+        adata.var["stddev"] = rng.gamma(2, 2)
         return adata
 
     return _adata

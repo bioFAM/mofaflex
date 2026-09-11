@@ -100,6 +100,7 @@ def model_api_untrained_only():
     "argfor,argname,argval",
     [
         ("likelihood_normal", "scale_per_group", False),
+        ("likelihood_normal", "stddev_var_key", "stddev"),
         (
             "term_mofaflex",
             "guiding_vars_obs_keys",
@@ -228,6 +229,13 @@ def test_integration(
         assert "get_weight_annotations" not in dir(model)
         with pytest.raises(AttributeError, match="is only available when using the 'InformedHorseshoe' prior"):
             model.get_weight_annotations()
+
+    if argname == "stddev_var_key":
+        dispersion = model.likelihoods["view_normal"].get_dispersion()
+        assert isinstance(dispersion, Mapping)
+        for group_name, group in anndata_dict.items():
+            view = group["view_normal"]
+            assert np.all(view.var[argval] == dispersion[group_name].loc[view.var_names])
 
     if fitargs.get("save_path") is not False:
         loaded_model = MOFAFLEX.load(path=next(iter(tmp_path.glob("*.h5"))))
