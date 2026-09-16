@@ -1207,8 +1207,8 @@ def weights(
             figsize = (min(figsize[0], 25), min(figsize[1], 25))
 
     grp = df.groupby(["factor", "view"], observed=True)
-    df["rank"] = grp["weight"].rank(ascending=False, method="min")
-    df["absrank"] = grp["weightabs"].rank(ascending=False, method="min")
+    df["rank"] = grp["weight"].rank(ascending=False, method="first")
+    df["absrank"] = grp["weightabs"].rank(ascending=False, method="first")
     df["annotate"] = df["absrank"] <= n_features
 
     aes_kwargs = {}
