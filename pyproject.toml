@@ -85,6 +85,7 @@ doc = [
 version.source = "vcs"
 metadata.allow-direct-references = true
 build.hooks.vcs.version-file = "src/mofaflex/_version.py"
+build.targets.sdist.exclude = [ "/tests", "/docs" ]
 envs.default.installer = "uv"
 envs.default.dependency-groups = [ "dev" ]
 envs.docs.scripts.build = "sphinx-build -M html docs docs/_build {args}"
