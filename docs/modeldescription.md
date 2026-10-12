@@ -148,7 +148,7 @@ As should be obvious from the above, domain knowledge is only supported when usi
 
 ## Guiding individual factors using external covariates
 
-SOFA{cite:p}`capraz2024semi` pioneered the coupling of individual factors to external covariates in multi-view factor models, thereby facilitating the disentanglement of known and unknown sources of variation. This coupling is achieved using an additional linear regression task from the external covariate, which can be assumed to follow a Normal, Bernoulli or Categorical distribution, on the factor. Several covariates can be provided and each is assigned to a unique factor.
+SOFA{cite:p}`pmid42624833` pioneered the coupling of individual factors to external covariates in multi-view factor models, thereby facilitating the disentanglement of known and unknown sources of variation. This coupling is achieved using an additional linear regression task from the external covariate, which can be assumed to follow a Normal, Bernoulli or Categorical distribution, on the factor. Several covariates can be provided and each is assigned to a unique factor.
 
 Given the factor scores $Z_{n,k}$ of a single factor $k$ and observation $n$, the linear predictor $\nu_n$ for a given covariate is given by
 \begin{align*}
