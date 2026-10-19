@@ -1,3 +1,6 @@
+import operator
+from collections import defaultdict
+from collections.abc import Mapping
 from functools import reduce
 
 import numpy as np
@@ -115,6 +118,118 @@ def test_properties(anndata_dict, use_obs, use_var, subset_var, dataset):
     for view_name, view_vars in var_names.items():
         assert dataset.n_features[view_name] == view_vars.size
         assert np.all(np.sort(dataset.feature_names[view_name]) == view_vars.sort_values().to_numpy())
+
+
+_LAYERSPECS = (None, "layer1", {"x1": None, "x2": "layer1"}, {"x1": "layer1", "x2": "layer2"})
+
+
+@pytest.mark.parametrize("layerspec", _LAYERSPECS)
+def test_parse_layer_spec_same_for_all(anndata_dict, layerspec):
+    dataset = lambda: None
+    dataset._data = anndata_dict
+    layerfunc = AnnDataDictDataset._parse_layer_spec(dataset, layerspec)
+
+    view_names = reduce(operator.or_, (group.keys() for group in anndata_dict.values()))
+    layers = [layerfunc(group_name, view_name) for group_name in anndata_dict.keys() for view_name in view_names]
+    assert all(layers[0] == layer for layer in layers[1:])
+    layer = layers[0]
+    if not isinstance(layerspec, Mapping):
+        assert layer == {None: layerspec}
+    else:
+        assert layer == layerspec
+
+
+@pytest.mark.parametrize(
+    "layerspec", reduce(operator.add, ([{"view_0": spec}, {"view_0": spec, "view_1": None}] for spec in _LAYERSPECS))
+)
+def test_parse_layer_spec_separate_per_view(anndata_dict, layerspec):
+    dataset = lambda: None
+    dataset._data = anndata_dict
+    layerfunc = AnnDataDictDataset._parse_layer_spec(dataset, layerspec)
+
+    layers = defaultdict(list)
+    for group_name, group in anndata_dict.items():
+        for view_name in group.keys():
+            layers[view_name].append(layerfunc(group_name, view_name))
+
+    for view_name, view_layers in layers.items():
+        assert len(view_layers) == 2
+        assert all(view_layers[0] == layer for layer in view_layers[1:])
+        view_layer = view_layers[0]
+        view_spec = layerspec.get(view_name)
+        if not isinstance(view_spec, Mapping):
+            assert view_layer == {None: view_spec}
+        else:
+            assert view_layer == view_spec
+
+
+@pytest.mark.parametrize(
+    "layerspec",
+    reduce(
+        operator.add,
+        (
+            [
+                {"group_0": {"view_0": spec}, "group_1": {"view_0": spec}},
+                {"group_0": {"view_0": spec, "view_1": None}, "group_1": {"view_0": spec, "view_1": None}},
+            ]
+            for spec in _LAYERSPECS
+        ),
+    ),
+)
+def test_parse_layer_spec_separate_per_group_view(anndata_dict, layerspec):
+    dataset = lambda: None
+    dataset._data = anndata_dict
+    layerfunc = AnnDataDictDataset._parse_layer_spec(dataset, layerspec)
+
+    layers = defaultdict(dict)
+    for group_name, group in anndata_dict.items():
+        for view_name in group.keys():
+            layers[view_name][group_name] = layerfunc(group_name, view_name)
+
+    for view_name, view_layers in layers.items():
+        assert len(view_layers) == 2
+        for group_name, group_layers in view_layers.items():
+            cspec = layerspec[group_name].get(view_name)
+            if not isinstance(cspec, Mapping):
+                assert group_layers == {None: cspec}
+            else:
+                assert group_layers == cspec
+
+
+@pytest.mark.parametrize(
+    ("layerspec", "exception_match"),
+    (
+        (
+            {"group_0": {"view_0": None}, "group_1": {"view_0": {"x1": None, "x2": "layer1"}}},
+            "number of specified layers",
+        ),
+        (
+            {"group_0": {"view_0": {"x1": None}}, "group_1": {"view_0": {"x1": None, "x2": "layer1"}}},
+            "number of specified layers",
+        ),
+        (
+            {
+                "group_0": {"view_0": None, "view_1": {"x1": "layer1", "x2": "layer2"}},
+                "group_1": {"view_0": None, "view_1": {"x1": "layer1"}},
+            },
+            "number of specified layers",
+        ),
+        (
+            {
+                "group_0": {"view_0": {"x1": None, "x2": "layer1"}},
+                "group_1": {"view_0": {"x2": "layer1", "x3": "layer3"}},
+            },
+            "assignment of layers to names",
+        ),
+        ({"group_0": {"view_0": None}, "x1": "layer1"}, "Unsupported `layer` argument."),
+        ("layer4", "Unsupported `layer` argument."),
+    ),
+)
+def test_parse_layer_spec_raises(anndata_dict, layerspec, exception_match):
+    dataset = lambda: None
+    dataset._data = anndata_dict
+    with pytest.raises(ValueError, match=exception_match):
+        AnnDataDictDataset._parse_layer_spec(dataset, layerspec)
 
 
 @pytest.mark.parametrize("axis", (0, 1, 2))

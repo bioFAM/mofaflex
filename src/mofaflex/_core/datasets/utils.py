@@ -128,20 +128,19 @@ def warn_dask(logger: logging.Logger | None = None):
     _warned_dask = True
 
 
-def select_anndata_layer(adata: AnnData, layer: str | None = None):
-    if layer is None:
-        return adata
-    else:
-        return AnnData(
-            X=adata.layers[layer],
-            obs=adata.obs,
-            var=adata.var,
-            obsm=adata.obsm,
-            varm=adata.varm,
-            obsp=adata.obsp,
-            varp=adata.varp,
-            uns=adata.uns,
-        )
+def select_anndata_layer(adata: AnnData, layer: Mapping[str | None, str | None]):
+    layers = {k: adata.X if v is None else adata.layers[v] for k, v in layer.items()}
+    return AnnData(
+        layers=layers,
+        obs=adata.obs,
+        var=adata.var,
+        obsm=adata.obsm,
+        varm=adata.varm,
+        # no unnecessary metadata: saves memory and time during concat in MofaFlexDataset.apply
+        # obsp=adata.obsp,
+        # varp=adata.varp,
+        # uns=adata.uns,
+    )
 
 
 def dataframe_to_numpy_dtypes(df: pd.DataFrame | Mapping[str, pd.Series]):

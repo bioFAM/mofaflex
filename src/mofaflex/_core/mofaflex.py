@@ -250,7 +250,10 @@ class MOFAFLEX:
         *,
         likelihoods: Mapping[str, LikelihoodType | APILikelihood] | LikelihoodType | APILikelihood | None = None,
         group_by: str | Sequence[str] | None = None,
-        layer: Mapping[str, str | None] | Mapping[str, Mapping[str, str | None]] | str | None = None,
+        layer: Mapping[str, str | None | Mapping[str, str | None]]
+        | Mapping[str, Mapping[str, str | None | Mapping[str, str | None]]]
+        | str
+        | None = None,
         use_obs: Literal["union", "intersection"] = "union",
         use_var: Literal["union", "intersection"] = "union",
         subset_var: str | None = "highly_variable",
@@ -283,7 +286,7 @@ class MOFAFLEX:
             group_by: Columns of `.obs` in :class:`MuData<mudata.MuData>` or :class:`AnnData<anndata.AnnData>` objects to group
                 data by. Ignored if the input data is not a :class:`MuData<mudata.MuData>` or :class:`AnnData<anndata.AnnData>` object.
             layer: Which layer to use. If `None`, the `.X` element will be used. If `str`, the same layer will be used for
-                all groups and views. If a dict of strings, the keys must correspond to view names and the values to layers.
+                all groups and views. If a dict, the keys must correspond to view names and the values to layers.
                 If a nested dict, different layers can be used for each combination of group and view. The last format is
                 only accepted if the data is a nested dictionary of :class:`AnnData<anndata.AnnData>` objects.
             use_obs: How to align observations across views. Ignored if the data is not a nested dict of
