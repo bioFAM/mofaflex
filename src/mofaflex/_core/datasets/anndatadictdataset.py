@@ -58,7 +58,10 @@ class AnnDataDictDataset(MofaFlexDataset):
         self,
         data: Mapping[str, Mapping[str, ad.AnnData]],
         *,
-        layer: Mapping[str, Mapping[str, str | None] | str | None] | str | None = None,
+        layer: Mapping[str, str | None | Mapping[str, str | None]]
+        | Mapping[str, Mapping[str, str | None | Mapping[str, str | None]]]
+        | str
+        | None = None,
         use_obs: Literal["union", "intersection"] = "union",
         use_var: Literal["union", "intersection"] = "union",
         preprocessor: Preprocessor | None = None,
@@ -92,22 +95,84 @@ class AnnDataDictDataset(MofaFlexDataset):
         self.reindex_samples(sample_names)
         self.reindex_features(feature_names)
 
-    def _select_layer(self, layer):
-        if layer is None:
-            return
-
-        if isinstance(layer, str):
-            layerfunc = lambda group_name, view_name: layer
-        elif isinstance(layer, Mapping) and all(
-            isinstance(group, Mapping) and all(isinstance(view, str | None) for view in group.values())
-            for group in layer.values()
+    def _parse_layer_spec(
+        self,
+        layer: Mapping[str, str | None | Mapping[str, str | None]]
+        | Mapping[str, Mapping[str, str | None | Mapping[str, str | None]]]
+        | str
+        | None = None,
+    ) -> Callable[[str, str], Mapping[str | None, str | None]]:
+        layerfunc = None
+        if (
+            layer is None
+            or isinstance(layer, str)
+            and all(layer in view.layers for group in self._data.values() for view in group.values())
         ):
-            layerfunc = lambda group_name, view_name: layer[group_name].get(view_name)
-        elif isinstance(layer, Mapping) and all(isinstance(view, str | None) for view in layer.values()):
-            layerfunc = lambda group_name, view_name: layer.get(view_name)
-        else:
-            raise TypeError("Unknown type of `layer` argument.")
+            layerfunc = lambda group_name, view_name: {None: layer}
+        elif isinstance(layer, Mapping):
+            if all(layer.keys() <= group.keys() for group in self._data.values()) and all(
+                isinstance(v, str | None)
+                or isinstance(v, Mapping)
+                and all(
+                    isinstance(vv, str | None)
+                    and (vv is None or all(vv in group[view_name].layers for group in self._data.values()))
+                    for vv in v.values()
+                )
+                for view_name, v in layer.items()
+            ):  # separate for each view, same for groups
+                layerfunc = lambda group_name, view_name: (
+                    {None: clayer} if isinstance(clayer := layer.get(view_name), str | None) else clayer
+                )
+            elif all(
+                v is None or isinstance(v, str) and v in adata.layers
+                for v in layer.values()
+                for group in self._data.values()
+                for adata in group.values()
+            ):  # same for all
+                layerfunc = lambda group_name, view_name: layer
+            elif all(
+                isinstance(group, Mapping)
+                and all(
+                    view_name in self._data[group_name]
+                    and (isinstance(view, str | None) or len(set(view.values())) == len(view))
+                    for view_name, view in group.items()
+                )
+                for group_name, group in layer.items()
+            ):  # separate for each group / view combination
+                layers_by_view = defaultdict(set)
+                for group_name, group in self._data.items():
+                    for view_name in group.keys():
+                        layers_by_view[view_name].add(
+                            tuple(sorted(view_layer.keys()))
+                            if isinstance(view_layer := layer[group_name].get(view_name), Mapping)
+                            else (None,)
+                        )
+                for view_name, layers in layers_by_view.items():
+                    if len(layers) > 1:
+                        if len({len(clayers) for clayers in layers}) > 1:
+                            raise ValueError(
+                                f"The number of specified layers in view {view_name} must be the same for all groups."
+                            )
+                        else:
+                            raise ValueError(
+                                f"The assignment of layers to names in view {view_name} must be the same for all groups."
+                            )
+                layerfunc = lambda group_name, view_name: (
+                    {None: clayer} if isinstance(clayer := layer[group_name].get(view_name), str | None) else clayer
+                )
 
+        if layerfunc is None:
+            raise ValueError("Unsupported `layer` argument.")
+        return layerfunc
+
+    def _select_layer(
+        self,
+        layer: Mapping[str, str | None | Mapping[str, str | None]]
+        | Mapping[str, Mapping[str, str | None | Mapping[str, str | None]]]
+        | str
+        | None = None,
+    ):
+        layerfunc = self._parse_layer_spec(layer)
         self._data = {
             group_name: {
                 view_name: select_anndata_layer(view, layerfunc(group_name, view_name))

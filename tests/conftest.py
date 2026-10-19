@@ -48,7 +48,10 @@ def random_adata(rng, random_array):
     def _adata(likelihood, nobs, nvar, var_names=None, obs_names=None):
         adata = ad.AnnData(
             X=random_array(likelihood, (nobs, nvar)).astype(np.float32),
-            layers={"layer1": random_array(likelihood, (nobs, nvar)).astype(np.float32)},
+            layers={
+                "layer1": random_array(likelihood, (nobs, nvar)).astype(np.float32),
+                "layer2": random_array(likelihood, (nobs, nvar)).astype(np.float32),
+            },
             obs=pd.DataFrame(
                 {"covar": rng.random(size=nobs)},
                 index=obs_names if obs_names is not None else [f"cell_{i}" for i in range(nobs)],

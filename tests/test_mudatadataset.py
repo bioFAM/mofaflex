@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 import anndata as ad
 import mudata as md
 import numpy as np
@@ -10,6 +12,7 @@ from scipy import sparse
 
 from mofaflex import settings
 from mofaflex._core.datasets import MofaFlexDataset, MuDataAxis0Dataset, MuDataAxis1Dataset
+from mofaflex._core.datasets.mudatadataset import MuDataDataset
 
 
 @pytest.fixture(scope="module", params=(None, "global_highly_variable", "highly_variable"))
@@ -23,8 +26,7 @@ class MuDataDatasetTest:
         if not isinstance(request.param, dict):
             return request.param
         else:
-            mod_key = "view" if mdata_axis == 0 else "group"
-            return {f"{mod_key}_{k}": layer for k, layer in request.param.items()}
+            return {f"mod_{k}": layer for k, layer in request.param.items()}
 
     @pytest.fixture(scope="class")
     def mdata(self, rng, mdata_axis):
@@ -35,10 +37,8 @@ class MuDataDatasetTest:
         obs_names = [f"cell_{i}" for i in range(nobs)]
         var_names = [f"var_{i}" for i in range(nobs)]
         if mdata_axis == 0:
-            adata_name_prefix = "view"
             batch_prefix = "group"
         else:
-            adata_name_prefix = "group"
             batch_prefix = "view"
         adatas = {}
         for mod in range(3):
@@ -56,6 +56,7 @@ class MuDataDatasetTest:
                 var=pd.DataFrame(index=cvar_names),
             )
             if mod < 2:
+                adata.layers["layer2"] = rng.normal(0, 1, size=(len(cobs_names), len(cvar_names))).astype(np.float32)
                 adata.obs["covar"] = rng.random(size=adata.n_obs)
                 adata.obsm["covar_df"] = pd.DataFrame(
                     rng.random(size=(adata.n_obs, 3)), columns=["a", "b", "c"], index=adata.obs_names
@@ -70,13 +71,11 @@ class MuDataDatasetTest:
                 )
                 adata.varm["annot_array"] = rng.random(size=(adata.n_vars, 10))
                 adata.varm["annot_sparse"] = sparse.csr_array(rng.poisson(size=(adata.n_vars, 4)))
-            adatas[f"{adata_name_prefix}_{mod}"] = adata
+            adatas[f"mod_{mod}"] = adata
 
-        adatas[f"{adata_name_prefix}_0"].X = sparse.csr_array(adatas[f"{adata_name_prefix}_0"].X)
-        adatas[f"{adata_name_prefix}_2"].X = sparse.csc_array(adatas[f"{adata_name_prefix}_2"].X)
-        adatas[f"{adata_name_prefix}_1"].var["highly_variable"] = rng.choice(
-            (True, False), size=adata.n_vars, p=[0.4, 0.6]
-        )
+        adatas["mod_0"].X = sparse.csr_array(adatas["mod_0"].X)
+        adatas["mod_2"].X = sparse.csc_array(adatas["mod_2"].X)
+        adatas["mod_1"].var["highly_variable"] = rng.choice((True, False), size=adata.n_vars, p=[0.4, 0.6])
 
         mdata = md.MuData(adatas, axis=mdata_axis)
 
@@ -88,31 +87,31 @@ class MuDataDatasetTest:
         )
 
         global_covar = rng.random(size=mdata.n_obs)
-        global_covar[~mdata.obs_names.isin(adatas[f"{adata_name_prefix}_2"].obs_names)] = np.nan
+        global_covar[~mdata.obs_names.isin(adatas["mod_2"].obs_names)] = np.nan
         mdata.obs["covar"] = global_covar
 
         global_covar = rng.random(size=mdata.n_vars)
-        global_covar[~mdata.var_names.isin(adatas[f"{adata_name_prefix}_2"].var_names)] = np.nan
+        global_covar[~mdata.var_names.isin(adatas["mod_2"].var_names)] = np.nan
         mdata.var["covar"] = global_covar
 
         global_covar = rng.random(size=(mdata.n_obs, 3))
-        global_covar[~mdata.obs_names.isin(adatas[f"{adata_name_prefix}_2"].obs_names)] = np.nan
+        global_covar[~mdata.obs_names.isin(adatas["mod_2"].obs_names)] = np.nan
         mdata.obsm["covar_df"] = pd.DataFrame(global_covar, columns=["a", "b", "c"], index=mdata.obs_names)
         mdata.obsm["covar_array"] = rng.permuted(global_covar, axis=0)
 
         global_covar_sparse = sparse.csr_array(rng.poisson(size=(mdata.n_obs, 3)).astype(np.float32))
-        global_covar_sparse[~mdata.obs_names.isin(adatas[f"{adata_name_prefix}_2"].obs_names)] = np.nan
+        global_covar_sparse[~mdata.obs_names.isin(adatas["mod_2"].obs_names)] = np.nan
         mdata.obsm["covar_sparse"] = global_covar_sparse
 
         global_annot = rng.random(size=(mdata.n_vars, 10))
-        global_annot[~mdata.var_names.isin(adatas[f"{adata_name_prefix}_2"].var_names)] = np.nan
+        global_annot[~mdata.var_names.isin(adatas["mod_2"].var_names)] = np.nan
         mdata.varm["annot_df"] = pd.DataFrame(
             global_annot, columns=[f"global_annot_{i}" for i in range(10)], index=mdata.var_names
         )
         mdata.varm["annot_array"] = rng.permuted(global_annot, axis=0)
 
         global_annot_sparse = sparse.csr_array(rng.poisson(size=(mdata.n_var, 4)).astype(np.float32))
-        global_annot_sparse[~mdata.var_names.isin(adatas[f"{adata_name_prefix}_2"].var_names)] = np.nan
+        global_annot_sparse[~mdata.var_names.isin(adatas["mod_2"].var_names)] = np.nan
         mdata.varm["annot_sparse"] = global_annot_sparse
 
         mdata.var["global_highly_variable"] = rng.choice((True, False), size=mdata.n_vars, p=[0.3, 0.7])
@@ -136,6 +135,49 @@ class MuDataDatasetTest:
 
             assert np.all(view_names == cvarnames)
             assert dataset.n_features[view_name] == cvarnames.size
+
+    @pytest.mark.parametrize("layerspec", (None, "layer1", {"x1": None, "x2": "layer1"}))
+    def test_parse_layer_spec_same_for_all(self, mdata, layerspec):
+        dataset = lambda: None
+        dataset._data = mdata
+        layerfunc = MuDataDataset._parse_layer_spec(dataset, layerspec)
+
+        layers = [layerfunc(modname) for modname in mdata.mod.keys()]
+        assert all(layers[0] == layer for layer in layers[1:])
+        layer = layers[0]
+        if not isinstance(layerspec, Mapping):
+            assert len(layer) == 1
+            assert layer.keys() == {None}
+            assert next(iter(layer.values())) == layerspec
+        else:
+            assert layer == layerspec
+
+    @pytest.mark.parametrize(
+        "layerspec",
+        (
+            {"mod_0": None},
+            {"mod_1": "layer2"},
+            {"mod_0": None, "mod_1": {"x1": "layer1", "x2": "layer2"}, "mod_2": "layer1"},
+        ),
+    )
+    def test_parse_layer_spec_per_modality(self, mdata, layerspec):
+        dataset = lambda: None
+        dataset._data = mdata
+        layerfunc = MuDataAxis0Dataset._parse_layer_spec(dataset, layerspec)
+
+        layers = {modname: layerfunc(modname) for modname in mdata.mod.keys()}
+        for modname in mdata.mod.keys():
+            if not isinstance(cspec := layerspec.get(modname), Mapping):
+                assert layers[modname] == {None: cspec}
+            else:
+                assert layers[modname] == cspec
+
+    @pytest.mark.parametrize("layerspec", ("layer4", {"mod_0": "layer4"}))
+    def test_parse_layer_spec_raises(self, mdata, layerspec):
+        dataset = lambda: None
+        dataset._data = mdata
+        with pytest.raises(ValueError, match="Unsupported `layer` argument"):
+            MuDataAxis0Dataset._parse_layer_spec(dataset, layerspec)
 
     @pytest.mark.parametrize("axis", (0, 1, 2))
     def test_alignment(self, mdata, dataset, rng, axis):
@@ -447,7 +489,7 @@ class TestMuDataAxis0Dataset(MuDataDatasetTest):
     def get_covariates_from_key_params(dataset):
         return (
             dataset.group_names,
-            "view_2",
+            "mod_2",
             slice(None),
             lambda mdata, group_name: mdata[mdata.obs["batch"] == group_name, :],
         )
@@ -573,7 +615,7 @@ class TestMuDataAxis1Dataset(MuDataDatasetTest):
     def get_covariates_from_key_params(dataset):
         return (
             dataset.view_names,
-            "group_2",
+            "mod_2",
             slice(None, None, -1),
             lambda mdata, view_name: mdata[:, mdata.var["batch"] == view_name],
         )
