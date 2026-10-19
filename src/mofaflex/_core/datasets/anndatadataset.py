@@ -24,7 +24,7 @@ class AnnDataDataset(MofaFlexDataset):
         self,
         adata: AnnData,
         *,
-        layer: str | None = None,
+        layer: str | None | Mapping[str, str | None] = None,
         group_by: str | Sequence[str] | None = None,
         preprocessor: Preprocessor | None = None,
         cast_to: np.floating | None = np.float32,
@@ -34,7 +34,7 @@ class AnnDataDataset(MofaFlexDataset):
         **kwargs,
     ):
         super().__init__(adata, preprocessor=preprocessor, cast_to=cast_to)
-        self._orig_data = select_anndata_layer(self._data, layer)
+        self._select_layer(self, layer)
         self._group_by = group_by
         self._sample_selection = self._feature_selection = slice(None)
         self._groups = None
@@ -44,6 +44,16 @@ class AnnDataDataset(MofaFlexDataset):
 
         self.reindex_samples(sample_names)
         self.reindex_features(feature_names)
+
+    def _select_layer(self, layer: str | None | Mapping[str, str | None]):
+        if isinstance(layer, str | None):
+            layer = {None: layer}
+        elif not (
+            isinstance(layer, Mapping)
+            and all(v is None or isinstance(v, str) and v in self._data.layers for v in layer.values())
+        ):
+            raise ValueError("Unsupported `layer` format.")
+        self._orig_data = select_anndata_layer(self._data, layer)
 
     def reindex_samples(self, sample_names: Mapping[str, Vector[str]] | None = None):
         if sample_names is not None and (

@@ -49,24 +49,18 @@ def _mudata_to_dask(mudata: MuData, with_extra: bool = True):
     return _fixup_mudata(dask_mudata, mudata, with_extra=with_extra, extra_callback=array_to_dask)
 
 
-def _select_layers(mudata: MuData, layer: Mapping[str, str | None] | None):
-    if layer is None:
-        return mudata
-
-    if isinstance(layer, str):
-        layerfunc = lambda modname: layer
-    else:
-        layerfunc = lambda modname: layer.get(modname)
-
-    new_mudata = MuData(
-        {modname: select_anndata_layer(mod, layerfunc(modname)) for modname, mod in mudata.mod.items()},
-        obs=mudata.obs,
-        var=mudata.var,
-        obsmap=mudata.obsmap,
-        varmap=mudata.varmap,
-        axis=mudata.axis,
+def _select_layers(mdata: MuData, layerfunc: Callable[[str], Mapping[str | None, str | None]] | None) -> MuData:
+    new_mdata = MuData(
+        {modname: select_anndata_layer(mod, layerfunc(modname)) for modname, mod in mdata.mod.items()}
+        if layerfunc is not None
+        else mdata.mod,
+        obs=mdata.obs,
+        var=mdata.var,
+        obsmap=mdata.obsmap,
+        varmap=mdata.varmap,
+        axis=mdata.axis,
     )
-    return _fixup_mudata(new_mudata, mudata, with_extra=True)
+    return _fixup_mudata(new_mdata, mdata, with_extra=True)
 
 
 class MuDataDataset(MofaFlexDataset):
@@ -74,7 +68,7 @@ class MuDataDataset(MofaFlexDataset):
         self,
         mudata: MuData,
         *,
-        layer: Mapping[str, str | None] | str | None = None,
+        layer: Mapping[str, str | None | Mapping[str | None]] | str | None = None,
         group_by: str | Sequence[str] | None = None,
         preprocessor: Preprocessor | None = None,
         cast_to: np.floating | None = np.float32,
@@ -85,7 +79,7 @@ class MuDataDataset(MofaFlexDataset):
         **kwargs,
     ):
         super().__init__(mudata, preprocessor=preprocessor, cast_to=cast_to)
-        self._orig_data = _select_layers(self._data, layer)
+        self._orig_data = _select_layers(self._data, self._parse_layer_spec(layer))
         self._group_by = group_by
         self._sample_selection = self._feature_selection = slice(None)
         self._groups = None
@@ -93,6 +87,33 @@ class MuDataDataset(MofaFlexDataset):
 
         self.reindex_samples(sample_names)
         self.reindex_features(feature_names)
+
+    def _parse_layer_spec(
+        self, layer: Mapping[str, str | None | Mapping[str | None]] | str | None
+    ) -> Callable[[str], Mapping[str | None, str | None]]:
+        layerfunc = None
+        if layer is None or isinstance(layer, str) and all(layer in m.layers for m in self._data.mod.values()):
+            layerfunc = lambda modname: {None: layer}
+        elif isinstance(layer, Mapping):
+            if layer.keys() <= self._data.mod.keys() and all(
+                v is None
+                or isinstance(v, str)
+                and v in self._data[m].layers
+                or isinstance(v, Mapping)
+                and all(k is None or k in self._data[m].layers for k in v.values())
+                for m, v in layer.items()
+            ):  # per modality
+                layerfunc = lambda modname: (
+                    {None: modlayer} if isinstance(modlayer := layer.get(modname), str | None) else modlayer
+                )
+            elif all(
+                v is None or isinstance(v, str) and all(v in mod.layers for mod in self._data.mod.values())
+                for v in layer.values()
+            ):
+                layerfunc = lambda modname: layer
+        if layerfunc is None:
+            raise ValueError("Unsupported `layer` argument.")
+        return layerfunc
 
     def _reindex_with_groups(
         self, attr: str, names: Mapping[str, Vector[str]] | None = None
