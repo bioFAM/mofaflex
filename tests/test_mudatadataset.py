@@ -14,6 +14,19 @@ from mofaflex import settings
 from mofaflex._core.datasets import MofaFlexDataset, MuDataAxis0Dataset, MuDataAxis1Dataset
 from mofaflex._core.datasets.mudatadataset import MuDataDataset
 
+_LAYERSPECS_SAME_FOR_ALL = (None, "layer1", {"x1": "layer1", "x2": None})
+_LAYERSPECS_PER_MODALITY = (
+    {"mod_0": None},
+    {"mod_1": "layer2"},
+    {"mod_0": "layer1", "mod_1": None, "mod_2": "layer1"},
+    {"mod_0": {"x1": "layer1", "x2": None}, "mod_1": None, "mod_2": "layer1"},
+)
+
+
+@pytest.fixture(scope="module", params=(*_LAYERSPECS_SAME_FOR_ALL, *_LAYERSPECS_PER_MODALITY))
+def layer(request):
+    return request.param
+
 
 @pytest.fixture(scope="module", params=(None, "global_highly_variable", "highly_variable"))
 def subset_var(request):
@@ -21,13 +34,6 @@ def subset_var(request):
 
 
 class MuDataDatasetTest:
-    @pytest.fixture(scope="class", params=(None, "layer1", {0: "layer1", 1: None, 2: "layer1"}))
-    def layer(self, request, mdata_axis):
-        if not isinstance(request.param, dict):
-            return request.param
-        else:
-            return {f"mod_{k}": layer for k, layer in request.param.items()}
-
     @pytest.fixture(scope="class")
     def mdata(self, rng, mdata_axis):
         nobs = 500
@@ -136,7 +142,7 @@ class MuDataDatasetTest:
             assert np.all(view_names == cvarnames)
             assert dataset.n_features[view_name] == cvarnames.size
 
-    @pytest.mark.parametrize("layerspec", (None, "layer1", {"x1": None, "x2": "layer1"}))
+    @pytest.mark.parametrize("layerspec", _LAYERSPECS_SAME_FOR_ALL)
     def test_parse_layer_spec_same_for_all(self, mdata, layerspec):
         layerfunc = MuDataDataset._parse_layer_spec(layerspec, mdata)
 
@@ -148,14 +154,7 @@ class MuDataDatasetTest:
         else:
             assert layer == layerspec
 
-    @pytest.mark.parametrize(
-        "layerspec",
-        (
-            {"mod_0": None},
-            {"mod_1": "layer2"},
-            {"mod_0": None, "mod_1": {"x1": "layer1", "x2": "layer2"}, "mod_2": "layer1"},
-        ),
-    )
+    @pytest.mark.parametrize("layerspec", _LAYERSPECS_PER_MODALITY)
     def test_parse_layer_spec_per_modality(self, mdata, layerspec):
         layerfunc = MuDataDataset._parse_layer_spec(layerspec, mdata)
 
