@@ -138,17 +138,13 @@ class MuDataDatasetTest:
 
     @pytest.mark.parametrize("layerspec", (None, "layer1", {"x1": None, "x2": "layer1"}))
     def test_parse_layer_spec_same_for_all(self, mdata, layerspec):
-        dataset = lambda: None
-        dataset._data = mdata
-        layerfunc = MuDataDataset._parse_layer_spec(dataset, layerspec)
+        layerfunc = MuDataDataset._parse_layer_spec(layerspec, mdata)
 
         layers = [layerfunc(modname) for modname in mdata.mod.keys()]
         assert all(layers[0] == layer for layer in layers[1:])
         layer = layers[0]
         if not isinstance(layerspec, Mapping):
-            assert len(layer) == 1
-            assert layer.keys() == {None}
-            assert next(iter(layer.values())) == layerspec
+            assert layer == {None: layerspec}
         else:
             assert layer == layerspec
 
@@ -161,9 +157,7 @@ class MuDataDatasetTest:
         ),
     )
     def test_parse_layer_spec_per_modality(self, mdata, layerspec):
-        dataset = lambda: None
-        dataset._data = mdata
-        layerfunc = MuDataAxis0Dataset._parse_layer_spec(dataset, layerspec)
+        layerfunc = MuDataDataset._parse_layer_spec(layerspec, mdata)
 
         layers = {modname: layerfunc(modname) for modname in mdata.mod.keys()}
         for modname in mdata.mod.keys():
@@ -172,12 +166,22 @@ class MuDataDatasetTest:
             else:
                 assert layers[modname] == cspec
 
-    @pytest.mark.parametrize("layerspec", ("layer4", {"mod_0": "layer4"}))
-    def test_parse_layer_spec_raises(self, mdata, layerspec):
-        dataset = lambda: None
-        dataset._data = mdata
-        with pytest.raises(ValueError, match="Unsupported `layer` argument"):
-            MuDataAxis0Dataset._parse_layer_spec(dataset, layerspec)
+    @pytest.mark.parametrize(
+        ("layerspec", "exception_type", "exception_match"),
+        (
+            ("layer4", ValueError, "Layer layer4 not found"),
+            ({"mod_0": "layer4"}, ValueError, "Layer layer4 not found in modality mod_0."),
+            ({"mod_0": {"x1": "layer1", "x2": "layer4"}}, ValueError, "Layer layer4 not found in modality mod_0."),
+            ({"mod_0": {"x1": "layer1", "x2": 1}}, TypeError, "Unsupported layer type"),
+            ({"mod_0": 1}, TypeError, "Unsupported layer type"),
+            ({"x1": "layer1", "x2": "layer4"}, ValueError, "Layer layer4 not found"),
+            ({"x1": "layer1", "x2": 1}, TypeError, "Unsupported layer type"),
+            (1, TypeError, "Unsupported layer type"),
+        ),
+    )
+    def test_parse_layer_spec_raises(self, mdata, layerspec, exception_type, exception_match):
+        with pytest.raises(exception_type, match=exception_match):
+            MuDataDataset._parse_layer_spec(layerspec, mdata)
 
     @pytest.mark.parametrize("axis", (0, 1, 2))
     def test_alignment(self, mdata, dataset, rng, axis):

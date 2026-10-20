@@ -95,58 +95,71 @@ class AnnDataDictDataset(MofaFlexDataset):
         self.reindex_samples(sample_names)
         self.reindex_features(feature_names)
 
+    @staticmethod
     def _parse_layer_spec(
-        self,
         layer: Mapping[str, str | None | Mapping[str, str | None]]
         | Mapping[str, Mapping[str, str | None | Mapping[str, str | None]]]
         | str
-        | None = None,
+        | None,
+        data: Mapping[str, Mapping[str, ad.AnnData]],
     ) -> Callable[[str, str], Mapping[str | None, str | None]]:
         layerfunc = None
-        if (
-            layer is None
-            or isinstance(layer, str)
-            and all(layer in view.layers for group in self._data.values() for view in group.values())
-        ):
+        if layer is None:
+            layerfunc = lambda group_name, view_name: {None: layer}
+        elif isinstance(layer, str):
+            for group_name, group in data.items():
+                for view_name, view in group.items():
+                    if layer not in view.layers:
+                        raise ValueError(f"Layer {layer} not found in group {group_name} for view {view_name}.")
             layerfunc = lambda group_name, view_name: {None: layer}
         elif isinstance(layer, Mapping):
-            if all(layer.keys() <= group.keys() for group in self._data.values()) and all(
-                isinstance(v, str | None)
-                or isinstance(v, Mapping)
-                and all(
-                    isinstance(vv, str | None)
-                    and (vv is None or all(vv in group[view_name].layers for group in self._data.values()))
-                    for vv in v.values()
-                )
-                for view_name, v in layer.items()
-            ):  # separate for each view, same for groups
+            if all(layer.keys() <= group.keys() for group in data.values()):  # separate for each view, same for group
+                for view_name, view_layer in layer.items():
+                    if isinstance(view_layer, Mapping):
+                        for layer_key in view_layer.values():
+                            for group_name, group in data.items():
+                                if layer_key is not None and layer_key not in group[view_name].layers:
+                                    raise ValueError(
+                                        f"Layer {layer_key} not found in group {group_name} for view {view_name}."
+                                    )
+                    elif isinstance(view_layer, str):
+                        for group_name, group in data.items():
+                            if view_layer not in group[view_name].layers:
+                                raise ValueError(
+                                    f"Layer {view_layer} not found in group {group_name} for view {view_name}."
+                                )
+                    elif view_layer is not None:
+                        raise TypeError(f"Unsupported layer type {type(view_layer).__name__} for view {view_name}.")
                 layerfunc = lambda group_name, view_name: (
                     {None: clayer} if isinstance(clayer := layer.get(view_name), str | None) else clayer
                 )
-            elif all(
-                v is None or isinstance(v, str) and v in adata.layers
-                for v in layer.values()
-                for group in self._data.values()
-                for adata in group.values()
-            ):  # same for all
-                layerfunc = lambda group_name, view_name: layer
-            elif all(
-                isinstance(group, Mapping)
-                and all(
-                    view_name in self._data[group_name]
-                    and (isinstance(view, str | None) or len(set(view.values())) == len(view))
-                    for view_name, view in group.items()
-                )
-                for group_name, group in layer.items()
-            ):  # separate for each group / view combination
+            elif all(isinstance(v, Mapping) for v in layer.values()):  # separate for each group / view combination
+                for group_name, group_layers in layer.items():
+                    if group_name not in data:
+                        raise ValueError(f"Layer specifies group {group_name}, but it does not exist.")
+                    group = data[group_name]
+                    for view_name, view_layers in group_layers.items():
+                        if view_name not in group:
+                            raise ValueError(
+                                f"Layer specifies view {view_name} for group {group_name}, but it does not exist."
+                            )
+                        if isinstance(view_layers, str) and view_layers not in group[view_name].layers:
+                            raise ValueError(
+                                f"Layer {view_layers} not found in group {group_name} for view {view_name}."
+                            )
+
                 layers_by_view = defaultdict(set)
-                for group_name, group in self._data.items():
+                for group_name, group in data.items():
                     for view_name in group.keys():
-                        layers_by_view[view_name].add(
-                            tuple(sorted(view_layer.keys()))
-                            if isinstance(view_layer := layer[group_name].get(view_name), Mapping)
-                            else (None,)
-                        )
+                        view_layer = layer[group_name].get(view_name)
+                        if isinstance(view_layer, Mapping):
+                            layers_by_view[view_name].add(tuple(sorted(view_layer.keys())))
+                        elif isinstance(view_layer, str | None):
+                            layers_by_view[view_name].add((None,))
+                        else:
+                            raise TypeError(
+                                f"Unsupported layer type {type(view_layer).__name__} for group {group_name} view {view_name}."
+                            )
                 for view_name, layers in layers_by_view.items():
                     if len(layers) > 1:
                         if len({len(clayers) for clayers in layers}) > 1:
@@ -160,9 +173,23 @@ class AnnDataDictDataset(MofaFlexDataset):
                 layerfunc = lambda group_name, view_name: (
                     {None: clayer} if isinstance(clayer := layer[group_name].get(view_name), str | None) else clayer
                 )
+            else:  # same for all
+                for clayer in layer.values():
+                    if not isinstance(clayer, None | str):
+                        raise TypeError(f"Unsupported layer type {type(clayer).__name__}.")
+                for group_name, group in data.items():
+                    for view_name, view in group.items():
+                        for layer_key in layer.values():
+                            if layer_key is not None and layer_key not in view.layers:
+                                raise ValueError(
+                                    f"Layer {layer_key} not found in group {group_name} for view {view_name}."
+                                )
+                layerfunc = lambda group_name, view_name: layer
+        else:
+            raise TypeError(f"Unsupported layer type {type(layer).__name__}.")
 
         if layerfunc is None:
-            raise ValueError("Unsupported `layer` argument.")
+            raise ValueError("Unsupported layer argument.")
         return layerfunc
 
     def _select_layer(
@@ -172,7 +199,7 @@ class AnnDataDictDataset(MofaFlexDataset):
         | str
         | None = None,
     ):
-        layerfunc = self._parse_layer_spec(layer)
+        layerfunc = self._parse_layer_spec(layer, self._data)
         self._data = {
             group_name: {
                 view_name: select_anndata_layer(view, layerfunc(group_name, view_name))

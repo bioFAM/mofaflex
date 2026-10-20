@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 import anndata as ad
 import numpy as np
 import pandas as pd
@@ -87,6 +89,30 @@ def test_properties(adata, dataset, subset_var):
 
         assert np.all(view_names == cvarnames)
         assert dataset.n_features[view_name] == cvarnames.size
+
+
+@pytest.mark.parametrize("layerspec", (None, "layer1", {"x1": None, "x2": "layer1"}))
+def test_parse_layer_spec(adata, layerspec):
+    layer = AnnDataDataset._parse_layer_spec(layerspec, adata)
+
+    if not isinstance(layerspec, Mapping):
+        assert layer == {None: layerspec}
+    else:
+        assert layer == layerspec
+
+
+@pytest.mark.parametrize(
+    ("layerspec", "exception_type", "exception_match"),
+    (
+        ("layer4", ValueError, "Layer layer4 not found"),
+        ({"x1": "layer1", "x2": "layer4"}, ValueError, "Layer layer4 not found"),
+        ({"x1": "layer1", "x2": 1}, TypeError, "Unsupported layer type"),
+        (1, TypeError, "Unsupported layer type"),
+    ),
+)
+def test_parse_layer_spec_raises(adata, layerspec, exception_type, exception_match):
+    with pytest.raises(exception_type, match=exception_match):
+        AnnDataDataset._parse_layer_spec(layerspec, adata)
 
 
 @pytest.mark.parametrize("axis", (0, 1, 2))

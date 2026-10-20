@@ -79,7 +79,7 @@ class MuDataDataset(MofaFlexDataset):
         **kwargs,
     ):
         super().__init__(mudata, preprocessor=preprocessor, cast_to=cast_to)
-        self._orig_data = _select_layers(self._data, self._parse_layer_spec(layer))
+        self._orig_data = _select_layers(self._data, self._parse_layer_spec(layer, self._data))
         self._group_by = group_by
         self._sample_selection = self._feature_selection = slice(None)
         self._groups = None
@@ -88,29 +88,51 @@ class MuDataDataset(MofaFlexDataset):
         self.reindex_samples(sample_names)
         self.reindex_features(feature_names)
 
+    @staticmethod
     def _parse_layer_spec(
-        self, layer: Mapping[str, str | None | Mapping[str | None]] | str | None
+        layer: Mapping[str, str | None | Mapping[str | None]] | str | None, data: MuData
     ) -> Callable[[str], Mapping[str | None, str | None]]:
         layerfunc = None
-        if layer is None or isinstance(layer, str) and all(layer in m.layers for m in self._data.mod.values()):
+        if layer is None:
+            layerfunc = lambda modname: {None: layer}
+        elif isinstance(layer, str):
+            for mod_name, mod in data.mod.items():
+                if layer not in mod.layers:
+                    raise ValueError(f"Layer {layer} not found in modality {mod_name}.")
             layerfunc = lambda modname: {None: layer}
         elif isinstance(layer, Mapping):
-            if layer.keys() <= self._data.mod.keys() and all(
-                v is None
-                or isinstance(v, str)
-                and v in self._data[m].layers
-                or isinstance(v, Mapping)
-                and all(k is None or k in self._data[m].layers for k in v.values())
-                for m, v in layer.items()
-            ):  # per modality
+            if layer.keys() <= data.mod.keys():  # per modality
+                for mod_name, mod_layer in layer.items():
+                    cdata = data[mod_name]
+                    if isinstance(mod_layer, str):
+                        if mod_layer not in cdata.layers:
+                            raise ValueError(f"Layer {mod_layer} not found in modality {mod_name}.")
+                    elif isinstance(mod_layer, Mapping):
+                        for clayer in mod_layer.values():
+                            if isinstance(clayer, str):
+                                if clayer not in cdata.layers:
+                                    raise ValueError(f"Layer {clayer} not found in modality {mod_name}.")
+                            elif clayer is not None:
+                                raise TypeError(
+                                    f"Unsupported layer type {type(clayer).__name__} for modality {mod_name}."
+                                )
+                    elif mod_layer is not None:
+                        raise TypeError(f"Unsupported layer type {type(mod_layer).__name__} for modality {mod_name}.")
                 layerfunc = lambda modname: (
                     {None: modlayer} if isinstance(modlayer := layer.get(modname), str | None) else modlayer
                 )
-            elif all(
-                v is None or isinstance(v, str) and all(v in mod.layers for mod in self._data.mod.values())
-                for v in layer.values()
-            ):
+            else:  # same for all
+                for clayer in layer.values():
+                    if isinstance(clayer, str):
+                        for mod_name, mod in data.mod.items():
+                            if clayer not in mod.layers:
+                                raise ValueError(f"Layer {clayer} not found in modality {mod_name}.")
+                    elif clayer is not None:
+                        raise TypeError(f"Unsupported layer type {type(clayer).__name__}.")
                 layerfunc = lambda modname: layer
+        else:
+            raise TypeError(f"Unsupported layer type {type(layer).__name__}.")
+
         if layerfunc is None:
             raise ValueError("Unsupported `layer` argument.")
         return layerfunc
