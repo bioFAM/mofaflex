@@ -55,7 +55,7 @@ def subset_var(request):
     return request.param
 
 
-@pytest.fixture(scope="module", params=(None, "layer1"))
+@pytest.fixture(scope="module", params=(None, "layer1", {"x1": None, "x2": "layer1"}))
 def layer(request):
     return request.param
 

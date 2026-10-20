@@ -12,6 +12,21 @@ from scipy import sparse
 from mofaflex import settings
 from mofaflex._core.datasets import AnnDataDictDataset, MofaFlexDataset
 
+_LAYERSPECS_SAME_FOR_ALL = (None, "layer1", {"x1": None, "x2": "layer1"}, {"x1": "layer1", "x2": "layer2"})
+_LAYERSPECS_SEPARATE_PER_VIEW = reduce(
+    operator.add, ([{"view_0": spec}, {"view_0": spec, "view_1": None}] for spec in _LAYERSPECS_SAME_FOR_ALL)
+)
+_LAYERSPECS_SEPARATE_PER_GROUP_VIEW = reduce(
+    operator.add,
+    (
+        [
+            {"group_0": {"view_0": spec}, "group_1": {"view_0": spec}},
+            {"group_0": {"view_0": spec, "view_1": None}, "group_1": {"view_0": spec, "view_1": None}},
+        ]
+        for spec in _LAYERSPECS_SAME_FOR_ALL
+    ),
+)
+
 
 @pytest.fixture(scope="module")
 def anndata_dict(random_adata, rng):
@@ -64,12 +79,7 @@ def subset_var(request):
 
 @pytest.fixture(
     scope="module",
-    params=(
-        None,
-        "layer1",
-        {"view_0": "layer1", "view_1": None},
-        {"group_0": {"view_0": None, "view_1": "layer1"}, "group_1": {"view_0": "layer1", "view_1": "layer1"}},
-    ),
+    params=(*_LAYERSPECS_SAME_FOR_ALL, *_LAYERSPECS_SEPARATE_PER_VIEW, *_LAYERSPECS_SEPARATE_PER_GROUP_VIEW),
 )
 def layer(request):
     return request.param
@@ -120,10 +130,7 @@ def test_properties(anndata_dict, use_obs, use_var, subset_var, dataset):
         assert np.all(np.sort(dataset.feature_names[view_name]) == view_vars.sort_values().to_numpy())
 
 
-_LAYERSPECS = (None, "layer1", {"x1": None, "x2": "layer1"}, {"x1": "layer1", "x2": "layer2"})
-
-
-@pytest.mark.parametrize("layerspec", _LAYERSPECS)
+@pytest.mark.parametrize("layerspec", _LAYERSPECS_SAME_FOR_ALL)
 def test_parse_layer_spec_same_for_all(anndata_dict, layerspec):
     layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
 
@@ -137,9 +144,7 @@ def test_parse_layer_spec_same_for_all(anndata_dict, layerspec):
         assert layer == layerspec
 
 
-@pytest.mark.parametrize(
-    "layerspec", reduce(operator.add, ([{"view_0": spec}, {"view_0": spec, "view_1": None}] for spec in _LAYERSPECS))
-)
+@pytest.mark.parametrize("layerspec", _LAYERSPECS_SEPARATE_PER_VIEW)
 def test_parse_layer_spec_separate_per_view(anndata_dict, layerspec):
     layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
 
@@ -159,19 +164,7 @@ def test_parse_layer_spec_separate_per_view(anndata_dict, layerspec):
             assert view_layer == view_spec
 
 
-@pytest.mark.parametrize(
-    "layerspec",
-    reduce(
-        operator.add,
-        (
-            [
-                {"group_0": {"view_0": spec}, "group_1": {"view_0": spec}},
-                {"group_0": {"view_0": spec, "view_1": None}, "group_1": {"view_0": spec, "view_1": None}},
-            ]
-            for spec in _LAYERSPECS
-        ),
-    ),
-)
+@pytest.mark.parametrize("layerspec", _LAYERSPECS_SEPARATE_PER_GROUP_VIEW)
 def test_parse_layer_spec_separate_per_group_view(anndata_dict, layerspec):
     layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
 
