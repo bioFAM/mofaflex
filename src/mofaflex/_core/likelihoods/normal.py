@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+from types import ModuleType
 from typing import Literal
 
 import numpy as np
@@ -26,7 +28,7 @@ class Normal(Likelihood):
         super().__init__(view_name, data, nonnegative)
         self._scale_per_group = scale_per_group
         statfun = nanmean if not nonnegative else nanmin
-        self._shift = data.apply_to_view(view_name, lambda adata, group_name: statfun(adata.X, axis=0))
+        self._shift = data.apply_to_view(view_name, lambda adata, group_name: statfun(adata.layers[None], axis=0))
 
         if scale_per_group:
             self._scale = data.apply_to_view(view_name, self._calc_scale_grouped)
@@ -45,7 +47,7 @@ class Normal(Likelihood):
         if adata.n_obs <= 1:
             return 1.0
 
-        arr = adata.X.copy()
+        arr = adata.layers[None].copy()
         for group_name in groups:
             arr[group == group_name] -= align_local_array_to_global(  # noqa F821
                 self._shift[group_name], group_name, view_name, align_to="features", axis=0
@@ -53,8 +55,8 @@ class Normal(Likelihood):
         return np.sqrt(nanvar(arr, axis=None))
 
     def _calc_scale_grouped(self, adata: AnnData, group_name: str):
-        arr = adata.X - np.broadcast_to(
-            self._shift[group_name], adata.X.shape
+        arr = adata.layers[None] - np.broadcast_to(
+            self._shift[group_name], adata.shape
         )  # need to manually broadcast to force sparse to autoconvert to dense instead of raising
         if isinstance(arr, np.matrix):
             arr = np.asarray(arr)
@@ -87,29 +89,31 @@ class Normal(Likelihood):
         self._shift = self._impute_feature_summary_statistics(self._shift)
 
     @classmethod
-    def _validate(cls, data: Matrix[np.number], xp) -> bool:
-        return True
+    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType]) -> bool:
+        return data.keys() == {None}
 
     def _r2_impl(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
+        y_true = y_true[None]
         ss_res = np.nansum(np.square(y_true - y_pred))
         ss_tot = np.nansum(np.square(y_true - self._shift[group_name][feature_idx]))
         return R2(ss_res, ss_tot)
 
     def _deviance_explained_impl(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
+        y_true = y_true[None]
         # fraction of deviance explained reduces to standard R2 for Gaussian likelihood
         return self._r2_impl(
             y_true,
@@ -134,7 +138,7 @@ class Normal(Likelihood):
 
     def transform_data(
         self,
-        data: Matrix[np.number],
+        data: Mapping[str | None, Matrix[np.number]],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
@@ -143,7 +147,7 @@ class Normal(Likelihood):
             scale = self._scale[group_name]
         except IndexError:
             scale = self._scale
-        return (data - self._shift[group_name][feature_idx]) / scale
+        return (data[None] - self._shift[group_name][feature_idx]) / scale
 
     @Likelihood._api
     def get_dispersion(self, moment: Literal["mean", "std"] = "mean") -> pd.Series:

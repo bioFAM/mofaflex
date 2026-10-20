@@ -26,7 +26,7 @@ def adata(rng, create_adata, likelihood, random_array, request):
 
 
 def test_infer_likelihoods(adata, likelihood):
-    inferred = Likelihood.infer(adata)
+    inferred = Likelihood.infer(adata, None, "testview")
     assert likelihood == inferred.__name__
 
 
@@ -87,12 +87,12 @@ class _TestLikelihood:
     def test_r2(self, y_true, likelihoods, nonnegative, subtests):
         for group_name, group in y_true.items():
             for view_name, view in group.items():
-                if issparse(view):
-                    view = view.toarray()
+                if issparse(view[None]):
+                    view[None] = view[None].toarray()
                 likelihood = likelihoods[view_name]
 
                 with subtests.test("null model"):
-                    null = np.broadcast_to(0, view.shape)
+                    null = np.broadcast_to(0, view[None].shape)
                     if nonnegative[view_name]:
                         res = likelihood._deviance_explained_impl(view, null, group_name)
                     else:
@@ -108,7 +108,9 @@ class _TestLikelihood:
                     assert np.isclose(1, r2)
 
                 with subtests.test("intermediate model"):
-                    r2 = likelihood.r2(view, likelihood.transform_data(0.5 * (null + view), group_name), group_name)
+                    r2 = likelihood.r2(
+                        view, likelihood.transform_data({None: 0.5 * (null + view[None])}, group_name), group_name
+                    )
                     assert 0.05 < r2 < 1
 
     @pytest.mark.parametrize(
@@ -122,9 +124,9 @@ class _TestLikelihood:
             monkeypatch.setattr(likelihood, "_r2_impl", func)
             for group_name, group in y_true.items():
                 view = group[view_name]
-                if issparse(view):
-                    view = view.toarray()
-                assert np.isnan(likelihood.r2(view, np.broadcast_to(0, view.shape), group_name))
+                if issparse(view[None]):
+                    view[None] = view[None].toarray()
+                assert np.isnan(likelihood.r2(view, np.broadcast_to(0, view[None].shape), group_name))
 
     @pytest.mark.parametrize("r2", (R2(np.inf, 1.0), R2(1.0, 0.0)), ids=("inf_res", "zero_tot"))
     def test_degenerate_clamps(self, likelihoods, y_true, r2, monkeypatch):
@@ -135,9 +137,9 @@ class _TestLikelihood:
             monkeypatch.setattr(likelihood, "_r2_impl", func)
             for group_name, group in y_true.items():
                 view = group[view_name]
-                if issparse(view):
-                    view = view.toarray()
-                assert likelihood.r2(view, np.broadcast_to(0, view.shape), group_name) == 0
+                if issparse(view[None]):
+                    view[None] = view[None].toarray()
+                assert likelihood.r2(view, np.broadcast_to(0, view[None].shape), group_name) == 0
 
 
 class TestNormal(_TestLikelihood):
@@ -157,9 +159,9 @@ class TestNormal(_TestLikelihood):
         for group_name, group in y_true.items():
             for view_name, view in group.items():
                 if nonnegative[view_name]:
-                    assert np.allclose(np.nanmin(view - likelihoods[view_name]._shift[group_name], axis=0), 0)
+                    assert np.allclose(np.nanmin(view[None] - likelihoods[view_name]._shift[group_name], axis=0), 0)
                 else:
-                    assert np.allclose((view - likelihoods[view_name]._shift[group_name]).mean(axis=0), 0)
+                    assert np.allclose((view[None] - likelihoods[view_name]._shift[group_name]).mean(axis=0), 0)
 
     def test_scale_data(self, likelihoods, dataset, y_true, scale_per_group):
         if scale_per_group:
@@ -167,7 +169,7 @@ class TestNormal(_TestLikelihood):
                 for view_name, view in group.items():
                     assert np.allclose(
                         (
-                            (view - likelihoods[view_name]._shift[group_name])
+                            (view[None] - likelihoods[view_name]._shift[group_name])
                             / likelihoods[view_name]._scale[group_name]
                         ).var(),
                         1,
@@ -176,7 +178,7 @@ class TestNormal(_TestLikelihood):
             for view_name in dataset.view_names:
                 concat = np.concat(
                     [
-                        group[view_name] - likelihoods[view_name]._shift[group_name]
+                        group[view_name][None] - likelihoods[view_name]._shift[group_name]
                         for group_name, group in y_true.items()
                         if view_name in group
                     ],
@@ -197,7 +199,7 @@ class TestBernoulli(_TestLikelihood):
     def test_center_data(self, likelihoods, y_true, nonnegative):
         for group_name, group in y_true.items():
             for view_name, view in group.items():
-                assert np.allclose(np.nanmean(view - expit(likelihoods[view_name]._shift[group_name]), axis=0), 0)
+                assert np.allclose(np.nanmean(view[None] - expit(likelihoods[view_name]._shift[group_name]), axis=0), 0)
 
     def test_logpmf(self, rng):
         logits = rng.standard_normal(size=1000)
@@ -225,11 +227,11 @@ class TestNegativeBinomial(_TestLikelihood):
         for group_name, group in y_true.items():
             for view_name, view in group.items():
                 if nonnegative[view_name]:
-                    assert np.allclose(np.nanmin(view - likelihoods[view_name]._shift[group_name], axis=0), 0)
+                    assert np.allclose(np.nanmin(view[None] - likelihoods[view_name]._shift[group_name], axis=0), 0)
                 else:
                     assert np.allclose(
                         (
-                            view / likelihoods[view_name]._sample_means[group_name]
+                            view[None] / likelihoods[view_name]._sample_means[group_name]
                             - likelihoods[view_name]._shift[group_name]
                         ).mean(axis=0),
                         0,

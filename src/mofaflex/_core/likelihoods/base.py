@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from types import MappingProxyType
+from types import MappingProxyType, ModuleType
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -111,7 +111,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     @classmethod
     @abstractmethod
-    def _validate(cls, data: Matrix[np.number], xp) -> bool:
+    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number], ModuleType]]) -> bool:
         """Validate that the current likelihood is suitable for the given data.
 
         Args:
@@ -133,26 +133,35 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             group_name: The group name.
             view_name: The view name.
         """
-        data = view.X.data if issparse(view.X) else view.X
-        xp = array_namespace(data)
-        data = data[~xp.isnan(data)]
+        data = {}
+        for k, v in view.layers.items():
+            if issparse(v):
+                v = v.data
+            xp = array_namespace(v)
+            data[k] = v[~xp.isnan(v)], xp
 
-        if not cls._validate(data, xp):
+        if not cls._validate(data):
             raise ValueError(cls._format_validate_exception(view_name))
 
     @classmethod
-    def infer(cls, view: AnnData, *args) -> type["Likelihood"]:
+    def infer(cls, view: AnnData, group_name: Vector[str], view_name: str) -> type["Likelihood"]:
         """Infer a suitable likelihood for the given data.
 
         Args:
             view: The data.
-            *args: Ignored.
+            group_name: The group name.
+            view_name: The view name.
         """
-        data = view.X.data if issparse(view.X) else view.X
-        xp = array_namespace(data)
-        data = data[~xp.isnan(data)]
+        data = {}
+        for k, v in view.layers.items():
+            if issparse(v):
+                v = v.data
+            xp = array_namespace(v)
+            data[k] = v[~xp.isnan(v)], xp
 
-        inferred = {subcls: subcls._priority for subcls in __class__._registry.values() if subcls._validate(data, xp)}
+        inferred = {subcls: subcls._priority for subcls in __class__._registry.values() if subcls._validate(data)}
+        if not inferred:
+            raise ValueError(f"Could not infer likelihood for view {view_name}.")
         lklhdcls = max(((subcls, prio) for subcls, prio in inferred.items()), key=lambda x: x[1])[0]
         return lklhdcls
 
@@ -178,7 +187,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
     @abstractmethod
     def _r2_impl(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
@@ -198,7 +207,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
     @abstractmethod
     def _deviance_explained_impl(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
@@ -247,7 +256,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
     @abstractmethod
     def transform_data(
         self,
-        data: Matrix[np.number],
+        data: Mapping[str | None, Matrix[np.number]],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
@@ -263,7 +272,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     def r2(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
