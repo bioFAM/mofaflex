@@ -211,8 +211,13 @@ def test_index_mapping(adata, dataset, rng):
 
 
 def test_getitems(adata, dataset, layer, rng):
-    if layer is not None:
-        adata = AnnData(adata.layers[layer], obs=adata.obs, var=adata.var)
+    adata = AnnData(
+        layers={
+            k: adata.layers[v] if v is not None else adata.X for k, v in dataset._parse_layer_spec(layer, adata).items()
+        },
+        obs=adata.obs,
+        var=adata.var,
+    )
 
     idx = {
         group_name: rng.choice(sample_names.size, size=sample_names.size // 3, replace=False)
@@ -227,16 +232,19 @@ def test_getitems(adata, dataset, layer, rng):
             feature_names = dataset.feature_names[view_name]
             cdata = adata[sample_names, feature_names].copy()
 
-            assert view.dtype == np.float32
-            X = cdata.X
-            if not sparse.issparse(X):
-                assert isinstance(view, np.ndarray)
-            else:
-                assert sparse.issparse(view)
-                X = X.toarray()
-                view = view.toarray()
+            assert cdata.layers.keys() == view.keys()
+            for layer_name, clayer in cdata.layers.items():
+                cview = view[layer_name]
+                assert cview.dtype == np.float32
+                if not sparse.issparse(clayer):
+                    assert isinstance(cview, np.ndarray)
+                else:
+                    assert sparse.issparse(cview)
+                    clayer = clayer.toarray()
+                    cview = cview.toarray()
 
-            assert np.all(X == view)
+                assert np.all(clayer == cview)
+
             assert np.all(items["nonmissing_samples"][group_name][view_name] == slice(None))
             assert items["nonmissing_features"][group_name][view_name] == slice(None)
 

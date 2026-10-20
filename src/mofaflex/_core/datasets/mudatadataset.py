@@ -318,34 +318,20 @@ class MuDataDataset(MofaFlexDataset):
         else:
             return idx
 
-    def _push_obs(self) -> MuData:
-        # We don't want to duplicate MuData's push_obs logic, but at the same time
-        # we don't want to modify the data object. So we create a temporary fake
-        # MuData object with the same metadata, but no actual data
-        fakeadatas = {
-            modname: ad.AnnData(X=sparse.csr_array(mod.X.shape), obs=mod.obs, var=mod.var)
-            for modname, mod in self._data.mod.items()
-        }
-
-        # need to pass obs in the constructor to make shape validation for obsmap work
-        fakemudata = MuData(fakeadatas, obs=self._data.obs, obsmap=self._data.obsmap, axis=self._data.axis)
-        # need to replace obs since the constructor runs update(), which breaks push_obs()
-        fakemudata.obs = self._data.obs
-        fakemudata.push_obs()
-        return fakemudata
-
     def get_missing_obs(self) -> pd.DataFrame:
         dfs = []
         for _group_name, group_idx in self._groups.items():
             subdata = self._data[(group_idx, slice(None))[self._subset_reorder]]
             for modname, mod in subdata.mod.items():
                 group_name, view_name = (_group_name, modname)[self._subset_reorder]
-                if sparse.issparse(mod.X):
-                    modmissing = mod.X.copy()
-                    modmissing.data = np.isnan(modmissing.data)
-                    modmissing = np.asarray(modmissing.sum(axis=1)).squeeze() == modmissing.shape[1]
-                else:
-                    modmissing = np.isnan(mod.X).all(axis=1)
+                modmissing = np.zeros(mod.n_obs, dtype=np.bool)
+                for layer in mod.layers.values():
+                    if sparse.issparse(layer):
+                        cmodmissing = layer.copy()
+                        cmodmissing.data = np.isnan(cmodmissing.data)
+                        modmissing |= np.asarray(cmodmissing.sum(axis=1)).squeeze() == cmodmissing.shape[1]
+                    else:
+                        modmissing |= np.isnan(layer).all(axis=1)
                 modmissing = self._align_local_array_to_global(modmissing, view_name, subdata, fill_value=True)
                 dfs.append(
                     pd.DataFrame(
@@ -533,7 +519,7 @@ class MuDataDataset(MofaFlexDataset):
             if convert:
                 for modname, mod in gdata.items():
                     mod = mod.copy()
-                    mod.X = mod.X.astype(np.promote_types(mod.X.dtype, type(np.nan)))
+                    mod.layers = {k: v.astype(np.promote_types(v.dtype, type(np.nan))) for k, v in mod.layers.items()}
                     gdata[modname] = mod
             gdata = ad.concat(
                 gdata,
@@ -654,10 +640,10 @@ class MuDataAxis0Dataset(MuDataDataset):
                     else slice(None)
                 )
                 arr, gnonmissing_obs[modname], gnonmissing_var[modname] = self.preprocessor(
-                    mod.X, cnonmissing_obs, slice(None), group_name, modname
+                    mod.layers, cnonmissing_obs, slice(None), group_name, modname
                 )
                 if self.cast_to is not None:
-                    arr = arr.astype(self.cast_to, copy=False)
+                    arr = {k: v.astype(self.cast_to, copy=False) for k, v in arr.items()}
                 group[modname] = arr
             data[group_name] = group
             idx[group_name] = np.asarray(group_idx)
@@ -851,14 +837,14 @@ class MuDataAxis1Dataset(MuDataDataset):
             for view_name, view_idx in self._groups.items():
                 cnonmissing_var = self._nonmissing_var[view_name].get(group_name, slice(None))
                 arr, gnonmissing_obs[view_name], gnonmissing_var[view_name] = self.preprocessor(
-                    self._data[:, view_idx][group_name][group_idx, :].X,
+                    self._data[:, view_idx][group_name][group_idx, :].layers,
                     slice(None),
                     cnonmissing_var,
                     group_name,
                     view_name,
                 )
                 if self.cast_to is not None:
-                    arr = arr.astype(self.cast_to, copy=False)
+                    arr = {k: v.astype(self.cast_to, copy=False) for k, v in arr.items()}
                 group[view_name] = arr
             data[group_name] = group
             idx[group_name] = np.asarray(group_idx)

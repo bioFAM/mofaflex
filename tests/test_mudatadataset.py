@@ -277,28 +277,23 @@ class MuDataDatasetTest:
                 assert np.all(global_idx[local_idx >= 0] == new_global_idx)
 
     def test_getitems(self, mdata, dataset, layer, rng, nonmissing_to_slice):
-        if layer is not None:
-            if isinstance(layer, str):
-                func = lambda modname: layer
-            else:
-                func = lambda modname: layer[modname]
-            mods = {}
-            for modname in mdata.mod.keys():
-                adata = mdata.mod[modname]
-                clayer = func(modname)
-                mods[modname] = AnnData(
-                    X=adata.X if clayer is None else adata.layers[clayer],
-                    obs=adata.obs,
-                    var=adata.var,
-                    obsm=adata.obsm,
-                    varm=adata.varm,
-                )
-            new_mdata = MuData(
-                mods, obs=mdata.obs, var=mdata.var, obsmap=mdata.obsmap, varmap=mdata.varmap, axis=mdata.axis
+        layerfunc = dataset._parse_layer_spec(layer, mdata)
+        mods = {}
+        for modname in mdata.mod.keys():
+            adata = mdata.mod[modname]
+            mods[modname] = AnnData(
+                layers={k: adata.layers[v] if v is not None else adata.X for k, v in layerfunc(modname).items()},
+                obs=adata.obs,
+                var=adata.var,
+                obsm=adata.obsm,
+                varm=adata.varm,
             )
-            new_mdata.obs = mdata.obs
-            new_mdata.var = mdata.var
-            mdata = new_mdata
+        new_mdata = MuData(
+            mods, obs=mdata.obs, var=mdata.var, obsmap=mdata.obsmap, varmap=mdata.varmap, axis=mdata.axis
+        )
+        new_mdata.obs = mdata.obs
+        new_mdata.var = mdata.var
+        mdata = new_mdata
 
         idx = {
             group_name: rng.choice(sample_names.size, size=sample_names.size // 3, replace=False)
@@ -315,16 +310,18 @@ class MuDataDatasetTest:
                     mdata[sample_names, feature_names], group_name=group_name, view_name=view_name
                 )
 
-                assert view.dtype == np.float32
-                X = cdata.X
-                if not sparse.issparse(cdata.X):
-                    assert isinstance(view, np.ndarray)
-                else:
-                    assert sparse.issparse(view)
-                    X = X.toarray()
-                    view = view.toarray()
+                assert cdata.layers.keys() == view.keys()
+                for layer_name, clayer in cdata.layers.items():
+                    cview = view[layer_name]
+                    assert cview.dtype == np.float32
+                    if not sparse.issparse(clayer):
+                        assert isinstance(cview, np.ndarray)
+                    else:
+                        assert sparse.issparse(cview)
+                        clayer = clayer.toarray()
+                        cview = cview.toarray()
 
-                assert np.all(X == view)
+                    assert np.all(clayer == cview)
 
                 cnonmissing_obs = nonmissing_to_slice(
                     np.nonzero(np.isin(sample_names, cdata.obs_names))[0], sample_names.size

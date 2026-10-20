@@ -25,7 +25,10 @@ def have_dask():
 _warned_sparse = False
 
 
-def array_to_dask(arr: PossiblySparseMatrix | pd.DataFrame):
+def array_to_dask(arr: PossiblySparseMatrix | pd.DataFrame | None):
+    if arr is None:
+        return arr
+
     import dask.array as da
     import dask.dataframe as dd
 
@@ -110,7 +113,10 @@ def apply_to_nested(data, func: Callable[[Any], Any]):
 
 def anndata_to_dask(adata: AnnData):
     dask_adata = AnnData(
-        X=array_to_dask(adata.X), var=adata.var, obs=adata.obs
+        X=array_to_dask(adata.X),
+        layers={k: array_to_dask(v) for k, v in adata.layers.items()},
+        var=adata.var,
+        obs=adata.obs,
     )  # AnnData does not support Dask DataFrames for var and obs
     return dask_adata
 
