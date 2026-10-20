@@ -125,9 +125,7 @@ _LAYERSPECS = (None, "layer1", {"x1": None, "x2": "layer1"}, {"x1": "layer1", "x
 
 @pytest.mark.parametrize("layerspec", _LAYERSPECS)
 def test_parse_layer_spec_same_for_all(anndata_dict, layerspec):
-    dataset = lambda: None
-    dataset._data = anndata_dict
-    layerfunc = AnnDataDictDataset._parse_layer_spec(dataset, layerspec)
+    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
 
     view_names = reduce(operator.or_, (group.keys() for group in anndata_dict.values()))
     layers = [layerfunc(group_name, view_name) for group_name in anndata_dict.keys() for view_name in view_names]
@@ -143,9 +141,7 @@ def test_parse_layer_spec_same_for_all(anndata_dict, layerspec):
     "layerspec", reduce(operator.add, ([{"view_0": spec}, {"view_0": spec, "view_1": None}] for spec in _LAYERSPECS))
 )
 def test_parse_layer_spec_separate_per_view(anndata_dict, layerspec):
-    dataset = lambda: None
-    dataset._data = anndata_dict
-    layerfunc = AnnDataDictDataset._parse_layer_spec(dataset, layerspec)
+    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
 
     layers = defaultdict(list)
     for group_name, group in anndata_dict.items():
@@ -177,9 +173,7 @@ def test_parse_layer_spec_separate_per_view(anndata_dict, layerspec):
     ),
 )
 def test_parse_layer_spec_separate_per_group_view(anndata_dict, layerspec):
-    dataset = lambda: None
-    dataset._data = anndata_dict
-    layerfunc = AnnDataDictDataset._parse_layer_spec(dataset, layerspec)
+    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
 
     layers = defaultdict(dict)
     for group_name, group in anndata_dict.items():
@@ -197,14 +191,36 @@ def test_parse_layer_spec_separate_per_group_view(anndata_dict, layerspec):
 
 
 @pytest.mark.parametrize(
-    ("layerspec", "exception_match"),
+    ("layerspec", "exception_type", "exception_match"),
     (
+        ("layer4", ValueError, "Layer layer4 not found in group"),
+        ({"view_0": {"x1": None, "x2": "layer1"}, "view_1": {"x3": "layer4"}}, ValueError, "Layer layer4 not found"),
+        ({"view_0": 1}, TypeError, "Unsupported layer type"),
+        ({"x1": None, "x2": "layer4", "x3": "layer1"}, ValueError, "Layer layer4 not found"),
+        (
+            {"group_4": {"view_0": None}, "group_1": {"view_0": "layer1"}},
+            ValueError,
+            "Layer specifies group group_4, but it does not exist.",
+        ),
+        (
+            {"group_0": {"view_0": "layer1"}, "group_1": {"view_4": {"x1": None, "x2": "layer1"}}},
+            ValueError,
+            "Layer specifies view view_4 for group group_1, but it does not exist.",
+        ),
+        (
+            {"group_0": {"view_0": "layer1"}, "group_1": {"view_1": "layer4"}},
+            ValueError,
+            "Layer layer4 not found in group group_1 for view view_1.",
+        ),
+        ({"group_0": {"view_0": 1}, "group_1": {"view_1": None}}, TypeError, "Unsupported layer type"),
         (
             {"group_0": {"view_0": None}, "group_1": {"view_0": {"x1": None, "x2": "layer1"}}},
+            ValueError,
             "number of specified layers",
         ),
         (
             {"group_0": {"view_0": {"x1": None}}, "group_1": {"view_0": {"x1": None, "x2": "layer1"}}},
+            ValueError,
             "number of specified layers",
         ),
         (
@@ -212,6 +228,7 @@ def test_parse_layer_spec_separate_per_group_view(anndata_dict, layerspec):
                 "group_0": {"view_0": None, "view_1": {"x1": "layer1", "x2": "layer2"}},
                 "group_1": {"view_0": None, "view_1": {"x1": "layer1"}},
             },
+            ValueError,
             "number of specified layers",
         ),
         (
@@ -219,17 +236,17 @@ def test_parse_layer_spec_separate_per_group_view(anndata_dict, layerspec):
                 "group_0": {"view_0": {"x1": None, "x2": "layer1"}},
                 "group_1": {"view_0": {"x2": "layer1", "x3": "layer3"}},
             },
+            ValueError,
             "assignment of layers to names",
         ),
-        ({"group_0": {"view_0": None}, "x1": "layer1"}, "Unsupported `layer` argument."),
-        ("layer4", "Unsupported `layer` argument."),
+        ({"x1": "layer1", "x2": "layer4"}, ValueError, "Layer layer4 not found"),
+        ({"group_0": {"view_0": None}, "x1": "layer1"}, TypeError, "Unsupported layer type"),
+        (1, TypeError, "Unsupported layer type"),
     ),
 )
-def test_parse_layer_spec_raises(anndata_dict, layerspec, exception_match):
-    dataset = lambda: None
-    dataset._data = anndata_dict
-    with pytest.raises(ValueError, match=exception_match):
-        AnnDataDictDataset._parse_layer_spec(dataset, layerspec)
+def test_parse_layer_spec_raises(anndata_dict, layerspec, exception_type, exception_match):
+    with pytest.raises(exception_type, match=exception_match):
+        AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
 
 
 @pytest.mark.parametrize("axis", (0, 1, 2))
