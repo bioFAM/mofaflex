@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Mapping
+from types import ModuleType
 
 import numpy as np
 from anndata import AnnData
@@ -22,7 +24,7 @@ class Bernoulli(Likelihood):
 
     @staticmethod
     def _calc_shift(adata: AnnData):
-        shift = logit(nanmean(adata.X, axis=0))
+        shift = logit(nanmean(adata.layers[None], axis=0))
         shift[~np.isfinite(shift)] = 0
         return shift
 
@@ -54,7 +56,10 @@ class Bernoulli(Likelihood):
         self._shift = self._impute_feature_summary_statistics(self._shift)
 
     @classmethod
-    def _validate(cls, data: Matrix[np.number], xp) -> bool:
+    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType]) -> bool:
+        if data.keys() != {None}:
+            return False
+        data, xp = data[None]
         return xp.all(xp.isclose(data, 0) | xp.isclose(data, 1))  # TODO: set correct atol value
 
     @classmethod
@@ -63,12 +68,13 @@ class Bernoulli(Likelihood):
 
     def _r2_impl(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
+        y_true = y_true[None]
         ss_res = np.nansum(self._dV_square(y_true, y_pred, -1, 1))
         ss_tot = np.nansum(self._dV_square(y_true, expit(self._shift[group_name][feature_idx]), -1, 1))
         return R2(ss_res, ss_tot)
@@ -83,12 +89,13 @@ class Bernoulli(Likelihood):
 
     def _deviance_explained_impl(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
+        y_true = y_true[None]
         # the shift is part of the linear predictor, see transform_prediction
         shift = self._shift[group_name][feature_idx]
         loglik_null = np.nansum(self._logpmf(y_true, shift))
@@ -108,9 +115,9 @@ class Bernoulli(Likelihood):
 
     def transform_data(
         self,
-        data: Matrix[np.number],
+        data: Mapping[str | None, Matrix[np.number]],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> Matrix[np.floating]:
-        return logit(np.clip(data, settings.eps, 1 - settings.eps)) - self._shift[group_name][feature_idx]
+        return logit(np.clip(data[None], settings.eps, 1 - settings.eps)) - self._shift[group_name][feature_idx]

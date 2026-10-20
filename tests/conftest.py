@@ -38,7 +38,7 @@ def create_adata():
             var_names = [f"var{i}" for i in range(X.shape[1])]
         if obs_names is None:
             obs_names = [f"obs{i}" for i in range(X.shape[0])]
-        return ad.AnnData(X, var=pd.DataFrame(index=var_names), obs=pd.DataFrame(index=obs_names))
+        return ad.AnnData(layers={None: X}, var=pd.DataFrame(index=var_names), obs=pd.DataFrame(index=obs_names))
 
     return _adata
 
