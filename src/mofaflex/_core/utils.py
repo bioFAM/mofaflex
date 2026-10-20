@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import operator
 from abc import ABC
 from collections import namedtuple
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import ExitStack, contextmanager, suppress
+from functools import reduce
 from inspect import isabstract, signature
 from io import BytesIO
 from itertools import islice
@@ -305,13 +307,13 @@ def convert_to_tensor(data):
 
 def filter_constant_features(data: MofaFlexDataset):
     nonconstantfeatures = {}
-    view_vars = data.apply(lambda adata, group_name, view_name: nanvar(adata.X, axis=0), by_group=False)
+    view_vars = data.apply(
+        lambda adata, group_name, view_name: {k: nanvar(v, axis=0) for k, v in adata.layers.items()}, by_group=False
+    )
     threshold = settings.get("eps")
     for view_name, viewvar in view_vars.items():
-        nonconst = viewvar > threshold
+        nonconst = reduce(operator.and_, (layervar > threshold for layervar in viewvar.values()))
         _logger.debug(f"Removing {nonconst.size - nonconst.sum()} features from view {view_name}.")
-        if issparse(nonconst):
-            nonconst = nonconst.toarray()
         nonconstantfeatures[view_name] = data.feature_names[view_name][nonconst]
 
     data.reindex_features(nonconstantfeatures)
