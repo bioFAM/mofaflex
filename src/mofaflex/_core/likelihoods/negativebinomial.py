@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+from types import ModuleType
 from typing import Literal
 
 import numpy as np
@@ -20,12 +22,17 @@ class NegativeBinomial(Likelihood):
 
     def __init__(self, view_name: str, data: MofaFlexDataset, nonnegative: bool):
         super().__init__(view_name, data, nonnegative)
-        sample_means = data.apply_to_view(view_name, lambda adata, group_name: nanmean(adata.X, axis=1, keepdims=True))
+        sample_means = data.apply_to_view(
+            view_name, lambda adata, group_name: nanmean(adata.layers[None], axis=1, keepdims=True)
+        )
         statfun = nanmean if not nonnegative else nanmin
         self._shift = data.apply_to_view(
             view_name,
             lambda adata, group_name: align_local_array_to_global(  # noqa: F821
-                statfun(adata.X / sample_means[group_name], axis=0), group_name, self._view_name, align_to="features"
+                statfun(adata.layers[None] / sample_means[group_name], axis=0),
+                group_name,
+                self._view_name,
+                align_to="features",
             ),
         )
         self._sample_means = {
@@ -62,7 +69,10 @@ class NegativeBinomial(Likelihood):
             means[np.isnan(means)] = np.nanmean(means)
 
     @classmethod
-    def _validate(cls, data: Matrix, xp) -> bool:
+    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType]) -> bool:
+        if data.keys() != {None}:
+            return False
+        data, xp = data[None]
         return xp.allclose(data, xp.round(data)) and data.min() >= 0
 
     @classmethod
@@ -71,12 +81,13 @@ class NegativeBinomial(Likelihood):
 
     def _r2_impl(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
+        y_true = y_true[None]
         ss_res = np.nansum(self._dV_square(y_true, y_pred, self._dispersion.mean[feature_idx], 1))
 
         truemean = self._shift[group_name][feature_idx] * self._sample_means[group_name][sample_idx]
@@ -87,19 +98,24 @@ class NegativeBinomial(Likelihood):
         return R2(ss_res, ss_tot)
 
     def _logpmf(
-        self, y_true: Matrix[np.number], mean: Matrix[np.floating], feature_idx: Vector[int] | slice = slice(None)
+        self,
+        y_true: Mapping[str | None, Matrix[np.number]],
+        mean: Matrix[np.floating],
+        feature_idx: Vector[int] | slice = slice(None),
     ) -> Matrix[np.floating]:
+        y_true = y_true[None]
         dispersion = self._dispersion.mean[feature_idx]
         return nbinom.logpmf(y_true, p=1 / (1 + dispersion * mean + settings.eps), n=1 / dispersion)
 
     def _deviance_explained_impl(
         self,
-        y_true: Matrix[np.number],
+        y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> LogLikelihoods:
+        y_true = y_true[None]
         y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
 
         null_mean = self._shift[group_name][feature_idx] * self._sample_means[group_name][sample_idx]
@@ -128,12 +144,12 @@ class NegativeBinomial(Likelihood):
 
     def transform_data(
         self,
-        data: Matrix[np.number],
+        data: Mapping[str | None, Matrix[np.number]],
         group_name: str,
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> Matrix[np.floating]:
-        data = data / self._sample_means[group_name][sample_idx]
+        data = data[None] / self._sample_means[group_name][sample_idx]
         data -= self._shift[group_name][feature_idx]
         return data
 

@@ -135,7 +135,7 @@ def warn_dask(logger: logging.Logger | None = None):
 
 
 def select_anndata_layer(adata: AnnData, layer: Mapping[str | None, str | None]):
-    layers = {k: adata.X if v is None else adata.layers[v] for k, v in layer.items()}
+    layers = {k: X if v is None and (X := adata.X) is not None else adata.layers[v] for k, v in layer.items()}
     return AnnData(
         layers=layers,
         obs=adata.obs,
