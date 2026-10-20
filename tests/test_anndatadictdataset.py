@@ -340,27 +340,23 @@ def test_index_mapping(anndata_dict, dataset, rng):
 
 
 def test_getitems(anndata_dict, dataset, layer, rng, nonmissing_to_slice):
-    get_layer = lambda adata, layer: adata.layers[layer] if layer is not None else adata.X
-    if layer is not None:
-        if isinstance(layer, str):
-            func = lambda group_name, view_name: layer
-        elif isinstance(layer, dict) and all(isinstance(view, str | None) for view in layer.values()):
-            func = lambda group_name, view_name: layer[view_name]
-        else:
-            func = lambda group_name, view_name: layer[group_name][view_name]
-        anndata_dict = {
-            group_name: {
-                view_name: AnnData(
-                    X=get_layer(view, func(group_name, view_name)),
-                    obs=view.obs,
-                    var=view.var,
-                    obsm=view.obsm,
-                    varm=view.varm,
-                )
-                for view_name, view in group.items()
-            }
-            for group_name, group in anndata_dict.items()
+    layerfunc = dataset._parse_layer_spec(layer, anndata_dict)
+
+    anndata_dict = {
+        group_name: {
+            view_name: AnnData(
+                layers={
+                    k: view.layers[v] if v is not None else view.X for k, v in layerfunc(group_name, view_name).items()
+                },
+                obs=view.obs,
+                var=view.var,
+                obsm=view.obsm,
+                varm=view.varm,
+            )
+            for view_name, view in group.items()
         }
+        for group_name, group in anndata_dict.items()
+    }
 
     idx = {
         group_name: rng.choice(sample_names.size, size=sample_names.size // 3, replace=False)
@@ -373,7 +369,7 @@ def test_getitems(anndata_dict, dataset, layer, rng, nonmissing_to_slice):
         assert np.all(items["sample_idx"][group_name] == idx[group_name])
         for view_name, view in group.items():
             feature_names = dataset.feature_names[view_name]
-            cadata = anndata_dict[group_name][view_name].copy()
+            cadata = anndata_dict[group_name][view_name]
 
             cobsidx = np.isin(sample_names, cadata.obs_names)
             cvaridx = np.isin(feature_names, cadata.var_names)
@@ -381,16 +377,20 @@ def test_getitems(anndata_dict, dataset, layer, rng, nonmissing_to_slice):
             cobs = sample_names[cobsidx]
             cvar = feature_names[cvaridx]
 
-            assert view.dtype == np.float32
-            X = cadata[cobs, cvar].X
-            if not sparse.issparse(cadata.X):
-                assert isinstance(view, np.ndarray)
-            else:
-                assert sparse.issparse(view)
-                X = X.toarray()
-                view = view.toarray()
+            cadata = cadata[cobs, cvar]
 
-            assert np.all(X == view)
+            assert cadata.layers.keys() == view.keys()
+            for layer_name, clayer in cadata.layers.items():
+                cview = view[layer_name]
+                assert cview.dtype == np.float32
+                if not sparse.issparse(clayer):
+                    assert isinstance(cview, np.ndarray)
+                else:
+                    assert sparse.issparse(cview)
+                    clayer = clayer.toarray()
+                    cview = cview.toarray()
+
+                assert np.all(clayer == cview)
 
             cnonmissing_obs = np.nonzero(cobsidx)[0]
             cnonmissing_var = np.nonzero(cvaridx)[0]

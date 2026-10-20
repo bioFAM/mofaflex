@@ -23,7 +23,7 @@ class Preprocessor:
 
     def __call__(
         self,
-        arr: PossiblySparseMatrix,
+        arr: Mapping[str | None, PossiblySparseMatrix],
         nonmissing_samples: Vector[bool] | slice,
         nonmissing_features: Vector[bool] | slice,
         group: str,

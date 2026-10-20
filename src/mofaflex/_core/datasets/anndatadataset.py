@@ -171,10 +171,10 @@ class AnnDataDataset(MofaFlexDataset):
             glabel = self._groups[group_name][group_idx]
             subdata = self._data[glabel, :]
             arr, gnonmissing_obs[self._view_name], gnonmissing_var[self._view_name] = self.preprocessor(
-                subdata.X, slice(None), slice(None), group_name, self._view_name
+                subdata.layers, slice(None), slice(None), group_name, self._view_name
             )
             if self.cast_to is not None:
-                arr = arr.astype(self.cast_to, copy=False)
+                arr = {k: v.astype(self.cast_to, copy=False) for k, v in arr.items()}
             data[group_name] = {self._view_name: arr}
             idx[group_name] = np.asarray(group_idx)
             nonmissing_obs[group_name] = gnonmissing_obs
@@ -217,12 +217,14 @@ class AnnDataDataset(MofaFlexDataset):
         return idx
 
     def get_missing_obs(self) -> pd.DataFrame:
-        if issparse(self._data.X):
-            missing = self._data.X.copy()
-            missing.data = np.isnan(missing.data)
-            missing = np.asarray(missing.sum(axis=1)).squeeze() == missing.shape[1]
-        else:
-            missing = np.isnan(self._data.X).all(axis=1)
+        missing = np.zeros(self.n_samples_total, dtype=np.bool)
+        for arr in self._data.layers.values():
+            if issparse(arr):
+                cmissing = arr.copy()
+                cmissing.data = np.isnan(cmissing.data)
+                missing |= np.asarray(cmissing.sum(axis=1)).squeeze() == cmissing.shape[1]
+            else:
+                missing |= np.isnan(arr).all(axis=1)
         df = pd.DataFrame({"view": self._view_name, "group": "", "obs_name": "", "missing": missing})
         for group_name, group_idx in self._groups.items():
             df.loc[df.index[group_idx], "group"] = group_name
