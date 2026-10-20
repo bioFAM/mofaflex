@@ -124,7 +124,7 @@ def test_remove_constant_features(adata_dict, arrays_are, usedask):
         arr = np.concatenate(
             [
                 dataset.align_local_array_to_global(
-                    arr.toarray() if issparse(arr := group["view1"]) else arr,
+                    arr.toarray() if issparse(arr := group["view1"][None]) else arr,
                     group_name,
                     "view1",
                     align_to="features",
@@ -147,6 +147,7 @@ def test_remove_constant_features(adata_dict, arrays_are, usedask):
     else:
         for group_name, group in result.items():
             for view_name, view in group.items():
+                view = view[None]
                 if issparse(view):
                     view = view.toarray()
                 if view.shape[1] > 0:
