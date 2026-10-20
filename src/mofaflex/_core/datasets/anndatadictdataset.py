@@ -353,12 +353,12 @@ class AnnDataDictDataset(MofaFlexDataset):
 
                 if not isinstance(cvarmap, slice) and not isinstance(cobsmap, slice):
                     cobsmap, cvarmap = np.ix_(cobsmap, cvarmap)
-                arr = view.X[cobsmap, cvarmap]
+                arr = {k: v[cobsmap, cvarmap] for k, v in view.layers.items()}
                 arr, gnonmissing_obs[view_name], gnonmissing_var[view_name] = self.preprocessor(
                     arr, cnonmissing_obs, cnonmissing_var, group_name, view_name
                 )
                 if self.cast_to is not None:
-                    arr = arr.astype(self.cast_to, copy=False)
+                    arr = {k: v.astype(self.cast_to, copy=False) for k, v in arr.items()}
                 group[view_name] = arr
             data[group_name] = group
             idx[group_name] = np.asarray(group_idx)
@@ -442,12 +442,14 @@ class AnnDataDictDataset(MofaFlexDataset):
         dfs = []
         for group_name, group in self._data.items():
             for view_name, view in group.items():
-                if sparse.issparse(view.X):
-                    viewmissing = view.X.copy()
-                    viewmissing.data = np.isnan(viewmissing.data)
-                    viewmissing = np.asarray(viewmissing.sum(axis=1)).squeeze() == viewmissing.shape[1]
-                else:
-                    viewmissing = np.isnan(view.X).all(axis=1)
+                viewmissing = np.zeros(view.n_obs, dtype=np.bool)
+                for arr in view.layers.values():
+                    if sparse.issparse(arr):
+                        cviewmissing = arr.copy()
+                        cviewmissing.data = np.isnan(cviewmissing.data)
+                        viewmissing |= np.asarray(cviewmissing.sum(axis=1)).squeeze() == cviewmissing.shape[1]
+                    else:
+                        viewmissing |= np.isnan(arr).all(axis=1)
                 viewmissing = self.align_local_array_to_global(
                     viewmissing, group_name, view_name, align_to=0, fill_value=True
                 )
@@ -614,7 +616,9 @@ class AnnDataDictDataset(MofaFlexDataset):
             if convert:
                 for group_name, cdata in data.items():
                     cdata = cdata.copy()
-                    cdata.X = cdata.X.astype(np.promote_types(cdata.X.dtype, type(np.nan)))
+                    cdata.layers = {
+                        k: v.astype(np.promote_types(v.dtype, type(np.nan))) for k, v in cdata.layers.items()
+                    }
                     data[group_name] = cdata
             used = self._used_var[view_name] if isinstance(self._used_var, dict) else self._used_var
             data = ad.concat(
@@ -660,7 +664,9 @@ class AnnDataDictDataset(MofaFlexDataset):
             if convert:
                 for view_name, cdata in data.items():
                     cdata = cdata.copy()
-                    cdata.X = cdata.X.astype(np.promote_types(cdata.X.dtype, type(np.nan)))
+                    cdata.layers = {
+                        k: v.astype(np.promote_types(v.dtype, type(np.nan))) for k, v in cdata.layers.items()
+                    }
                     data[view_name] = cdata
             used = self._used_obs[group_name] if isinstance(self._used_obs, dict) else self._used_obs
             data = ad.concat(
