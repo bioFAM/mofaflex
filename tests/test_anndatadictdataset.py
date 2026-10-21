@@ -132,7 +132,7 @@ def test_properties(anndata_dict, use_obs, use_var, subset_var, dataset):
 
 @pytest.mark.parametrize("layerspec", _LAYERSPECS_SAME_FOR_ALL)
 def test_parse_layer_spec_same_for_all(anndata_dict, layerspec):
-    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
+    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)[0]
 
     view_names = reduce(operator.or_, (group.keys() for group in anndata_dict.values()))
     layers = [layerfunc(group_name, view_name) for group_name in anndata_dict.keys() for view_name in view_names]
@@ -146,7 +146,7 @@ def test_parse_layer_spec_same_for_all(anndata_dict, layerspec):
 
 @pytest.mark.parametrize("layerspec", _LAYERSPECS_SEPARATE_PER_VIEW)
 def test_parse_layer_spec_separate_per_view(anndata_dict, layerspec):
-    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
+    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)[0]
 
     layers = defaultdict(list)
     for group_name, group in anndata_dict.items():
@@ -166,7 +166,7 @@ def test_parse_layer_spec_separate_per_view(anndata_dict, layerspec):
 
 @pytest.mark.parametrize("layerspec", _LAYERSPECS_SEPARATE_PER_GROUP_VIEW)
 def test_parse_layer_spec_separate_per_group_view(anndata_dict, layerspec):
-    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)
+    layerfunc = AnnDataDictDataset._parse_layer_spec(layerspec, anndata_dict)[0]
 
     layers = defaultdict(dict)
     for group_name, group in anndata_dict.items():
@@ -333,7 +333,7 @@ def test_index_mapping(anndata_dict, dataset, rng):
 
 
 def test_getitems(anndata_dict, dataset, layer, rng, nonmissing_to_slice):
-    layerfunc = dataset._parse_layer_spec(layer, anndata_dict)
+    layerfunc = dataset._parse_layer_spec(layer, anndata_dict)[0]
 
     anndata_dict = {
         group_name: {

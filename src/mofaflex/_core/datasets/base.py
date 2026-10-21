@@ -200,6 +200,12 @@ class MofaFlexDataset(Dataset, ABC):
         """Feature names for each view."""
         pass
 
+    @property
+    @abstractmethod
+    def n_layers(self) -> dict[str, int]:
+        """Number of layers for each view."""
+        pass
+
     @_axis_arg("axis")
     def get_names(self, axis: Literal[0, 1]) -> dict[str, Vector[str]]:
         if axis == 0:
@@ -387,9 +393,9 @@ class MofaFlexDataset(Dataset, ABC):
         func: ApplyCallable[T],
         by_group: bool = True,
         by_view: bool = True,
-        group_kwargs: dict[str, dict[str, Any]] | None = None,
-        view_kwargs: dict[str, dict[str, Any]] | None = None,
-        group_view_kwargs: dict[str, dict[str, dict[str, Any]]] | None = None,
+        group_kwargs: Mapping[str, Mapping[str, Any]] | None = None,
+        view_kwargs: Mapping[str, Mapping[str, Any]] | None = None,
+        group_view_kwargs: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         filter_groups: Sequence[str] | str | None = None,
         filter_views: Sequence[str] | str | None = None,
         **kwargs,
@@ -495,7 +501,11 @@ class MofaFlexDataset(Dataset, ABC):
             )
 
     def apply_to_view(
-        self, view_name: str, func: ApplyToCallable[T], group_kwargs: dict[str, dict[str, Any]] | None = None, **kwargs
+        self,
+        view_name: str,
+        func: ApplyToCallable[T],
+        group_kwargs: Mapping[str, Mapping[str, Any]] | None = None,
+        **kwargs,
     ) -> dict[str, T]:
         """Apply a function to each group for a given view.
 
@@ -534,7 +544,11 @@ class MofaFlexDataset(Dataset, ABC):
         return self._apply_to_view(view_name, func, ckwargs, **kwargs)
 
     def apply_to_group(
-        self, group_name: str, func: ApplyToCallable[T], view_kwargs: dict[str, dict[str, Any]] | None = None, **kwargs
+        self,
+        group_name: str,
+        func: ApplyToCallable[T],
+        view_kwargs: Mapping[str, Mapping[str, Any]] | None = None,
+        **kwargs,
     ) -> dict[str, T]:
         """Apply a function to each view for a given group.
 
@@ -574,25 +588,25 @@ class MofaFlexDataset(Dataset, ABC):
 
     @abstractmethod
     def _apply_to_view(
-        self, view_name: str, func: ApplyToCallable[T], vkwargs: dict[str, dict[str, Any]], **kwargs
+        self, view_name: str, func: ApplyToCallable[T], vkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
         pass
 
     @abstractmethod
     def _apply_to_group(
-        self, group_name: str, func: ApplyToCallable[T], gkwargs: dict[str, dict[str, Any]], **kwargs
+        self, group_name: str, func: ApplyToCallable[T], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
         pass
 
     @abstractmethod
     def _apply_by_group(
-        self, func: ApplyCallable[T], group_names: Sequence[str], gvkwargs: dict[str, dict[str, Any]], **kwargs
+        self, func: ApplyCallable[T], group_names: Sequence[str], gvkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
         pass
 
     @abstractmethod
     def _apply_by_view(
-        self, func: ApplyCallable[T], view_names: Sequence[str], gkwargs: dict[str, dict[str, Any]], **kwargs
+        self, func: ApplyCallable[T], view_names: Sequence[str], gkwargs: Mapping[str, Mapping[str, Any]], **kwargs
     ) -> dict[str, T]:
         pass
 
@@ -602,7 +616,7 @@ class MofaFlexDataset(Dataset, ABC):
         func: ApplyCallable[T],
         group_names: Sequence[str],
         view_names: Sequence[str],
-        vkwargs: dict[str, dict[str, dict[str, Any]]],
+        vkwargs: Mapping[str, Mapping[str, Mapping[str, Any]]],
         **kwargs,
     ) -> dict[str, dict[str, T]]:
         pass

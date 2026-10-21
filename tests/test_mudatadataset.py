@@ -15,17 +15,20 @@ from mofaflex._core.datasets import MofaFlexDataset, MuDataAxis0Dataset, MuDataA
 from mofaflex._core.datasets.mudatadataset import MuDataDataset
 
 _LAYERSPECS_SAME_FOR_ALL = (None, "layer1", {"x1": "layer1", "x2": None})
-_LAYERSPECS_PER_MODALITY = (
+_LAYERSPECS_PER_MODALITY_AXIS0 = (
     {"mod_0": None},
     {"mod_1": "layer2"},
     {"mod_0": "layer1", "mod_1": None, "mod_2": "layer1"},
     {"mod_0": {"x1": "layer1", "x2": None}, "mod_1": None, "mod_2": "layer1"},
 )
-
-
-@pytest.fixture(scope="module", params=(*_LAYERSPECS_SAME_FOR_ALL, *_LAYERSPECS_PER_MODALITY))
-def layer(request):
-    return request.param
+_LAYERSPECS_PER_MODALITY_AXIS1 = (
+    {"mod_0": "layer1", "mod_1": None, "mod_2": "layer1"},
+    {
+        "mod_0": {"x1": "layer1", "x2": None},
+        "mod_1": {"x1": "layer2", "x2": "layer1"},
+        "mod_2": {"x1": None, "x2": "layer1"},
+    },
+)
 
 
 @pytest.fixture(scope="module", params=(None, "global_highly_variable", "highly_variable"))
@@ -154,13 +157,12 @@ class MuDataDatasetTest:
         else:
             assert layer == layerspec
 
-    @pytest.mark.parametrize("layerspec", _LAYERSPECS_PER_MODALITY)
-    def test_parse_layer_spec_per_modality(self, mdata, layerspec):
-        layerfunc = MuDataDataset._parse_layer_spec(layerspec, mdata)
+    def test_parse_layer_spec_per_modality(self, mdata, layerspec_per_modality):
+        layerfunc = MuDataDataset._parse_layer_spec(layerspec_per_modality, mdata)
 
         layers = {modname: layerfunc(modname) for modname in mdata.mod.keys()}
         for modname in mdata.mod.keys():
-            if not isinstance(cspec := layerspec.get(modname), Mapping):
+            if not isinstance(cspec := layerspec_per_modality.get(modname), Mapping):
                 assert layers[modname] == {None: cspec}
             else:
                 assert layers[modname] == cspec
@@ -460,6 +462,14 @@ class TestMuDataAxis0Dataset(MuDataDatasetTest):
     def mdata_axis(self, request):
         return 0
 
+    @pytest.fixture(scope="class", params=(*_LAYERSPECS_SAME_FOR_ALL, *_LAYERSPECS_PER_MODALITY_AXIS0))
+    def layer(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=_LAYERSPECS_PER_MODALITY_AXIS0)
+    def layerspec_per_modality(self, request):
+        return request.param
+
     @staticmethod
     def get_varnames(mdata, subset_var, group_name=None, view_name=None):
         varnames = mdata.mod[view_name].var_names
@@ -494,7 +504,7 @@ class TestMuDataAxis0Dataset(MuDataDatasetTest):
             lambda mdata, group_name: mdata[mdata.obs["batch"] == group_name, :],
         )
 
-    def test_instance(self, dataset, mdata_axis):
+    def test_instance(self, dataset):
         assert isinstance(dataset, MuDataAxis0Dataset)
 
     @pytest.mark.parametrize("usedask", [False, True])
@@ -576,6 +586,14 @@ class TestMuDataAxis1Dataset(MuDataDatasetTest):
     def mdata_axis(self, request):
         return 1
 
+    @pytest.fixture(scope="class", params=(*_LAYERSPECS_SAME_FOR_ALL, *_LAYERSPECS_PER_MODALITY_AXIS1))
+    def layer(self, request):
+        return request.param
+
+    @pytest.fixture(scope="class", params=_LAYERSPECS_PER_MODALITY_AXIS1)
+    def layerspec_per_modality(self, request):
+        return request.param
+
     @staticmethod
     def get_varnames(mdata, subset_var, view_name=None, group_name=None):
         mask = mdata.var["batch"] == view_name
@@ -620,8 +638,26 @@ class TestMuDataAxis1Dataset(MuDataDatasetTest):
             lambda mdata, view_name: mdata[:, mdata.var["batch"] == view_name],
         )
 
-    def test_instance(self, dataset, mdata_axis):
+    def test_instance(self, dataset):
         assert isinstance(dataset, MuDataAxis1Dataset)
+
+    @pytest.mark.parametrize(
+        ("layerspec", "exception_match"),
+        (
+            ({"mod_0": None, "mod_1": {"x1": None, "x2": "layer1"}}, "The number of specified layers must be the same"),
+            (
+                {
+                    "mod_0": {"x3": None, "x1": "layer1"},
+                    "mod_1": {"x1": None, "x2": "layer1"},
+                    "mod_2": {"x1": "layer1", "x2": None},
+                },
+                "The assignment of layers to names must be the same",
+            ),
+        ),
+    )
+    def test_parse_layer_spec_raises_layernumber(self, mdata, layerspec, exception_match):
+        with pytest.raises(ValueError, match=exception_match):
+            MuDataDataset._parse_layer_spec(layerspec, mdata)
 
     @pytest.mark.parametrize("usedask", [False, True])
     def test_apply_by_group_view(self, mdata, dataset, usedask):
