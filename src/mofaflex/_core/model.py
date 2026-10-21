@@ -483,11 +483,17 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         preprocessor,
         apply_link,
     ) -> AnnData:
+        if len(data.layers) > 1:
+            _logger.warn(
+                f"Imputation is not supported for multiple layers, skipping group {group_name} view {view_name}."
+            )
+            return data
+
         havemissing = data.n_obs < self._n_samples[group_name] or data.n_vars < self._n_features[view_name]
-        if issparse(data.X):
-            have_missing_cells = np.isnan(data.X.data).sum() > 0
+        if issparse(data.layers[None]):
+            have_missing_cells = np.isnan(data.layers[None].data).sum() > 0
         else:
-            have_missing_cells = np.isnan(data.X).sum() > 0
+            have_missing_cells = np.isnan(data.layers[None]).sum() > 0
         havemissing |= have_missing_cells
 
         if missingonly and not havemissing:
@@ -508,18 +514,18 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
             obsidx = map_local_indices_to_global(np.arange(data.n_obs), group_name, view_name, align_to="samples")  # noqa: F821
             varidx = map_local_indices_to_global(np.arange(data.n_vars), group_name, view_name, align_to="features")  # noqa: F821
 
-            if not apply_link or not issparse(data.X):
-                imputation = np.empty((sample_names.size, feature_names.size), dtype=data.X.dtype)
+            if not apply_link or not issparse(data.layers[None]):
+                imputation = np.empty((sample_names.size, feature_names.size), dtype=data.layers[None].dtype)
             else:
-                imputation = dok_array((sample_names.size, feature_names.size), dtype=data.X.dtype)
+                imputation = dok_array((sample_names.size, feature_names.size), dtype=data.layers[None].dtype)
             if not apply_link:
-                preprocessed = preprocessor(data.X, slice(None), slice(None), group_name, view_name)[0]
+                preprocessed = preprocessor(data.layers[None], slice(None), slice(None), group_name, view_name)[0]
                 if issparse(preprocessed):
                     preprocessed = preprocessed.toarray()
 
                 imputation[np.ix_(obsidx, varidx)] = likelihood.transform_data(preprocessed, group_name, obsidx, varidx)
             else:
-                imputation[np.ix_(obsidx, varidx)] = data.X
+                imputation[np.ix_(obsidx, varidx)] = data.layers[None]
 
             pred_obs = self.predict(group_name, view_name, sample_idx=missing_obs)
             pred_var = self.predict(group_name, view_name, feature_idx=missing_var)
@@ -531,7 +537,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
             imputation[:, missing_var] = pred_var
 
             if have_missing_cells:
-                nanobs, nanvar = wherenan(data.X)
+                nanobs, nanvar = wherenan(data.layers[None])
                 nanobs, nanvar = np.atleast_1d(obsidx[nanobs]), np.atleast_1d(varidx[nanvar])
                 pred = self.predict(group_name, view_name, nanobs, nanvar, idx_cartesian_product=False)
                 if apply_link:
