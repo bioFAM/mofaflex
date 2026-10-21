@@ -102,8 +102,9 @@ class AnnDataDictDataset(MofaFlexDataset):
         | str
         | None,
         data: Mapping[str, Mapping[str, ad.AnnData]],
-    ) -> Callable[[str, str], Mapping[str | None, str | None]]:
+    ) -> tuple[Callable[[str, str], Mapping[str | None, str | None]], Mapping[str, int]]:
         layerfunc = None
+        n_layers_per_view = {}
         if layer is None:
             layerfunc = lambda group_name, view_name: {None: layer}
         elif isinstance(layer, str):
@@ -122,6 +123,7 @@ class AnnDataDictDataset(MofaFlexDataset):
                                     raise ValueError(
                                         f"Layer {layer_key} not found in group {group_name} for view {view_name}."
                                     )
+                        n_layers_per_view[view_name] = len(view_layer)
                     elif isinstance(view_layer, str):
                         for group_name, group in data.items():
                             if view_layer not in group[view_name].layers:
@@ -170,6 +172,7 @@ class AnnDataDictDataset(MofaFlexDataset):
                             raise ValueError(
                                 f"The assignment of layers to names in view {view_name} must be the same for all groups."
                             )
+                    n_layers_per_view[view_name] = len(next(iter(layers)))
                 layerfunc = lambda group_name, view_name: (
                     {None: clayer} if isinstance(clayer := layer[group_name].get(view_name), str | None) else clayer
                 )
@@ -177,6 +180,7 @@ class AnnDataDictDataset(MofaFlexDataset):
                 for clayer in layer.values():
                     if not isinstance(clayer, None | str):
                         raise TypeError(f"Unsupported layer type {type(clayer).__name__}.")
+                n_layers_per_view = {}
                 for group_name, group in data.items():
                     for view_name, view in group.items():
                         for layer_key in layer.values():
@@ -184,13 +188,14 @@ class AnnDataDictDataset(MofaFlexDataset):
                                 raise ValueError(
                                     f"Layer {layer_key} not found in group {group_name} for view {view_name}."
                                 )
+                        n_layers_per_view[view_name] = len(layer)
                 layerfunc = lambda group_name, view_name: layer
         else:
             raise TypeError(f"Unsupported layer type {type(layer).__name__}.")
 
         if layerfunc is None:
             raise ValueError("Unsupported layer argument.")
-        return layerfunc
+        return layerfunc, n_layers_per_view
 
     def _select_layer(
         self,
@@ -199,7 +204,10 @@ class AnnDataDictDataset(MofaFlexDataset):
         | str
         | None = None,
     ):
-        layerfunc = self._parse_layer_spec(layer, self._data)
+        layerfunc, self._n_layers_per_view = self._parse_layer_spec(layer, self._data)
+        for view_name in self.view_names:
+            if view_name not in self._n_layers_per_view:
+                self._n_layers_per_view[view_name] = 1
         self._data = {
             group_name: {
                 view_name: select_anndata_layer(view, layerfunc(group_name, view_name))
@@ -322,6 +330,10 @@ class AnnDataDictDataset(MofaFlexDataset):
     @property
     def feature_names(self) -> dict[str, Vector[str]]:
         return {view_name: var.to_numpy() for view_name, var in self._aligned_var.items()}
+
+    @property
+    def n_layers(self) -> dict[str, int]:
+        return self._n_layers_per_view
 
     def __getitems__(self, idx: Mapping[str, int | Sequence[int]]) -> dict[str, dict]:
         data = {}
