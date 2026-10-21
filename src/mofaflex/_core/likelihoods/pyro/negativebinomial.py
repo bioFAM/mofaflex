@@ -43,6 +43,7 @@ class NegativeBinomial(LikelihoodWithDispersion):
     def _model(
         self,
         id: str,
+        data: Mapping[str | None, torch.Tensor],
         estimate: torch.Tensor,
         group_name: str,
         sample_plate: pyro.plate,
@@ -58,4 +59,4 @@ class NegativeBinomial(LikelihoodWithDispersion):
         rate = F.relu(estimate) * self._sample_means[group_name][sample_plate.indices[nonmissing_samples]]
         return dist.GammaPoisson(
             torch.reciprocal(dispersion), torch.reciprocal(rate * dispersion + settings.get("eps"))
-        )
+        ), data[None]

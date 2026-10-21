@@ -49,6 +49,7 @@ class Normal(LikelihoodWithDispersion):
     def _model(
         self,
         id: str,
+        data: Mapping[str | None, torch.Tensor],
         estimate: torch.Tensor,
         group_name: str,
         sample_plate: pyro.plate,
@@ -65,4 +66,4 @@ class Normal(LikelihoodWithDispersion):
             except IndexError:
                 scale = self.__scale
             estimate = estimate * scale + self._shift[group_name][feature_plate.indices[nonmissing_features]]
-        return dist.Normal(estimate, dispersion + settings.get("eps"))
+        return dist.Normal(estimate, dispersion + settings.get("eps")), data[None]

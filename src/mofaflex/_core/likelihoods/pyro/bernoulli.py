@@ -30,6 +30,7 @@ class Bernoulli(Likelihood):
     def _model(
         self,
         id: str,
+        data: Mapping[str | None, torch.Tensor],
         estimate: torch.Tensor,
         group_name: str,
         sample_plate: pyro.plate,
@@ -39,7 +40,7 @@ class Bernoulli(Likelihood):
     ) -> pyro.distributions.Distribution:
         if self._shift is not None:
             estimate = estimate + self._shift[group_name][feature_plate.indices[nonmissing_features]]
-        return dist.Bernoulli(logits=estimate)
+        return dist.Bernoulli(logits=estimate), data[None]
 
     def _guide(self, id: str, group_name: str, sample_plate: pyro.plate, feature_plate: pyro.plate):
         pass

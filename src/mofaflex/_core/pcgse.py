@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
@@ -135,6 +136,7 @@ def pcgse_test(
     p_adj_method: str = "fdr_bh",
     min_size: int = 10,
     subsample: int = 0,
+    layer: Mapping[str, str | None] | str | None = None,
 ):
     """Perform significance testing across multiple views and sign directions.
 
@@ -147,6 +149,7 @@ def pcgse_test(
         p_adj_method: Method for multiple testing adjustment.
         min_size: Minimum size threshold for feature sets.
         subsample: Work with a random subsample of the data to speed up testing.
+        layer: Which layer to use for corelation adjustment.
 
     Returns:
         Test results for each view, where test results contain t-statistics, p-values, and adjusted p-values
@@ -156,6 +159,8 @@ def pcgse_test(
 
     y = None
     if corr_adjust:
+        if isinstance(layer, str | None):
+            layer = dict.fromkeys(data.view_names, layer)
         if subsample is not None and subsample > 0:
             idx = {
                 group_name: (
@@ -173,7 +178,7 @@ def pcgse_test(
                 np.concatenate(
                     [
                         data.align_local_array_to_global(
-                            view.toarray() if issparse(view := group[view_name]) else view,
+                            view.toarray() if issparse(view := group[view_name][layer[view_name]]) else view,
                             group_name,
                             view_name,
                             align_to="features",
