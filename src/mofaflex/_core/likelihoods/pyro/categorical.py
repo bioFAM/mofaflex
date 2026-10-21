@@ -14,6 +14,7 @@ class Categorical(Likelihood):
     def _model(
         self,
         id: str,
+        data: Mapping[str | None, torch.Tensor],
         estimate: torch.Tensor,
         group_name: str,
         sample_plate: pyro.plate,
@@ -21,7 +22,7 @@ class Categorical(Likelihood):
         nonmissing_samples: torch.Tensor | slice,
         nonmissing_features: torch.Tensor | slice,
     ) -> pyro.distributions.Distribution:
-        return dist.Categorical(logits=estimate)
+        return dist.Categorical(logits=estimate), data[None]
 
     def _guide(self, id: str, group_name: str, sample_plate: pyro.plate, feature_plate: pyro.plate):
         pass

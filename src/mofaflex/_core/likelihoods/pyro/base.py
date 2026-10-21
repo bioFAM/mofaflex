@@ -83,9 +83,6 @@ class Likelihood(ABC, PyroModule, metaclass=PyroMeta):
         """
         self._mode = "model"
 
-        data_mask = ~torch.isnan(data)
-        data = torch.nan_to_num(data, nan=0.0)
-
         nonmissing_sample_plate = pyro.plate(
             f"{id}_samples_{group_name}_{self._view_name}",
             sample_plate.size,
@@ -101,32 +98,43 @@ class Likelihood(ABC, PyroModule, metaclass=PyroMeta):
                 feature_plate.indices[nonmissing_features] if isinstance(nonmissing_features, torch.Tensor) else None
             ),
         )  # pyro.plate can't handle slices
-        obsdist = self._model(
-            id, estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
+
+        data_mask = torch.ones(
+            (nonmissing_sample_plate.subsample_size, nonmissing_feature_plate.subsample_size), dtype=torch.bool
         )
+        for key, cdata in data.items():
+            data_mask &= ~torch.isnan(cdata)
+            data[key] = torch.nan_to_num(cdata, nan=0.0)
+
+        obsdist, obsdata = self._model(
+            id, data, estimate, group_name, sample_plate, feature_plate, nonmissing_samples, nonmissing_features
+        )
+
         with (
             pyro.poutine.mask(mask=data_mask),
             pyro.poutine.scale(scale=scale),
             nonmissing_sample_plate,
             nonmissing_feature_plate,
         ):
-            return pyro.sample(f"{id}_observed_{group_name}_{self._view_name}", obsdist, obs=data)
+            return pyro.sample(f"{id}_observed_{group_name}_{self._view_name}", obsdist, obs=obsdata)
 
     @abstractmethod
     def _model(
         self,
         id: str,
+        data: Mapping[str | None, torch.Tensor],
         estimate: torch.Tensor,
         group_name: str,
         sample_plate: pyro.plate,
         feature_plate: pyro.plate,
         nonmissing_samples: torch.Tensor | slice,
         nonmissing_features: torch.Tensor | slice,
-    ) -> pyro.distributions.Distribution:
+    ) -> tuple[pyro.distributions.Distribution, torch.Tensor]:
         """Pyro model for the likelihood.
 
         Args:
             id: ID to be used in Pyro sample site names to make them unique if multiple instances of the same likelihood are used.
+            data: The observerd data.
             estimate: The model estimate.
             group_name: The group name.
             sample_plate: Pyro plate for the samples.
@@ -137,7 +145,9 @@ class Likelihood(ABC, PyroModule, metaclass=PyroMeta):
                 in the current group and view.
 
         Returns:
-            A Pyro distribution object that can be used with `pyro.sample`.
+            A tuple with two elements. The first element is a Pyro distribution object that can be used with `pyro.sample`.
+            The second element is the data tensor to use with `pyro.sample` as `obs` argument. This should be one of the elements
+            of the `data` argument.
         """
         pass
 
