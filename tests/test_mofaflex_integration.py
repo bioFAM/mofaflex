@@ -510,7 +510,7 @@ def test_imputation(rng, anndata_dict, usedask, apply_link):
                 new_X = new_X.toarray()
             nonnan = ~np.isnan(orig_X)
             if not apply_link:
-                orig_X = preprocessor(orig_X, slice(None), slice(None), group_name, view_name)[0]
+                orig_X = preprocessor({None: orig_X}, slice(None), slice(None), group_name, view_name)[0]
                 orig_X = model._model._likelihoods[view_name].transform_data(
                     orig_X,
                     group_name,
