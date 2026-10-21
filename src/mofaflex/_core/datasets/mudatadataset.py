@@ -118,6 +118,21 @@ class MuDataDataset(MofaFlexDataset):
                                 )
                     elif mod_layer is not None:
                         raise TypeError(f"Unsupported layer type {type(mod_layer).__name__} for modality {mod_name}.")
+
+                if data.axis == 1:
+                    modlayers = set()
+                    for modname in data.mod.keys():
+                        modlayer = layer.get(modname)
+                        if isinstance(modlayer, Mapping):
+                            modlayers.add(tuple(sorted(modlayer.keys())))
+                        else:
+                            modlayers.add((None,))
+                    if len(modlayers) > 1:
+                        if len({len(clayers) for clayers in modlayers}) > 1:
+                            raise ValueError("The number of specified layers must be the same for all groups.")
+                        else:
+                            raise ValueError("The assignment of layers to names must be the same for all groups.")
+
                 layerfunc = lambda modname: (
                     {None: modlayer} if isinstance(modlayer := layer.get(modname), str | None) else modlayer
                 )
@@ -623,6 +638,10 @@ class MuDataAxis0Dataset(MuDataDataset):
     def feature_names(self) -> dict[str, Vector[str]]:
         return {viewname: mod.var_names.to_numpy() for viewname, mod in self._data.mod.items()}
 
+    @property
+    def n_layers(self) -> dict[str, int]:
+        return {modname: len(mod.layers) for modname, mod in self._data.mod.items()}
+
     def __getitems__(self, idx: Mapping[str, int | Sequence[int]]) -> dict[str, dict]:
         data = {}
         nonmissing_obs = {}
@@ -825,6 +844,11 @@ class MuDataAxis1Dataset(MuDataDataset):
     @property
     def sample_names(self) -> dict[str, Vector[str]]:
         return {groupname: mod.obs_names.to_numpy() for groupname, mod in self._data.mod.items()}
+
+    @property
+    def n_layers(self) -> dict[str, int]:
+        nlayers = len(next(iter(self._data.mod.values())).layers)
+        return dict.fromkeys(self.view_names, nlayers)
 
     def __getitems__(self, idx: Mapping[str, int | Sequence[int]]) -> dict[str, dict]:
         data = {}

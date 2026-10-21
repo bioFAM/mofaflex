@@ -65,6 +65,8 @@ class MofaFlex(Term):
         guiding_vars_likelihoods: Likelihood for each guiding variable (if dict) or for all guiding variables (if str).
         guiding_vars_scales: Scale for the likelihood of each guiding variable, to put more or less emphasis on them during training.
         init_factors: Initialization method for factors.
+        init_factors_layer: The layer for each view to use for initialzing factors when `init_factors` is `"pca"` or `"nmf"`.
+            Must be one of the layers used by the respective view's likelihood.
         init_scale: Initialization scale of Normal distribution for factors.
     """
 
@@ -98,7 +100,7 @@ class MofaFlex(Term):
         guiding_vars_obs_keys: str | Sequence[str] | Mapping[str, Mapping[str, str]] | None = None,
         guiding_vars_likelihoods: Mapping[str, str] | Literal["Normal", "Categorical", "Bernoulli"] | None = "Normal",
         guiding_vars_scales: Mapping[str, float] | float = 1.0,
-        init_factors: float | Literal["random", "orthogonal", "pca"] = "random",
+        init_factors: float | Literal["random", "orthogonal", "pca", "nmf"] = "random",
         init_scale: float = 0.1,
     ):
         super().__init__()
@@ -414,7 +416,7 @@ class MofaFlex(Term):
 
     @staticmethod
     def _init_factor_group(adata, group_name, view_name, impute_missings, initializer):
-        arr = adata.X
+        arr = adata.layers[None]
         if issparse(arr):
             havenan = np.isnan(arr.data).any()
         else:
@@ -454,6 +456,10 @@ class MofaFlex(Term):
                     pca.fit(stats.norm.rvs(loc=0, scale=1, size=(n, self.n_total_factors)).T)
                     init_tensor[group_name]["loc"] = pca.components_.T
             case "pca" | "nmf" as init:
+                if any(n > 1 for n in data.n_layers.values()):
+                    raise ValueError(
+                        f"Initialization method '{init}' is not supported if at least one view has multiple layers."
+                    )
                 if init == "pca":
                     initializer = PCA(n_components=self.n_total_factors, whiten=True)
                 elif init == "nmf":
@@ -660,7 +666,7 @@ class MofaFlex(Term):
 
                 self._pyro_guiding_vars_likelihoods[guiding_var_name].model(
                     f"{id}_{guiding_var_name}",
-                    data=guiding_var,
+                    data={None: guiding_var},
                     estimate=loc,
                     group_name=group_name,
                     scale=self._guiding_vars_scales[guiding_var_name],

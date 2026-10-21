@@ -161,6 +161,10 @@ class AnnDataDataset(MofaFlexDataset):
     def feature_names(self) -> dict[str, Vector[str]]:
         return {self._view_name: self._data.var_names.to_numpy()}
 
+    @property
+    def n_layers(self) -> dict[str, int]:
+        return {self._view_name: None}
+
     def __getitems__(self, idx: Mapping[str, int | Sequence[int]]) -> dict[str, dict]:
         data = {}
         nonmissing_obs = {}
