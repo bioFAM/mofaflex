@@ -147,6 +147,8 @@ class InformedHorseshoe(Horseshoe, factors=False):
         annotation_confidence: Confidence in the provided feature annotation. Must be between 0 and 1.
             Smaller values make the model more likely to add features to the annotated pathways during
             training, while larger values encourage the model to more closely adhere to the provided annotations.
+        pcgse_layer: The layer for each view to use for correlation adjustment during the PCGSE test. Must be one
+            of the layers used by the view's likelihood.
     """
 
     _state_attrs = (
@@ -156,15 +158,21 @@ class InformedHorseshoe(Horseshoe, factors=False):
         "_informed_factors_start_idx",
         "_n_informed_factors",
         "_pcgse",
+        "_pcgse_layer",
     )
 
     def __init__(
-        self, names: str | Sequence[str], annotations_mkey: str | Mapping[str, str], annotation_confidence: float = 0.99
+        self,
+        names: str | Sequence[str],
+        annotations_mkey: str | Mapping[str, str],
+        annotation_confidence: float = 0.99,
+        pcgse_layer: Mapping[str, str | None] | str | None = None,
     ):
         super().__init__(names)
 
         self._annotations_mkey = annotations_mkey
         self._annotation_confidence = annotation_confidence
+        self._pcgse_layer = pcgse_layer
 
     def on_train_start(
         self,
@@ -300,6 +308,7 @@ class InformedHorseshoe(Horseshoe, factors=False):
             },
             min_size=1,
             subsample=settings.subsample_size,
+            layer=self._pcgse_layer,
         )
 
     @property

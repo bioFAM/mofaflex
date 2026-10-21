@@ -171,7 +171,9 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
             gnonmissing_samples = nonmissing_samples[group_name]
             gnonmissing_features = nonmissing_features[group_name]
             for view_name, view in group.items():
-                if view.numel() == 0:  # can occur in the last batch of an epoch if the batch is small
+                if any(
+                    v.numel() == 0 for v in view.values()
+                ):  # can occur in the last batch of an epoch if the batch is small
                     continue
                 prediction = None
                 for term in predictions:
@@ -233,7 +235,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
 
         for group_name, group in data.items():
             for view_name, view_obs in group.items():
-                if view_obs.numel() == 0:
+                if any(v.numel() == 0 for v in view_obs.values()):
                     continue
                 self._pyro_likelihoods[view_name].guide(
                     "", group_name, sample_plates[group_name], feature_plates[view_name]
@@ -314,9 +316,8 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
             else:
                 sample_idx = slice(None)
             mapped_sample_idx = map_local_indices_to_global(sample_idx, group_name, view_name, align_to="samples")  # noqa: F821
-            cdata = data.preprocessor(view.X[sample_idx, :], slice(None), slice(None), group_name, view_name)[0]
-            if issparse(cdata):
-                cdata = cdata.toarray()
+            cdata = data.preprocessor(view[sample_idx, :].layers, slice(None), slice(None), group_name, view_name)[0]
+            cdata = {k: v.toarray() if issparse(v) else v for k, v in cdata.items()}
 
             mapped_feature_idx = map_local_indices_to_global(  # noqa: F821
                 slice(None), group_name, view_name, align_to="features"
