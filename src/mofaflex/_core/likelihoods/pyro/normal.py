@@ -3,11 +3,11 @@ from collections.abc import Mapping
 import numpy as np
 import pyro
 import torch
-from numpy.typing import NDArray
 from pyro import distributions as dist
 from pyro.nn import pyro_method
 
 from ...settings import settings
+from ...utils import Vector
 from .base import LikelihoodWithDispersion
 
 
@@ -20,7 +20,7 @@ class Normal(LikelihoodWithDispersion):
         nsamples: Mapping[str, int],
         nfeatures: int,
         *,
-        shift: Mapping[str, NDArray[np.floating]] | None = None,
+        shift: Mapping[str, Vector[np.floating]] | None = None,
         scale: np.floating | Mapping[str, np.floating] | None = None,
         init_loc: float = 1.0,
         init_scale: float = 0.1,
@@ -66,4 +66,4 @@ class Normal(LikelihoodWithDispersion):
             except IndexError:
                 scale = self.__scale
             estimate = estimate * scale + self._shift[group_name][feature_plate.indices[nonmissing_features]]
-        return dist.Normal(estimate, dispersion + settings.get("eps")), data[None]
+        return dist.Normal(estimate, dispersion + settings.eps), data[None]

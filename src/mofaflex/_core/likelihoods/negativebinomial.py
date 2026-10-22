@@ -71,10 +71,10 @@ class NegativeBinomial(Likelihood):
     @classmethod
     def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
         if data.keys() != {None}:
-            return f"{cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
+            return f"The {cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
         data, xp = data[None]
         if not xp.allclose(data, xp.round(data)) or data.min() < 0:
-            return f"{cls.__name__} likelihood in view {view_name} must be used with count (non-negative integer) data."
+            return f"The {cls.__name__} likelihood in view {view_name} must be used with count (non-negative integer) data."
         return None
 
     def _r2_impl(
@@ -86,12 +86,14 @@ class NegativeBinomial(Likelihood):
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
         y_true = y_true[None]
-        ss_res = np.nansum(self._dV_square(y_true, y_pred, self._dispersion.mean[feature_idx], 1))
+        y_pred = (self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),)
+        dispersion = self._dispersion.mean[feature_idx]
+        ss_res = np.nansum(self._dV_square(y_true, y_pred, dispersion, 1))
 
         truemean = self._shift[group_name][feature_idx] * self._sample_means[group_name][sample_idx]
 
         # use estimated dispersion to get R2=0 for y_pred=0
-        ss_tot = np.nansum(self._dV_square(y_true, truemean, self._dispersion.mean[feature_idx], 1))
+        ss_tot = np.nansum(self._dV_square(y_true, truemean, dispersion, 1))
 
         return R2(ss_res, ss_tot)
 

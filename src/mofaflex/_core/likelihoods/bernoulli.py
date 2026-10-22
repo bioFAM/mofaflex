@@ -39,7 +39,7 @@ class Bernoulli(Likelihood):
 
         if nonnegative:
             _logger.warning(
-                "The Bernoulli likelihood does not support nonnegative views. Your results may be suboptimal."
+                f"The {self.__class__.__name__} likelihood does not support nonnegative views. Your results may be suboptimal."
             )
 
     def _get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
@@ -58,10 +58,10 @@ class Bernoulli(Likelihood):
     @classmethod
     def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
         if data.keys() != {None}:
-            return f"{cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
+            return f"The {cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
         data, xp = data[None]
         if not xp.all(xp.isclose(data, 0) | xp.isclose(data, 1)):  # TODO: set correct atol value
-            return f"{cls.__name__} likelihood in view {view_name} must be used with binary data."
+            return f"The {cls.__name__} likelihood in view {view_name} must be used with binary data."
         return None
 
     def _r2_impl(
@@ -73,6 +73,7 @@ class Bernoulli(Likelihood):
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
         y_true = y_true[None]
+        y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
         ss_res = np.nansum(self._dV_square(y_true, y_pred, -1, 1))
         ss_tot = np.nansum(self._dV_square(y_true, expit(self._shift[group_name][feature_idx]), -1, 1))
         return R2(ss_res, ss_tot)

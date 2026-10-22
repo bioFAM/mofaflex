@@ -3,6 +3,7 @@ from typing import Literal, TypeAlias
 from . import pyro
 from .base import Likelihood
 from .bernoulli import Bernoulli
+from .betabinomial import BetaBinomial
 from .negativebinomial import NegativeBinomial
 from .normal import Normal
 
