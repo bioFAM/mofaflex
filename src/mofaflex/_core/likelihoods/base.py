@@ -295,17 +295,11 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             The fraction of explained variance, or NaN if it is undefined, e.g. if the null model has zero deviance.
         """
         if not self._nonnegative:
-            r2 = self._r2_impl(
-                y_true,
-                self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),
-                group_name,
-                sample_idx,
-                feature_idx,
-            )
+            r2 = self._r2_impl(y_true, y_pred, group_name, sample_idx, feature_idx)
         else:
             r2 = self._deviance_explained_impl(y_true, y_pred, group_name, sample_idx, feature_idx)
-            if isinstance(r2, LogLikelihoods):
-                r2 = R2(r2.saturated - r2.model, r2.saturated - r2.null)
+        if isinstance(r2, LogLikelihoods):
+            r2 = R2(r2.saturated - r2.model, r2.saturated - r2.null)
 
         # np.max, in contrast to max, preserves NaNs, which the caller warns about
         return np.max((0.0, 1.0 - np.divide(r2.ss_res, r2.ss_tot)))

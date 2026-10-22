@@ -3,12 +3,12 @@ from collections.abc import Mapping
 import numpy as np
 import pyro
 import torch
-from numpy.typing import NDArray
 from pyro import distributions as dist
 from pyro.nn import pyro_method
 from torch.nn import functional as F
 
 from ...settings import settings
+from ...utils import Vector
 from .base import LikelihoodWithDispersion
 
 
@@ -20,9 +20,9 @@ class NegativeBinomial(LikelihoodWithDispersion):
         feature_dim: int,
         nsamples: Mapping[str, int],
         nfeatures: int,
-        sample_means: Mapping[str, NDArray[np.floating]],
+        sample_means: Mapping[str, Vector[np.floating]],
         *,
-        shift: Mapping[str, NDArray[np.floating]] | None = None,
+        shift: Mapping[str, Vector[np.floating]] | None = None,
         init_loc: float = np.e,
         init_scale: float = 0.1,
     ):

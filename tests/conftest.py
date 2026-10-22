@@ -1,4 +1,5 @@
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 
 import anndata as ad
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.sparse import csr_array
+from scipy.stats import betabinom
 
 import mofaflex as mfl
 
@@ -26,6 +28,10 @@ def random_array(rng):
                 arr = rng.binomial(1, 0.5, size=shape)
             case "NegativeBinomial":
                 arr = rng.negative_binomial(10, 0.9, size=shape)
+            case "BetaBinomial":
+                total = rng.poisson(20, size=shape)
+                sample = betabinom.rvs(n=total, a=5, b=10, random_state=rng)
+                return {"sample": sample, "total": total}
         return arr
 
     return _arr
@@ -34,11 +40,16 @@ def random_array(rng):
 @pytest.fixture(scope="session")
 def create_adata():
     def _adata(X, var_names=None, obs_names=None):
+        if isinstance(X, Mapping):
+            layers = X
+        else:
+            layers = {None: X}
+        adata = ad.AnnData(layers=layers)
         if var_names is None:
-            var_names = [f"var{i}" for i in range(X.shape[1])]
+            adata.var_names = [f"var{i}" for i in range(adata.shape[1])]
         if obs_names is None:
-            obs_names = [f"obs{i}" for i in range(X.shape[0])]
-        return ad.AnnData(layers={None: X}, var=pd.DataFrame(index=var_names), obs=pd.DataFrame(index=obs_names))
+            adata.obs_names = [f"obs{i}" for i in range(adata.shape[0])]
+        return adata
 
     return _adata
 

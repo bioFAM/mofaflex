@@ -1,11 +1,13 @@
+from collections.abc import Mapping
+
 import numpy as np
 import pytest
 from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, issparse
-from scipy.special import expit
+from scipy.special import expit, logit
 from scipy.stats import bernoulli
 
 from mofaflex._core import MofaFlexDataset
-from mofaflex._core.likelihoods import Bernoulli, Likelihood, NegativeBinomial, Normal
+from mofaflex._core.likelihoods import Bernoulli, BetaBinomial, Likelihood, NegativeBinomial, Normal
 from mofaflex._core.likelihoods.base import R2, LogLikelihoods
 from mofaflex._core.utils import MeanStd, sample_all_data_as_one_batch
 
@@ -51,10 +53,14 @@ def adata_dict(rng, create_adata, random_array, group_names, view_names):
         for group_name in group_names:
             cdata = {}
             for view_name in view_names:
-                arr = random_array(likelihood, (100, 30))
+                shape = (100, 30)
+                arr = random_array(likelihood, shape)
                 if sparse_arr is not None:
-                    arr = sparse_arr[group_name][view_name](arr)
-                cdata[view_name] = create_adata(arr, obs_names=[f"{group_name}_{i}" for i in range(arr.shape[0])])
+                    if isinstance(arr, Mapping):
+                        arr = {k: sparse_arr[group_name][view_name](v) for k, v in arr.items()}
+                    else:
+                        arr = sparse_arr[group_name][view_name](arr)
+                cdata[view_name] = create_adata(arr, obs_names=[f"{group_name}_{i}" for i in range(shape[0])])
             data[group_name] = cdata
         return data
 
@@ -84,19 +90,21 @@ class _TestLikelihood:
     def y_true(self, dataset):
         return dataset.__getitems__(sample_all_data_as_one_batch(dataset))["data"]
 
-    def test_r2(self, y_true, likelihoods, nonnegative, subtests):
+    def intermediate_prediction(self, view, likelihood, group_name):
+        return likelihood.transform_data({k: 0.5 * v for k, v in view.items()}, group_name)
+
+    def test_r2(self, y_true, likelihoods, nonnegative, dataset, subtests):
         for group_name, group in y_true.items():
             for view_name, view in group.items():
-                if issparse(view[None]):
-                    view[None] = view[None].toarray()
+                view = {k: v.toarray() if issparse(v) else v for k, v in group[view_name].items()}
                 likelihood = likelihoods[view_name]
 
                 with subtests.test("null model"):
-                    null = np.broadcast_to(0, view[None].shape)
+                    null = np.broadcast_to(0, (dataset.n_samples[group_name], dataset.n_features[view_name]))
                     if nonnegative[view_name]:
                         res = likelihood._deviance_explained_impl(view, null, group_name)
                     else:
-                        res = likelihood._r2_impl(view, likelihood.transform_prediction(null, group_name), group_name)
+                        res = likelihood._r2_impl(view, null, group_name)
                     if isinstance(res, LogLikelihoods):
                         res = R2(res.saturated - res.model, res.saturated - res.null)
 
@@ -108,38 +116,45 @@ class _TestLikelihood:
                     assert np.isclose(1, r2)
 
                 with subtests.test("intermediate model"):
-                    r2 = likelihood.r2(
-                        view, likelihood.transform_data({None: 0.5 * (null + view[None])}, group_name), group_name
-                    )
+                    r2 = likelihood.r2(view, self.intermediate_prediction(view, likelihood, group_name), group_name)
                     assert 0.05 < r2 < 1
 
     @pytest.mark.parametrize(
         "r2", (R2(np.nan, 1.0), R2(1.0, np.nan), R2(0.0, 0.0)), ids=("nan_res", "nan_tot", "zero_deviance")
     )
-    def test_degenerate_is_nan(self, likelihoods, y_true, r2, monkeypatch):
+    def test_degenerate_is_nan(self, likelihoods, y_true, dataset, r2, monkeypatch):
         # a degenerate null model must not be turned into a plausible-looking 0 by the clamp
         for view_name, likelihood in likelihoods.items():
             func = lambda *args, **kwargs: r2
             monkeypatch.setattr(likelihood, "_deviance_explained_impl", func)
             monkeypatch.setattr(likelihood, "_r2_impl", func)
             for group_name, group in y_true.items():
-                view = group[view_name]
-                if issparse(view[None]):
-                    view[None] = view[None].toarray()
-                assert np.isnan(likelihood.r2(view, np.broadcast_to(0, view[None].shape), group_name))
+                view = {k: v.toarray() if issparse(v) else v for k, v in group[view_name].items()}
+                assert np.isnan(
+                    likelihood.r2(
+                        view,
+                        np.broadcast_to(0, (dataset.n_samples[group_name], dataset.n_features[view_name])),
+                        group_name,
+                    )
+                )
 
     @pytest.mark.parametrize("r2", (R2(np.inf, 1.0), R2(1.0, 0.0)), ids=("inf_res", "zero_tot"))
-    def test_degenerate_clamps(self, likelihoods, y_true, r2, monkeypatch):
+    def test_degenerate_clamps(self, likelihoods, y_true, dataset, r2, monkeypatch):
         # the model is infinitely worse than the null model, e.g. a count of zero predicted for a nonzero observation
         for view_name, likelihood in likelihoods.items():
             func = lambda *args, **kwargs: r2
             monkeypatch.setattr(likelihood, "_deviance_explained_impl", func)
             monkeypatch.setattr(likelihood, "_r2_impl", func)
             for group_name, group in y_true.items():
-                view = group[view_name]
-                if issparse(view[None]):
-                    view[None] = view[None].toarray()
-                assert likelihood.r2(view, np.broadcast_to(0, view[None].shape), group_name) == 0
+                view = {k: v.toarray() if issparse(v) else v for k, v in group[view_name].items()}
+                assert (
+                    likelihood.r2(
+                        view,
+                        np.broadcast_to(0, (dataset.n_samples[group_name], dataset.n_features[view_name])),
+                        group_name,
+                    )
+                    == 0
+                )
 
 
 class TestNormal(_TestLikelihood):
@@ -196,6 +211,9 @@ class TestBernoulli(_TestLikelihood):
     def dataset(self, adata_dict, sparse_arr):
         return MofaFlexDataset(adata_dict("Bernoulli", sparse_arr), cast_to=None)
 
+    def intermediate_prediction(self, view, likelihood, group_name):
+        return logit(np.clip(view[None], 0.25, 0.75))
+
     def test_center_data(self, likelihoods, y_true, nonnegative):
         for group_name, group in y_true.items():
             for view_name, view in group.items():
@@ -236,3 +254,35 @@ class TestNegativeBinomial(_TestLikelihood):
                         ).mean(axis=0),
                         0,
                     )
+
+
+class TestBetaBinomial(_TestLikelihood):
+    @pytest.fixture(scope="class")
+    def likelihoods(self, dataset, nonnegative):
+        ret = {}
+        for view_name, nn in nonnegative.items():
+            likelihood = BetaBinomial(view_name, dataset, nn)
+            likelihood._dispersion = MeanStd(
+                np.full(dataset.n_features[view_name], 0.1), None
+            )  # not trained, so set manually
+            ret[view_name] = likelihood
+        return ret
+
+    @pytest.fixture(scope="class")
+    def dataset(self, adata_dict, sparse_arr):
+        return MofaFlexDataset(
+            adata_dict("BetaBinomial", sparse_arr), cast_to=None, layer={"sample": "sample", "total": "total"}
+        )
+
+    def intermediate_prediction(self, view, likelihood, group_name):
+        return 0.5 * (logit(view["sample"] / view["total"]) - likelihood._shift[group_name])
+
+    def test_center_data(self, likelihoods, y_true, nonnegative):
+        for group_name, group in y_true.items():
+            for view_name, view in group.items():
+                assert np.allclose(
+                    np.nanmean(
+                        view["sample"] / view["total"] - expit(likelihoods[view_name]._shift[group_name]), axis=0
+                    ),
+                    0,
+                )
