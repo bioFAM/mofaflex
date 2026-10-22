@@ -111,18 +111,18 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     @classmethod
     @abstractmethod
-    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number], ModuleType]]) -> bool:
+    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number], ModuleType]], view_name: str) -> str | None:
         """Validate that the current likelihood is suitable for the given data.
 
         Args:
-            data: The data.
-            xp: The array-API namespace for the given data.
+            data: The data. Can have multiple layers. First tuple element is the data for the layer, the second is the
+                array-API namespace for it.
+            view_name: The view name.
+
+        Returns:
+            `None` if validation succeeds, otherwise an error message.
         """
         pass
-
-    @classmethod
-    def _format_validate_exception(cls, view_name: str) -> str:
-        return view_name
 
     @classmethod
     def validate(cls, view: AnnData, group_name: str, view_name: str):
@@ -140,8 +140,8 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             xp = array_namespace(v)
             data[k] = v[~xp.isnan(v)], xp
 
-        if not cls._validate(data):
-            raise ValueError(cls._format_validate_exception(view_name))
+        if (msg := cls._validate(data, view_name)) is not None:
+            raise ValueError(msg)
 
     @classmethod
     def infer(cls, view: AnnData, group_name: Vector[str], view_name: str) -> type["Likelihood"]:
@@ -159,7 +159,11 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             xp = array_namespace(v)
             data[k] = v[~xp.isnan(v)], xp
 
-        inferred = {subcls: subcls._priority for subcls in __class__._registry.values() if subcls._validate(data)}
+        inferred = {
+            subcls: subcls._priority
+            for subcls in __class__._registry.values()
+            if subcls._validate(data, view_name) is None
+        }
         if not inferred:
             raise ValueError(f"Could not infer likelihood for view {view_name}.")
         lklhdcls = max(((subcls, prio) for subcls, prio in inferred.items()), key=lambda x: x[1])[0]

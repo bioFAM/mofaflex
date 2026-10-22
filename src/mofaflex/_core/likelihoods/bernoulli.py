@@ -56,15 +56,13 @@ class Bernoulli(Likelihood):
         self._shift = self._impute_feature_summary_statistics(self._shift)
 
     @classmethod
-    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType]) -> bool:
+    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
         if data.keys() != {None}:
-            return False
+            return f"{cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
         data, xp = data[None]
-        return xp.all(xp.isclose(data, 0) | xp.isclose(data, 1))  # TODO: set correct atol value
-
-    @classmethod
-    def _format_validate_exception(cls, view_name: str) -> str:
-        return f"Bernoulli likelihood in view {view_name} must be used with binary data."
+        if not xp.all(xp.isclose(data, 0) | xp.isclose(data, 1)):  # TODO: set correct atol value
+            return f"{cls.__name__} likelihood in view {view_name} must be used with binary data."
+        return None
 
     def _r2_impl(
         self,
