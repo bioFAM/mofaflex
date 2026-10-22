@@ -69,15 +69,13 @@ class NegativeBinomial(Likelihood):
             means[np.isnan(means)] = np.nanmean(means)
 
     @classmethod
-    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType]) -> bool:
+    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
         if data.keys() != {None}:
-            return False
+            return f"{cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
         data, xp = data[None]
-        return xp.allclose(data, xp.round(data)) and data.min() >= 0
-
-    @classmethod
-    def _format_validate_exception(cls, view_name: str) -> str:
-        return f"NegativeBinomial likelihood in view {view_name} must be used with count (non-negative integer) data."
+        if not xp.allclose(data, xp.round(data)) or data.min() < 0:
+            return f"{cls.__name__} likelihood in view {view_name} must be used with count (non-negative integer) data."
+        return None
 
     def _r2_impl(
         self,
