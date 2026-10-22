@@ -91,7 +91,7 @@ class Normal(Likelihood):
     @classmethod
     def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
         if data.keys() != {None}:
-            return f"{cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
+            return f"The {cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
         return None
 
     def _r2_impl(
@@ -103,27 +103,12 @@ class Normal(Likelihood):
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
         y_true = y_true[None]
+        y_pred = (self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),)
         ss_res = np.nansum(np.square(y_true - y_pred))
         ss_tot = np.nansum(np.square(y_true - self._shift[group_name][feature_idx]))
         return R2(ss_res, ss_tot)
 
-    def _deviance_explained_impl(
-        self,
-        y_true: Mapping[str | None, Matrix[np.number]],
-        y_pred: Matrix[np.floating],
-        group_name: str,
-        sample_idx: Vector[int] | slice = slice(None),
-        feature_idx: Vector[int] | slice = slice(None),
-    ) -> R2:
-        y_true = y_true[None]
-        # fraction of deviance explained reduces to standard R2 for Gaussian likelihood
-        return self._r2_impl(
-            y_true,
-            self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),
-            group_name,
-            sample_idx,
-            feature_idx,
-        )
+    _deviance_explained_impl = _r2_impl
 
     def transform_prediction(
         self,

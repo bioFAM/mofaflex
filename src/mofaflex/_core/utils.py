@@ -387,6 +387,8 @@ def nanmean(arr: PossiblySparseMatrix, axis: int | None = None, keepdims=False):
             if keepdims:
                 mean = np.expand_dims(mean, axis)
     else:
+        if isinstance(arr, np.matrix):
+            arr = arr.A
         mean = np.nanmean(arr, axis=axis, keepdims=keepdims)
     return mean
 
