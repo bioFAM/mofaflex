@@ -125,6 +125,10 @@ nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     #     ("py:class", "igraph.Graph"),
+    ("py:class", "mofaflex._core.api.likelihoods.Likelihood"),
+    ("py:class", "mofaflex._core.datasets.base.MofaFlexDataset"),
+    ("py:class", "mofaflex._core.api.priors.Prior"),
+    ("py:class", "numpy.float32"),
 ]
 
 ogp_site_url = "https://mofaflex.readthedocs.io/stable/"

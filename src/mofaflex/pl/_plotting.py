@@ -1034,7 +1034,7 @@ def _plot_gp_smoothness(
     return plt
 
 
-def factor_gp_smoothness(model: types.terms.MofaFlex | MOFAFLEX, figsize: tuple[float, float] = (3, 3)) -> p9.gglot:
+def factor_gp_smoothness(model: types.terms.MofaFlex | MOFAFLEX, figsize: tuple[float, float] = (3, 3)) -> p9.ggplot:
     """Plot the smoothness of the GP for each factor.
 
     Args:
@@ -1044,7 +1044,7 @@ def factor_gp_smoothness(model: types.terms.MofaFlex | MOFAFLEX, figsize: tuple[
     return _plot_gp_smoothness(model.factor_gp_scale, model.factor_names, figsize)
 
 
-def weight_gp_smoothness(model: types.terms.MofaFlex | MOFAFLEX, figsize: tuple[float, float] = (3, 3)) -> p9.gglot:
+def weight_gp_smoothness(model: types.terms.MofaFlex | MOFAFLEX, figsize: tuple[float, float] = (3, 3)) -> p9.ggplot:
     """Plot the smoothness of the GP for each factor.
 
     Args:
@@ -1303,7 +1303,7 @@ def weight_sparsity_histogram(
 
 
 def factor_sparsity_histogram(
-    model: types.terms.Mofaflex | MOFAFLEX, bins: int = 50, nrow: int | None = None, ncol: int | None = None
+    model: types.terms.MofaFlex | MOFAFLEX, bins: int = 50, nrow: int | None = None, ncol: int | None = None
 ):
     """Plot a histogram of probabilities that factors are non-zero for views with SnS prior.
 
