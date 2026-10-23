@@ -17,14 +17,19 @@ _ngroups = 2
 _nviews = 3
 
 
-@pytest.fixture(scope="module", params=["Normal", "Bernoulli", "NegativeBinomial"])
+@pytest.fixture(scope="module", params=["Normal", "Bernoulli", "NegativeBinomial", "BetaBinomial"])
 def likelihood(request):
     return request.param
 
 
 @pytest.fixture(scope="module", params=[np.asarray, csc_array, csc_matrix, csr_array, csr_matrix])
 def adata(rng, create_adata, likelihood, random_array, request):
-    return create_adata(request.param(random_array(likelihood, (20, 5))))
+    arr = random_array(likelihood, (20, 5))
+    if isinstance(arr, Mapping):
+        arr = {k: request.param(v) for k, v in arr.items()}
+    else:
+        arr = request.param(arr)
+    return create_adata(arr)
 
 
 def test_infer_likelihoods(adata, likelihood):

@@ -1,9 +1,10 @@
 import logging
 from collections.abc import Mapping
-from types import ModuleType
 
 import numpy as np
 from anndata import AnnData
+from array_api_compat import array_namespace
+from scipy.sparse import issparse
 from scipy.special import expit, logit
 
 from ..datasets import MofaFlexDataset
@@ -56,10 +57,14 @@ class Bernoulli(Likelihood):
         self._shift = self._impute_feature_summary_statistics(self._shift)
 
     @classmethod
-    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
-        if data.keys() != {None}:
-            return f"The {cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
-        data, xp = data[None]
+    def _validate(cls, adata: AnnData, view_name: str) -> str | None:
+        if adata.layers.keys() != {None}:
+            return f"The {cls.__name__} likelihood requires one layer, got {len(adata.layers)} for view {view_name}."
+        data = adata.layers[None]
+        if issparse(data):
+            data = data.data
+        xp = array_namespace(data)
+        data = data[~xp.isnan(data)]
         if not xp.all(xp.isclose(data, 0) | xp.isclose(data, 1)):  # TODO: set correct atol value
             return f"The {cls.__name__} likelihood in view {view_name} must be used with binary data."
         return None

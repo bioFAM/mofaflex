@@ -31,6 +31,7 @@ _LAYERSPECS_SEPARATE_PER_GROUP_VIEW = reduce(
 @pytest.fixture(scope="module")
 def anndata_dict(random_adata, rng):
     big_adata = random_adata("Normal", 500, 100)
+    big_adata.layers["layer1"] = big_adata.layers["layer2"] = big_adata.X
     permuted = rng.permutation(range(500))
     group1_size = rng.choice(500)
     group_idxs = (permuted[:group1_size], permuted[group1_size:])

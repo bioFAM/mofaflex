@@ -1,13 +1,11 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from types import MappingProxyType, ModuleType
+from types import MappingProxyType
 from typing import Any, NamedTuple
 
 import numpy as np
 from anndata import AnnData
-from array_api_compat import array_namespace
-from scipy.sparse import issparse
 from sklearn.experimental import enable_iterative_imputer  # noqa: F401
 from sklearn.impute import IterativeImputer
 from sklearn.linear_model import BayesianRidge
@@ -111,12 +109,11 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
 
     @classmethod
     @abstractmethod
-    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number], ModuleType]], view_name: str) -> str | None:
+    def _validate(cls, adata: AnnData, view_name: str) -> str | None:
         """Validate that the current likelihood is suitable for the given data.
 
         Args:
-            data: The data. Can have multiple layers. First tuple element is the data for the layer, the second is the
-                array-API namespace for it.
+            adata: The data. Can have multiple layers.
             view_name: The view name.
 
         Returns:
@@ -133,14 +130,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             group_name: The group name.
             view_name: The view name.
         """
-        data = {}
-        for k, v in view.layers.items():
-            if issparse(v):
-                v = v.data
-            xp = array_namespace(v)
-            data[k] = v[~xp.isnan(v)], xp
-
-        if (msg := cls._validate(data, view_name)) is not None:
+        if (msg := cls._validate(view, view_name)) is not None:
             raise ValueError(msg)
 
     @classmethod
@@ -152,17 +142,10 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             group_name: The group name.
             view_name: The view name.
         """
-        data = {}
-        for k, v in view.layers.items():
-            if issparse(v):
-                v = v.data
-            xp = array_namespace(v)
-            data[k] = v[~xp.isnan(v)], xp
-
         inferred = {
             subcls: subcls._priority
             for subcls in __class__._registry.values()
-            if subcls._validate(data, view_name) is None
+            if subcls._validate(view, view_name) is None
         }
         if not inferred:
             raise ValueError(f"Could not infer likelihood for view {view_name}.")

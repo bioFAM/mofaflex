@@ -38,7 +38,7 @@ def subset_var(request):
 
 class MuDataDatasetTest:
     @pytest.fixture(scope="class")
-    def mdata(self, rng, mdata_axis):
+    def mdata(self, rng, random_adata, mdata_axis):
         nobs = 500
         nvar_per_mod = 20
         ngroups = 4
@@ -58,28 +58,17 @@ class MuDataDatasetTest:
                 cobs_names = [f"mod_{mod}_sample_{i}" for i in range(nvar_per_mod)]
                 cvar_names = rng.choice(var_names, size=int(0.8 * nobs), replace=False)
 
-            adata = ad.AnnData(
-                X=rng.poisson(0.5, size=(len(cobs_names), len(cvar_names))),
-                layers={"layer1": rng.normal(0, 1, size=(len(cobs_names), len(cvar_names))).astype(np.float32)},
-                obs=pd.DataFrame(index=cobs_names),
-                var=pd.DataFrame(index=cvar_names),
-            )
+            adata = random_adata("Normal", len(cobs_names), len(cvar_names))
+            adata.obs_names = cobs_names
+            adata.var_names = cvar_names
+            adata.layers["layer1"] = adata.X
             if mod < 2:
-                adata.layers["layer2"] = rng.normal(0, 1, size=(len(cobs_names), len(cvar_names))).astype(np.float32)
-                adata.obs["covar"] = rng.random(size=adata.n_obs)
-                adata.obsm["covar_df"] = pd.DataFrame(
-                    rng.random(size=(adata.n_obs, 3)), columns=["a", "b", "c"], index=adata.obs_names
-                )
-                adata.obsm["covar_array"] = rng.random(size=(adata.n_obs, 3))
-                adata.obsm["covar_sparse"] = sparse.csr_array(rng.poisson(size=(adata.n_obs, 3)))
-                adata.var["covar"] = rng.random(size=adata.n_vars)
-                adata.varm["annot_df"] = pd.DataFrame(
-                    rng.random(size=(adata.n_vars, 10)),
-                    columns=[f"annot_view_{mod}_{i}" for i in range(10)],
-                    index=adata.var_names,
-                )
-                adata.varm["annot_array"] = rng.random(size=(adata.n_vars, 10))
-                adata.varm["annot_sparse"] = sparse.csr_array(rng.poisson(size=(adata.n_vars, 4)))
+                adata.layers["layer2"] = adata.X
+            else:
+                del adata.obs["covar"]
+                del adata.var["covar"]
+                adata.obsm = {}
+                adata.varm = {}
             adatas[f"mod_{mod}"] = adata
 
         adatas["mod_0"].X = sparse.csr_array(adatas["mod_0"].X)
@@ -119,7 +108,7 @@ class MuDataDatasetTest:
         )
         mdata.varm["annot_array"] = rng.permuted(global_annot, axis=0)
 
-        global_annot_sparse = sparse.csr_array(rng.poisson(size=(mdata.n_var, 4)).astype(np.float32))
+        global_annot_sparse = sparse.csr_array(rng.poisson(size=(mdata.n_var, 10)).astype(np.float32))
         global_annot_sparse[~mdata.var_names.isin(adatas["mod_2"].var_names)] = np.nan
         mdata.varm["annot_sparse"] = global_annot_sparse
 
