@@ -1,9 +1,11 @@
 from collections.abc import Mapping
-from types import ModuleType
 from typing import Literal
 
 import numpy as np
 import pandas as pd
+from anndata import AnnData
+from array_api_compat import array_namespace
+from scipy.sparse import issparse
 from scipy.stats import nbinom
 
 from ..datasets import MofaFlexDataset
@@ -69,10 +71,14 @@ class NegativeBinomial(Likelihood):
             means[np.isnan(means)] = np.nanmean(means)
 
     @classmethod
-    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
-        if data.keys() != {None}:
-            return f"The {cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
-        data, xp = data[None]
+    def _validate(cls, adata: AnnData, view_name: str) -> str | None:
+        if adata.layers.keys() != {None}:
+            return f"The {cls.__name__} likelihood requires one layer, got {len(adata.layers)} for view {view_name}."
+        data = adata.layers[None]
+        if issparse(data):
+            data = data.data
+        xp = array_namespace(data)
+        data = data[~xp.isnan(data)]
         if not xp.allclose(data, xp.round(data)) or data.min() < 0:
             return f"The {cls.__name__} likelihood in view {view_name} must be used with count (non-negative integer) data."
         return None

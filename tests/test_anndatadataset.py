@@ -1,6 +1,5 @@
 from collections.abc import Mapping
 
-import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
@@ -12,40 +11,16 @@ from mofaflex._core.datasets import AnnDataDataset, MofaFlexDataset
 
 
 @pytest.fixture(scope="module", params=[False, True])
-def adata(rng, request):
+def adata(rng, random_adata, request):
     make_sparse = request.param
-    nobs = 500
-    nvar = 20
     ngroups = 4
-
-    obs_names = rng.choice([f"cell_{i}" for i in range(nobs)], size=nobs, replace=False)
-    var_names = [f"feature_{i}" for i in range(nvar)]
-    adata = ad.AnnData(
-        X=rng.poisson(0.5, size=(nobs, nvar)),
-        layers={"layer1": rng.normal(0, 1, size=(nobs, nvar)).astype(np.float32)},
-        obs=pd.DataFrame(
-            {"covar": rng.random(size=nobs), "batch": pd.Categorical(rng.choice(ngroups, size=nobs).astype(str))},
-            index=obs_names,
-        ),
-        var=pd.DataFrame(
-            {"covar": rng.random(size=nvar), "highly_variable": rng.choice((True, False), size=nvar, p=[0.4, 0.6])},
-            index=var_names,
-        ),
-        obsm={
-            "covar_df": pd.DataFrame(rng.random(size=(nobs, 3)), columns=["a", "b", "c"], index=obs_names),
-            "covar_array": rng.random(size=(nobs, 3)),
-            "covar_sparse": sparse.csr_array(rng.poisson(size=(nobs, 3))),
-        },
-        varm={
-            "annot_df": pd.DataFrame(
-                rng.random(size=(nvar, 10)), columns=[f"annot_{i}" for i in range(10)], index=var_names
-            ),
-            "annot_array": rng.random(size=(nvar, 10)),
-            "annot_sparse": sparse.csr_array(rng.poisson(size=(nvar, 4))),
-        },
-    )
+    adata = random_adata("Normal", 500, 20)
+    adata.obs["batch"] = pd.Categorical(rng.choice(ngroups, size=adata.n_obs).astype(str))
+    adata.var["highly_variable"] = rng.choice((True, False), size=adata.n_vars, p=[0.4, 0.6])
     if make_sparse:
         adata.X = sparse.csr_array(adata.X)
+
+    adata.layers["layer1"] = adata.layers["layer2"] = adata.X
 
     return adata
 
