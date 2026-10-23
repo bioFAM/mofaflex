@@ -36,16 +36,13 @@ def compare_nested(data1, data2):
 
 
 @pytest.fixture
-def anndata_dict(random_adata, request, rng):
-    with_betabinomial = getattr(request, "param", False)
-
-    big_adatas = [
+def anndata_dict(random_adata, rng):
+    big_adatas = (
         random_adata("Normal", 500, 100, var_names=[f"normal_var_{i}" for i in range(100)]),
         random_adata("Bernoulli", 400, 200, var_names=[f"bernoulli_var_{i}" for i in range(200)]),
         random_adata("NegativeBinomial", 600, 90, var_names=[f"negativebinomial_var_{i}" for i in range(90)]),
-    ]
-    if with_betabinomial:
-        big_adatas.append(random_adata("BetaBinomial", 600, 90, var_names=[f"betabinomial_var_{i}" for i in range(90)]))
+        random_adata("BetaBinomial", 600, 90, var_names=[f"betabinomial_var_{i}" for i in range(90)]),
+    )
 
     group_idxs = [None] * len(big_adatas)
     while True:
@@ -73,17 +70,15 @@ def anndata_dict(random_adata, request, rng):
     adata_dict["group_1"]["view_negativebinomial"].X = csc_array(adata_dict["group_1"]["view_negativebinomial"].X)
     adata_dict["group_2"]["view_bernoulli"].X = csr_matrix(adata_dict["group_2"]["view_bernoulli"].X)
     adata_dict["group_2"]["view_negativebinomial"].X = csc_matrix(adata_dict["group_2"]["view_negativebinomial"].X)
-
-    if with_betabinomial:
-        adata_dict["group_1"]["view_betabinomial"].layers["sample"] = csr_array(
-            adata_dict["group_1"]["view_betabinomial"].layers["sample"]
-        )
-        adata_dict["group_2"]["view_betabinomial"].layers["sample"] = csc_matrix(
-            adata_dict["group_2"]["view_betabinomial"].layers["sample"]
-        )
-        adata_dict["group_2"]["view_betabinomial"].layers["total"] = csc_matrix(
-            adata_dict["group_2"]["view_betabinomial"].layers["total"]
-        )
+    adata_dict["group_1"]["view_betabinomial"].layers["sample"] = csr_array(
+        adata_dict["group_1"]["view_betabinomial"].layers["sample"]
+    )
+    adata_dict["group_2"]["view_betabinomial"].layers["sample"] = csc_matrix(
+        adata_dict["group_2"]["view_betabinomial"].layers["sample"]
+    )
+    adata_dict["group_2"]["view_betabinomial"].layers["total"] = csc_matrix(
+        adata_dict["group_2"]["view_betabinomial"].layers["total"]
+    )
 
     return adata_dict
 
@@ -125,7 +120,11 @@ def model_api_untrained_only():
         ("term_mofaflex", "weight_prior", "Normal"),
         ("term_mofaflex", "weight_prior", "Laplace"),
         ("term_mofaflex", "weight_prior", "Horseshoe"),
-        ("term_mofaflex", "weight_prior", priors.InformedHorseshoe(annotations_mkey="annot_df")),
+        (
+            "term_mofaflex",
+            "weight_prior",
+            priors.InformedHorseshoe(annotations_mkey="annot_df", pcgse_layer={"view_betabinomial": "total"}),
+        ),
         ("term_mofaflex", "weight_prior", "SpikeSlab"),
         ("term_mofaflex", "factor_prior", {"group_1": "Normal", "group_2": priors.Laplace()}),
         ("term_mofaflex", "factor_prior", {("group_1", "group_2"): "Laplace"}),
@@ -184,11 +183,17 @@ def test_integration(
             "view_normal": likelihoods.Normal(**{argname: argval}),
             "view_negativebinomial": "NegativeBinomial",
             "view_bernoulli": likelihoods.Bernoulli(),
+            "view_betabinomial": likelihoods.BetaBinomial(),
         }
 
+    fitargs = {"layer": {"view_betabinomial": {"sample": "sample", "total": "total"}}}
     termargs = {}
     if argfor == "term_mofaflex":
         termargs[argname] = argval
+        if argname == "init_factors" and argval == "pca":
+            for group in anndata_dict.values():
+                del group["view_betabinomial"]
+            del fitargs["layer"]
     model = terms.MofaFlex(
         n_factors=5,
         guiding_vars_likelihoods={
@@ -203,7 +208,6 @@ def test_integration(
         with pytest.raises(RuntimeError, match="not yet trained"):
             getattr(model, api)()
 
-    fitargs = {}
     if argfor == "fit":
         fitargs[argname] = argval
     with chdir(tmp_path), settings.override(use_dask=usedask):
@@ -268,34 +272,19 @@ def test_integration(
 
 
 @pytest.mark.parametrize("usedask", [False, True])
-@pytest.mark.parametrize("n_particles", [1, 5])
-@pytest.mark.parametrize("batch_size", [0, 257])
-@pytest.mark.parametrize("anndata_dict", [True], indirect=True)
-def test_integration_betabinomial(anndata_dict, tmp_path, n_particles, batch_size, usedask):
-    model = terms.MofaFlex(n_factors=5)
-    with chdir(tmp_path), settings.override(use_dask=usedask):
-        model.fit(
-            anndata_dict,
-            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
-            plot_data_overview=False,
-            max_epochs=2,
-            seed=42,
-            batch_size=batch_size,
-            n_particles=n_particles,
-        )
-    assert (
-        model.n_factors == model.n_total_factors == model.terms["_"].n_factors == model.terms["_"].n_total_factors == 5
-    )
-
-
-@pytest.mark.parametrize("usedask", [False, True])
 def test_integration_single_obs(anndata_dict, usedask):
     intersection = reduce(lambda x, y: x.intersection(y), (view.obs_names for view in anndata_dict["group_2"].values()))
     anndata_dict["group_2"]["view_bernoulli"] = anndata_dict["group_2"]["view_bernoulli"][intersection[0]]
     with settings.override(use_dask=usedask):
         model = terms.MofaFlex(n_factors=5, factor_prior=priors.SpikeSlab(), weight_prior="SpikeSlab")
         model.fit(
-            anndata_dict, plot_data_overview=False, use_obs="intersection", max_epochs=2, seed=42, save_path=False
+            anndata_dict,
+            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
+            plot_data_overview=False,
+            use_obs="intersection",
+            max_epochs=2,
+            seed=42,
+            save_path=False,
         )
 
 
@@ -309,10 +298,18 @@ def test_integration_single_var(anndata_dict, usedask):
         model = terms.MofaFlex(
             n_factors=5,
             factor_prior="SpikeSlab",
-            weight_prior={("view_normal", "view_bernoulli", "view_negativebinomial"): priors.SpikeSlab()},
+            weight_prior={
+                ("view_normal", "view_bernoulli", "view_negativebinomial", "view_betabinomial"): priors.SpikeSlab()
+            },
         )
         model.fit(
-            anndata_dict, plot_data_overview=False, use_var="intersection", max_epochs=2, seed=42, save_path=False
+            anndata_dict,
+            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
+            plot_data_overview=False,
+            use_var="intersection",
+            max_epochs=2,
+            seed=42,
+            save_path=False,
         )
 
 
@@ -322,6 +319,7 @@ def test_integration_constantprior(anndata_dict, tmp_path, n_particles, batch_si
     model = terms.MofaFlex(n_factors=5)
     model.fit(
         anndata_dict,
+        layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
         plot_data_overview=False,
         max_epochs=2,
         seed=42,
@@ -340,6 +338,7 @@ def test_integration_constantprior(anndata_dict, tmp_path, n_particles, batch_si
         )
         model2.fit(
             anndata_dict,
+            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
             plot_data_overview=False,
             max_epochs=2,
             seed=42,
@@ -360,14 +359,18 @@ def test_integration_dynamicapi_multiple_priors(anndata_dict, tmp_path, n_partic
     model = terms.MofaFlex(
         n_factors=1,
         weight_prior={
-            "view_normal": priors.InformedHorseshoe(annotations_mkey="annot_df"),
+            "view_normal": priors.InformedHorseshoe(
+                annotations_mkey="annot_df", pcgse_layer={"view_betabinomial": "sample"}
+            ),
             "view_negativebinomial": priors.Horseshoe(),
             "view_bernoulli": priors.Normal(),
+            "view_betabinomial": "Normal",
         },
     )
     save_path = tmp_path / "informedhs_model.h5"
     model.fit(
         anndata_dict,
+        layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
         plot_data_overview=False,
         max_epochs=2,
         seed=42,
@@ -388,7 +391,13 @@ def test_integration_dynamicapi_multiple_priors(anndata_dict, tmp_path, n_partic
 def test_load_uses_training_device_for_gp(anndata_dict, tmp_path, monkeypatch):
     save_path = tmp_path / "gp_model.h5"
     terms.MofaFlex(n_factors=2, factor_prior=priors.GaussianProcess(covariates_key="covar", mefisto_kernel=False)).fit(
-        anndata_dict, plot_data_overview=False, device="cpu", max_epochs=2, seed=42, save_path=save_path
+        anndata_dict,
+        layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
+        plot_data_overview=False,
+        device="cpu",
+        max_epochs=2,
+        seed=42,
+        save_path=save_path,
     )
 
     map_locations = []
@@ -412,6 +421,7 @@ def test_integration_informedhs_guidingvars(anndata_dict, tmp_path, n_particles,
         group["view_normal"].varm["annot_normal"] = group["view_normal"].varm["annot_df"]
         group["view_negativebinomial"].varm["annot_negativebinomial"] = group["view_negativebinomial"].varm["annot_df"]
         group["view_bernoulli"].varm["annot_bernoulli"] = group["view_bernoulli"].varm["annot_df"]
+        group["view_betabinomial"].varm["annot_betabinomial"] = group["view_betabinomial"].varm["annot_df"]
 
     model = terms.MofaFlex(
         n_factors=3,
@@ -419,6 +429,7 @@ def test_integration_informedhs_guidingvars(anndata_dict, tmp_path, n_particles,
             "view_normal": priors.InformedHorseshoe(annotations_mkey="annot_normal"),
             "view_negativebinomial": priors.InformedHorseshoe(annotations_mkey="annot_negativebinomial"),
             "view_bernoulli": priors.InformedHorseshoe(annotations_mkey="annot_bernoulli"),
+            "view_betabinomial": priors.InformedHorseshoe(annotations_mkey="annot_betabinomial", pcgse_layer="total"),
         },
         guiding_vars_obs_keys=["gvar_categorical"],
         guiding_vars_likelihoods="Categorical",
@@ -428,6 +439,7 @@ def test_integration_informedhs_guidingvars(anndata_dict, tmp_path, n_particles,
     with chdir(tmp_path):
         model.fit(
             anndata_dict,
+            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
             plot_data_overview=False,
             max_epochs=2,
             seed=42,
@@ -435,7 +447,7 @@ def test_integration_informedhs_guidingvars(anndata_dict, tmp_path, n_particles,
             n_particles=n_particles,
         )
 
-    assert model.n_total_factors == 34
+    assert model.n_total_factors == 44
     assert model.factor_names.shape == np.unique(model.factor_names).shape
 
 
@@ -447,12 +459,17 @@ def test_integration_informedhs_unions_masks_across_views(anndata_dict, tmp_path
             ("view_normal", slice(5, None)),
             ("view_bernoulli", slice(3, 8)),
             ("view_negativebinomial", slice(5)),
+            ("view_betabinomial", slice(2, 5)),
         ):
             group[view_name].varm["annot_df"] = group[view_name].varm["annot_df"].iloc[:, cols]
-    model = terms.MofaFlex(n_factors=3, weight_prior=priors.InformedHorseshoe(annotations_mkey="annot_df"))
+    model = terms.MofaFlex(
+        n_factors=3,
+        weight_prior=priors.InformedHorseshoe(annotations_mkey="annot_df", pcgse_layer={"view_betabinomial": "sample"}),
+    )
     with chdir(tmp_path):
         model.fit(
             anndata_dict,
+            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
             plot_data_overview=False,
             max_epochs=2,
             seed=42,
@@ -492,6 +509,7 @@ def test_integration_covariates_singlegroup(anndata_dict, tmp_path, select, n_pa
     with chdir(tmp_path):
         model.fit(
             anndata_dict,
+            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
             plot_data_overview=False,
             max_epochs=2,
             seed=42,
@@ -527,13 +545,23 @@ def test_imputation(rng, anndata_dict, usedask, apply_link):
         model = terms.MofaFlex(n_factors=5)
         with pytest.raises(RuntimeError, match="not yet trained"):
             model.impute_data(apply_link=apply_link)
-        model.fit(anndata_dict, plot_data_overview=False, max_epochs=5, seed=42, save_path=False)
+        model.fit(
+            anndata_dict,
+            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
+            plot_data_overview=False,
+            max_epochs=5,
+            seed=42,
+            save_path=False,
+        )
 
         imputed = model.impute_data(anndata_dict, missing_only=False, apply_link=apply_link)
 
     for group in imputed.values():
-        for view in group.values():
-            assert np.isnan(view.X if not issparse(view.X) else view.X.data).sum() == 0
+        for view_name, view in group.items():
+            if view_name == "view_betabinomial":
+                assert view.X is None
+            else:
+                assert np.isnan(view.X if not issparse(view.X) else view.X.data).sum() == 0
 
     imputed = model.impute_data(anndata_dict, missing_only=True, apply_link=apply_link)
     dataset = model._make_dataset(anndata_dict)
@@ -572,7 +600,14 @@ def test_terms(anndata_dict):
         model + terms.MofaFlex("normal", n_factors=5)
     with pytest.raises(TypeError, match="unsupported operand"):
         model + 1
-    model.fit(anndata_dict, plot_data_overview=False, max_epochs=2, seed=42, save_path=False)
+    model.fit(
+        anndata_dict,
+        layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
+        plot_data_overview=False,
+        max_epochs=2,
+        seed=42,
+        save_path=False,
+    )
     with pytest.raises(ValueError, match="already trained"):
         model + terms.MofaFlex(n_factors=5)
     with pytest.raises(AttributeError):

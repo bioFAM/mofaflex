@@ -178,7 +178,7 @@ def pcgse_test(
                 np.concatenate(
                     [
                         data.align_local_array_to_global(
-                            view.toarray() if issparse(view := group[view_name][layer[view_name]]) else view,
+                            view.toarray() if issparse(view := group[view_name][layer.get(view_name)]) else view,
                             group_name,
                             view_name,
                             align_to="features",
@@ -190,7 +190,7 @@ def pcgse_test(
                 ),
                 columns=data.feature_names[view_name],
             )
-            for view_name in data.view_names
+            for view_name in annotations.keys()
         }
 
     for view_name, loadings in weights.items():

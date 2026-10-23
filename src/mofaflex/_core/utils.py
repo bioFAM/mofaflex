@@ -312,9 +312,12 @@ def filter_constant_features(data: MofaFlexDataset):
     )
     threshold = settings.get("eps")
     for view_name, viewvar in view_vars.items():
-        nonconst = reduce(operator.or_, (layervar > threshold for layervar in viewvar.values()))
-        _logger.debug(f"Removing {nonconst.size - nonconst.sum()} features from view {view_name}.")
-        nonconstantfeatures[view_name] = data.feature_names[view_name][nonconst]
+        if len(viewvar):
+            nonconst = reduce(operator.or_, (layervar > threshold for layervar in viewvar.values()))
+            _logger.debug(f"Removing {nonconst.size - nonconst.sum()} features from view {view_name}.")
+            nonconstantfeatures[view_name] = data.feature_names[view_name][nonconst]
+        else:
+            nonconstantfeatures[view_name] = data.feature_names
 
     data.reindex_features(nonconstantfeatures)
 
