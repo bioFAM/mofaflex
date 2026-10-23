@@ -72,7 +72,6 @@ class _TrainingOptions(_Options):
     max_epochs: int
     n_particles: int
     lr: float
-    scale_elbo: bool
     early_stopper_patience: int
     save_path: Path | str | None
     seed: int | None
@@ -322,7 +321,6 @@ class MOFAFLEX:
             max_epochs=max_epochs,
             n_particles=n_particles,
             lr=lr,
-            scale_elbo=scale_elbo,
             early_stopper_patience=early_stopper_patience,
             save_path=save_path,
             seed=seed,
@@ -357,9 +355,9 @@ class MOFAFLEX:
                 pl.overview(data).show()
 
             pyro.set_rng_seed(self._train_opts.seed)
-            model = MofaFlexModel(
-                terms=self._terms, likelihoods=likelihoods, scale_elbo=self._train_opts.scale_elbo
-            ).to(self._train_opts.device)
+            model = MofaFlexModel(terms=self._terms, likelihoods=likelihoods, scale_elbo=scale_elbo).to(
+                self._train_opts.device
+            )
 
             n_iterations = int(self._train_opts.max_epochs * (self.n_samples_total // self._train_opts.batch_size))
             gamma = 0.1

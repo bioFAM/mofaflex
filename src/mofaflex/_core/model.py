@@ -34,7 +34,7 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         likelihoods: The likelhood for each view (if a mapping) or for all views otherwise.
     """
 
-    _state_attrs = ("_r2_full", "_r2_terms", "_r2_term_components", "_term_order")
+    _state_attrs = ("_scale_elbo", "_r2_full", "_r2_terms", "_r2_term_components", "_term_order")
     _sample_plate_dim = -2
     _feature_plate_dim = -1
 
