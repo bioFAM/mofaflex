@@ -36,12 +36,16 @@ def compare_nested(data1, data2):
 
 
 @pytest.fixture
-def anndata_dict(random_adata, rng):
-    big_adatas = (
+def anndata_dict(random_adata, request, rng):
+    with_betabinomial = getattr(request, "param", False)
+
+    big_adatas = [
         random_adata("Normal", 500, 100, var_names=[f"normal_var_{i}" for i in range(100)]),
         random_adata("Bernoulli", 400, 200, var_names=[f"bernoulli_var_{i}" for i in range(200)]),
         random_adata("NegativeBinomial", 600, 90, var_names=[f"negativebinomial_var_{i}" for i in range(90)]),
-    )
+    ]
+    if with_betabinomial:
+        big_adatas.append(random_adata("BetaBinomial", 600, 90, var_names=[f"betabinomial_var_{i}" for i in range(90)]))
 
     group_idxs = [None] * len(big_adatas)
     while True:
@@ -57,7 +61,9 @@ def anndata_dict(random_adata, rng):
 
     adata_dict = {"group_1": {}, "group_2": {}}
     for view_name, (view_idx, view) in zip(
-        ("view_normal", "view_bernoulli", "view_negativebinomial"), enumerate(big_adatas), strict=False
+        ("view_normal", "view_bernoulli", "view_negativebinomial", "view_betabinomial"),
+        enumerate(big_adatas),
+        strict=False,
     ):
         for group_idx, group in enumerate(adata_dict.values()):
             idx = rng.choice(adata.n_vars, size=int(0.9 * adata.n_vars), replace=False)
@@ -67,6 +73,17 @@ def anndata_dict(random_adata, rng):
     adata_dict["group_1"]["view_negativebinomial"].X = csc_array(adata_dict["group_1"]["view_negativebinomial"].X)
     adata_dict["group_2"]["view_bernoulli"].X = csr_matrix(adata_dict["group_2"]["view_bernoulli"].X)
     adata_dict["group_2"]["view_negativebinomial"].X = csc_matrix(adata_dict["group_2"]["view_negativebinomial"].X)
+
+    if with_betabinomial:
+        adata_dict["group_1"]["view_betabinomial"].layers["sample"] = csr_array(
+            adata_dict["group_1"]["view_betabinomial"].layers["sample"]
+        )
+        adata_dict["group_2"]["view_betabinomial"].layers["sample"] = csc_matrix(
+            adata_dict["group_2"]["view_betabinomial"].layers["sample"]
+        )
+        adata_dict["group_2"]["view_betabinomial"].layers["total"] = csc_matrix(
+            adata_dict["group_2"]["view_betabinomial"].layers["total"]
+        )
 
     return adata_dict
 
@@ -248,6 +265,27 @@ def test_integration(
             "factor_names",
         ):
             assert compare_nested(getattr(model, attr), getattr(loaded_model, attr)), attr
+
+
+@pytest.mark.parametrize("usedask", [False, True])
+@pytest.mark.parametrize("n_particles", [1, 5])
+@pytest.mark.parametrize("batch_size", [0, 257])
+@pytest.mark.parametrize("anndata_dict", [True], indirect=True)
+def test_integration_betabinomial(anndata_dict, tmp_path, n_particles, batch_size, usedask):
+    model = terms.MofaFlex(n_factors=5)
+    with chdir(tmp_path), settings.override(use_dask=usedask):
+        model.fit(
+            anndata_dict,
+            layer={"view_betabinomial": {"sample": "sample", "total": "total"}},
+            plot_data_overview=False,
+            max_epochs=2,
+            seed=42,
+            batch_size=batch_size,
+            n_particles=n_particles,
+        )
+    assert (
+        model.n_factors == model.n_total_factors == model.terms["_"].n_factors == model.terms["_"].n_total_factors == 5
+    )
 
 
 @pytest.mark.parametrize("usedask", [False, True])
@@ -474,6 +512,9 @@ def test_imputation(rng, anndata_dict, usedask, apply_link):
         for group_name, group in anndata_dict.items():
             cnanidx = {}
             for view_name, view in group.items():
+                if view.X is None:
+                    continue
+
                 n_nans = rng.choice(int(0.05 * view.n_obs * view.n_vars))
                 rowidx = rng.choice(view.n_obs, size=n_nans)
                 colidx = rng.choice(view.n_vars, size=n_nans)
@@ -499,6 +540,9 @@ def test_imputation(rng, anndata_dict, usedask, apply_link):
     preprocessor = dataset.preprocessor
     for group_name, group in imputed.items():
         for view_name, view in group.items():
+            if view.X is None:
+                continue
+
             assert np.isnan(view.X if not issparse(view.X) else view.X.data).sum() == 0
 
             orig_data = anndata_dict[group_name][view_name]
