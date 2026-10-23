@@ -46,9 +46,11 @@ def create_adata():
             layers = {None: X}
         adata = ad.AnnData(layers=layers)
         if var_names is None:
-            adata.var_names = [f"var{i}" for i in range(adata.shape[1])]
+            var_names = [f"var{i}" for i in range(adata.shape[1])]
+        adata.var_names = var_names
         if obs_names is None:
-            adata.obs_names = [f"obs{i}" for i in range(adata.shape[0])]
+            obs_names = [f"obs{i}" for i in range(adata.shape[0])]
+        adata.obs_names = obs_names
         return adata
 
     return _adata
@@ -58,11 +60,6 @@ def create_adata():
 def random_adata(rng, random_array):
     def _adata(likelihood, nobs, nvar, var_names=None, obs_names=None):
         adata = ad.AnnData(
-            X=random_array(likelihood, (nobs, nvar)).astype(np.float32),
-            layers={
-                "layer1": random_array(likelihood, (nobs, nvar)).astype(np.float32),
-                "layer2": random_array(likelihood, (nobs, nvar)).astype(np.float32),
-            },
             obs=pd.DataFrame(
                 {"covar": rng.random(size=nobs)},
                 index=obs_names if obs_names is not None else [f"cell_{i}" for i in range(nobs)],
@@ -72,6 +69,11 @@ def random_adata(rng, random_array):
                 index=var_names if var_names is not None else [f"gene_{i}" for i in range(nvar)],
             ),
         )
+        arr = random_array(likelihood, (nobs, nvar)).astype(np.float32)
+        if not isinstance(arr, Mapping):
+            adata.X = arr
+        else:
+            adata.layers = arr
         adata.obsm["covar_df"] = pd.DataFrame(
             rng.random(size=(nobs, 3)), columns=["a", "b", "c"], index=adata.obs_names
         )
@@ -86,8 +88,8 @@ def random_adata(rng, random_array):
         adata.varm["annot_df"] = pd.DataFrame(
             rng.choice([False, True], size=(nvar, 10)), columns=[f"annot_{i}" for i in range(10)], index=adata.var_names
         )
-        adata.varm["annot_array"] = rng.random(size=(nvar, 3))
-        adata.varm["annot_sparse"] = csr_array(rng.poisson(size=(nvar, 3)))
+        adata.varm["annot_array"] = rng.random(size=(nvar, 10))
+        adata.varm["annot_sparse"] = csr_array(rng.poisson(size=(nvar, 10)))
         adata.varm["covar_df"] = pd.DataFrame(
             rng.random(size=(nvar, 3)), columns=["a", "b", "c"], index=adata.var_names
         )

@@ -1,12 +1,12 @@
 import logging
 from collections.abc import Mapping
-from types import ModuleType
 from typing import Literal
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 from array_api_compat import array_namespace
+from scipy.sparse import issparse
 from scipy.special import expit, logit
 from scipy.stats import betabinom
 
@@ -67,11 +67,13 @@ class BetaBinomial(Likelihood):
         self._shift = self._impute_feature_summary_statistics(self._shift)
 
     @classmethod
-    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
-        if not {"sample", "total"} <= data.keys():
-            return f"The {cls.__name__} likelihood requires two layers named 'sample' and 'total', got {tuple(data.keys())} for view {view_name}."
-        sample, total = data["sample"][0], data["total"][0]
+    def _validate(cls, adata: AnnData, view_name: str) -> str | None:
+        if not {"sample", "total"} <= adata.layers.keys():
+            return f"The {cls.__name__} likelihood requires two layers named 'sample' and 'total', got {tuple(adata.layers.keys())} for view {view_name}."
+        sample, total = adata.layers["sample"], adata.layers["total"]
         valid = sample <= total
+        if issparse(valid):
+            valid = valid.data
         xp = array_namespace(valid)
         if not xp.all(valid):
             return (

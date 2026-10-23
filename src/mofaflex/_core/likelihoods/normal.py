@@ -1,5 +1,4 @@
 from collections.abc import Mapping
-from types import ModuleType
 from typing import Literal
 
 import numpy as np
@@ -89,9 +88,9 @@ class Normal(Likelihood):
         self._shift = self._impute_feature_summary_statistics(self._shift)
 
     @classmethod
-    def _validate(cls, data: Mapping[str | None, tuple[Vector[np.number]], ModuleType], view_name: str) -> str | None:
-        if data.keys() != {None}:
-            return f"The {cls.__name__} likelihood requires one layer, got {len(data)} for view {view_name}."
+    def _validate(cls, adata: AnnData, view_name: str) -> str | None:
+        if adata.layers.keys() != {None}:
+            return f"The {cls.__name__} likelihood requires one layer, got {len(adata.layers)} for view {view_name}."
         return None
 
     def _r2_impl(
