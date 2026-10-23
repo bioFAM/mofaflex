@@ -112,6 +112,18 @@ def apply_to_nested(data, func: Callable[[Any], Any]):
 
 
 def anndata_to_dask(adata: AnnData):
+    if any(issparse(arr) for arr in (adata.X, *adata.layers.values())):
+        # https://github.com/pydata/sparse/issues/860
+        # https://github.com/dask/dask/issues/11880
+        global _warned_sparse
+        if not _warned_sparse:
+            _logger.warning(
+                "Sparse arrays are currently not supported by Dask. Dask will not be used"
+                " and data arrays may be copied, resulting in high memory usage."
+            )
+            _warned_sparse = True
+        return adata
+
     dask_adata = AnnData(
         X=array_to_dask(adata.X),
         layers={k: array_to_dask(v) for k, v in adata.layers.items()},
@@ -135,7 +147,11 @@ def warn_dask(logger: logging.Logger | None = None):
 
 
 def select_anndata_layer(adata: AnnData, layer: Mapping[str | None, str | None]):
-    layers = {k: X if v is None and (X := adata.X) is not None else adata.layers[v] for k, v in layer.items()}
+    layers = {
+        k: X
+        for k, v in layer.items()
+        if v is None and (X := adata.X) is not None or (X := adata.layers.get(v)) is not None
+    }
     return AnnData(
         layers=layers,
         obs=adata.obs,

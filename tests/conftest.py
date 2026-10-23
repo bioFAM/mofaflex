@@ -69,11 +69,11 @@ def random_adata(rng, random_array):
                 index=var_names if var_names is not None else [f"gene_{i}" for i in range(nvar)],
             ),
         )
-        arr = random_array(likelihood, (nobs, nvar)).astype(np.float32)
+        arr = random_array(likelihood, (nobs, nvar))
         if not isinstance(arr, Mapping):
-            adata.X = arr
+            adata.X = arr.astype(np.float32)
         else:
-            adata.layers = arr
+            adata.layers = {k: v.astype(np.float32) for k, v in arr.items()}
         adata.obsm["covar_df"] = pd.DataFrame(
             rng.random(size=(nobs, 3)), columns=["a", "b", "c"], index=adata.obs_names
         )
