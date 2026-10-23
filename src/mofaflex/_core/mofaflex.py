@@ -277,18 +277,31 @@ class MOFAFLEX:
         Args:
             data: can be any of:
 
-                - MuData object
-                - Nested dict with group names as keys, view names as subkeys and AnnData objects as values
-                  (incompatible with `.group_by`)
+                - :class:`MuData<mudata.MuData>` object.
+                - :class:`AnnData<anndata.AnnData>` object.
+                - Nested dict with group names as keys, view names as subkeys and :class:`AnnData<anndata.AnnData>` objects as values
+                  (incompatible with `group_by`).
 
             likelihoods: Data likelihoods for each view (if dict) or for all views (if str or Likelihood).
                 Inferred automatically if None.
             group_by: Columns of `.obs` in :class:`MuData<mudata.MuData>` or :class:`AnnData<anndata.AnnData>` objects to group
                 data by. Ignored if the input data is not a :class:`MuData<mudata.MuData>` or :class:`AnnData<anndata.AnnData>` object.
-            layer: Which layer to use. If `None`, the `.X` element will be used. If `str`, the same layer will be used for
-                all groups and views. If a dict, the keys must correspond to view names and the values to layers.
-                If a nested dict, different layers can be used for each combination of group and view. The last format is
-                only accepted if the data is a nested dictionary of :class:`AnnData<anndata.AnnData>` objects.
+            layer: Which layer to use. If a single layer is given, the layer will be used for all groups and views. Otherwise, the
+                granularity with which the layer can be specified depends on the type of the data:
+
+                - A single :class:`AnnData<anndata.AnnData>` object supports only a single layer.
+                - A :class:`MuData<mudata.MuData>` object supports one layer per modality.
+                - A nested dict of :class:`AnnData<anndata.AnnData>` objects supports one layer per view (if a dict of layer is given)
+                  or one layer per group and view (if a nested dict of layers is given).
+
+                A layer can be specified as one of the following:
+
+                - `None` will use the `X` element.
+                - A `str` will use the corresponding element of `.layers`.
+                - A dict will use multiple layers. The dict's keys must correspond to the names that the respective likelihood needs, while
+                  the values indicate the layer in the data. For example, `{"sample": "layer1", "total": "layer2"}` will use `layer` as the
+                  `sample` layer and `layer2` as the `total` layer.
+
             use_obs: How to align observations across views. Ignored if the data is not a nested dict of
                 :class:`AnnData<anndata.AnnData>` objects.
             use_var: How to align variables across groups. Ignored if the data is not a nested dict of
