@@ -483,20 +483,10 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
         preprocessor,
         apply_link,
     ) -> AnnData:
-        if len(data.layers) > 1:
+        if len(data.layers) > 1 and missingonly:
             _logger.warn(
                 f"Imputation is not supported for multiple layers, skipping group {group_name} view {view_name}."
             )
-            return data
-
-        havemissing = data.n_obs < self._n_samples[group_name] or data.n_vars < self._n_features[view_name]
-        if issparse(data.layers[None]):
-            have_missing_cells = np.isnan(data.layers[None].data).sum() > 0
-        else:
-            have_missing_cells = np.isnan(data.layers[None]).sum() > 0
-        havemissing |= have_missing_cells
-
-        if missingonly and not havemissing:
             return data
 
         if not missingonly:
@@ -504,48 +494,60 @@ class MofaFlexModel(SaveStateMixin, PyroModule):
             if apply_link:
                 imputation = likelihood.transform_prediction(imputation, group_name)
         else:
-            missing_obs = align_local_array_to_global(  # noqa F821
-                np.broadcast_to(False, (data.n_obs,)), group_name, view_name, fill_value=True, align_to="samples"
-            )
-            missing_var = align_local_array_to_global(  # noqa F821
-                np.broadcast_to(False, (data.n_vars)), group_name, view_name, fill_value=True, align_to="features"
-            )
-
-            obsidx = map_local_indices_to_global(np.arange(data.n_obs), group_name, view_name, align_to="samples")  # noqa: F821
-            varidx = map_local_indices_to_global(np.arange(data.n_vars), group_name, view_name, align_to="features")  # noqa: F821
-
-            if not apply_link or not issparse(data.layers[None]):
-                imputation = np.empty((sample_names.size, feature_names.size), dtype=data.layers[None].dtype)
+            havemissing = data.n_obs < self._n_samples[group_name] or data.n_vars < self._n_features[view_name]
+            if issparse(data.layers[None]):
+                have_missing_cells = np.isnan(data.layers[None].data).sum() > 0
             else:
-                imputation = dok_array((sample_names.size, feature_names.size), dtype=data.layers[None].dtype)
-            if not apply_link:
-                preprocessed = preprocessor(data.layers[None], slice(None), slice(None), group_name, view_name)[0]
-                if issparse(preprocessed):
-                    preprocessed = preprocessed.toarray()
+                have_missing_cells = np.isnan(data.layers[None]).sum() > 0
+            havemissing |= have_missing_cells
 
-                imputation[np.ix_(obsidx, varidx)] = likelihood.transform_data(preprocessed, group_name, obsidx, varidx)
+            if missingonly and not havemissing:
+                return data
             else:
-                imputation[np.ix_(obsidx, varidx)] = data.layers[None]
+                missing_obs = align_local_array_to_global(  # noqa F821
+                    np.broadcast_to(False, (data.n_obs,)), group_name, view_name, fill_value=True, align_to="samples"
+                )
+                missing_var = align_local_array_to_global(  # noqa F821
+                    np.broadcast_to(False, (data.n_vars)), group_name, view_name, fill_value=True, align_to="features"
+                )
 
-            pred_obs = self.predict(group_name, view_name, sample_idx=missing_obs)
-            pred_var = self.predict(group_name, view_name, feature_idx=missing_var)
+                obsidx = map_local_indices_to_global(np.arange(data.n_obs), group_name, view_name, align_to="samples")  # noqa: F821
+                varidx = map_local_indices_to_global(np.arange(data.n_vars), group_name, view_name, align_to="features")  # noqa: F821
 
-            if apply_link:
-                pred_obs = likelihood.transform_prediction(pred_obs, group_name, sample_idx=missing_obs)
-                pred_var = likelihood.transform_prediction(pred_var, group_name, feature_idx=missing_var)
-            imputation[missing_obs, :] = pred_obs
-            imputation[:, missing_var] = pred_var
+                if not apply_link or not issparse(data.layers[None]):
+                    imputation = np.empty((sample_names.size, feature_names.size), dtype=data.layers[None].dtype)
+                else:
+                    imputation = dok_array((sample_names.size, feature_names.size), dtype=data.layers[None].dtype)
+                if not apply_link:
+                    preprocessed = preprocessor(data.layers[None], slice(None), slice(None), group_name, view_name)[0]
+                    if issparse(preprocessed):
+                        preprocessed = preprocessed.toarray()
 
-            if have_missing_cells:
-                nanobs, nanvar = wherenan(data.layers[None])
-                nanobs, nanvar = np.atleast_1d(obsidx[nanobs]), np.atleast_1d(varidx[nanvar])
-                pred = self.predict(group_name, view_name, nanobs, nanvar, idx_cartesian_product=False)
+                    imputation[np.ix_(obsidx, varidx)] = likelihood.transform_data(
+                        preprocessed, group_name, obsidx, varidx
+                    )
+                else:
+                    imputation[np.ix_(obsidx, varidx)] = data.layers[None]
+
+                pred_obs = self.predict(group_name, view_name, sample_idx=missing_obs)
+                pred_var = self.predict(group_name, view_name, feature_idx=missing_var)
+
                 if apply_link:
-                    pred = likelihood.transform_prediction(pred, group_name, sample_idx=nanobs, feature_idx=nanvar)
-                imputation[nanobs, nanvar] = pred
+                    pred_obs = likelihood.transform_prediction(pred_obs, group_name, sample_idx=missing_obs)
+                    pred_var = likelihood.transform_prediction(pred_var, group_name, feature_idx=missing_var)
+                imputation[missing_obs, :] = pred_obs
+                imputation[:, missing_var] = pred_var
 
-            if issparse(imputation):
-                imputation = imputation.tocsr()
+                if have_missing_cells:
+                    nanobs, nanvar = wherenan(data.layers[None])
+                    nanobs, nanvar = np.atleast_1d(obsidx[nanobs]), np.atleast_1d(varidx[nanvar])
+                    pred = self.predict(group_name, view_name, nanobs, nanvar, idx_cartesian_product=False)
+                    if apply_link:
+                        pred = likelihood.transform_prediction(pred, group_name, sample_idx=nanobs, feature_idx=nanvar)
+                    imputation[nanobs, nanvar] = pred
+
+                if issparse(imputation):
+                    imputation = imputation.tocsr()
 
         return AnnData(X=imputation, obs=pd.DataFrame(index=sample_names), var=pd.DataFrame(index=feature_names))
 

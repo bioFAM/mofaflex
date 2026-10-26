@@ -557,11 +557,8 @@ def test_imputation(rng, anndata_dict, usedask, apply_link):
         imputed = model.impute_data(anndata_dict, missing_only=False, apply_link=apply_link)
 
     for group in imputed.values():
-        for view_name, view in group.items():
-            if view_name == "view_betabinomial":
-                assert view.X is None
-            else:
-                assert np.isnan(view.X if not issparse(view.X) else view.X.data).sum() == 0
+        for view in group.values():
+            assert np.isnan(view.X if not issparse(view.X) else view.X.data).sum() == 0
 
     imputed = model.impute_data(anndata_dict, missing_only=True, apply_link=apply_link)
     dataset = model._make_dataset(anndata_dict)
