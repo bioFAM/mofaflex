@@ -163,6 +163,7 @@ mathjax3_config = {
             "dBernoulli": ["\\mathrm{Ber}\\left(#1\\right)", 1],
             "Poisson": ["\\mathrm{Pois}\\left(#1\\right)", 1],
             "NegativeBinomial": ["\\mathrm{NB}\\left(#1, #2\\right)", 2],
+            "BetaBinomial": ["\\mathrm{BetaBin}\\left(#1, #2, #3\\right)", 3],
             "GammaPoisson": ["\\mathrm{GamPoi}\\left(#1, #2\\right)", 2],
             "HorseShoe": ["\\mathrm{HS}\\left(#1\\right)", 1],
             "HorseShoePlus": ["\\mathrm{HS+}\\left(#1\\right)", 1],
