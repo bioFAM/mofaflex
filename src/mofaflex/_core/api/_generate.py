@@ -39,11 +39,16 @@ def init_api(module: str, basecls: type, subclss: Mapping[str, type]):
         sig = signature(subcls.__init__)
         annots = subcls.__init__.__annotations__
         if coreinit is not None:
-            params = [
-                param
-                for i, param in enumerate(sig.parameters.values())
-                if i == 0 or param.name not in coresig.parameters
-            ]
+            params = []
+            for i, param in enumerate(sig.parameters.values()):
+                if i == 0:
+                    params.append(param)
+                elif param.name not in coresig.parameters:
+                    params.append(
+                        Parameter(
+                            param.name, Parameter.KEYWORD_ONLY, default=param.default, annotation=param.annotation
+                        )
+                    )
             sig = sig.replace(parameters=params)
             annots = {param.name: param.annotation for param in params if param.annotation is not Parameter.empty}
 

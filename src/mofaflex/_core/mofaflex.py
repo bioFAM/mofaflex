@@ -511,7 +511,7 @@ class MOFAFLEX:
 
     @_check_trained
     def impute_data(
-        self, data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData, missing_only=False, apply_link=True
+        self, data: MuData | Mapping[str, Mapping[str, AnnData]] | AnnData, *, missing_only=False, apply_link=True
     ) -> dict[dict[str, AnnData]]:
         """Impute values in the training data using the trained factorization.
 

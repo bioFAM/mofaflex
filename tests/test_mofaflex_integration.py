@@ -296,7 +296,9 @@ def test_integration_constantprior(anndata_dict, tmp_path, n_particles, batch_si
     weights = model.get_weights()
     with chdir(tmp_path):
         model2 = terms.MofaFlex(
-            n_factors=5, factor_prior=priors.Constant(factors), weight_prior=priors.Constant(weights)
+            n_factors=5,
+            factor_prior=priors.Constant(const_values=factors),
+            weight_prior=priors.Constant(const_values=weights),
         )
         model2.fit(
             anndata_dict,

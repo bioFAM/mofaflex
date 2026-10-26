@@ -23,7 +23,8 @@ def _init_api():
         sig = signature(term.__init__)
         params = [signature(wrapper).parameters["name"]] + [
             Parameter(param.name, Parameter.KEYWORD_ONLY, default=param.default, annotation=param.annotation)
-            for param in sig.parameters.values()
+            for i, param in enumerate(sig.parameters.values())
+            if i > 0
         ]
         wrapper.__signature__ = Signature(params)
         wrapper.__annotations__ = term.__init__.__annotations__ | {"name": str, "return": "MOFAFLEX"}
