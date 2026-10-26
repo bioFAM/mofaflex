@@ -105,23 +105,30 @@ MOFA-FLEX offers several prior options for both weights and factors, where each 
 
 The likelihood is the probability distribution of the observed data $\mat{Y}^{(m,g)}$, parametrized by the mean $\mat{Z}^{(g)} \mat{W}^{(m)}$ and, depending on the likelihood, a link function transforming the real-valued matrix product into nonnegative or bounded values and additional parameters sampled from their own prior distributions.
 
-MOFA-FLEX offers a choice of three likelihoods:
+MOFA-FLEX offers a choice of four likelihoods:
 
 - Normal: The Normal distribution $\Normal{\mu}{\sigma^2}$. This should be suitable for most types of real-valued data.
 
 - negative binomial: The negative binomial distribution $\NegativeBinomial{\mu}{\gamma}$ with mean $\mu$ and overdispersion $\gamma$.
   This should be suitable for count data such as sequencing.
 
-- Bernoulli: The Bernoulli distribution modeling binary data. This should be suitable for metylation or ATAC data.
+- Bernoulli: The Bernoulli distribution modeling binary data.
+  This should be suitable for metylation or ATAC data.
+
+- beta-binomial: The beta-binomial distribution $\BetaBinomial{n}{\alpha}{\beta}$.
+  The number of trials $n$ is given as one of two data layers (the `total` layer) and the likelihood models the other given data layer (the `sample` layer) as a fraction of $n$.
+  The other parameters are given by $\alpha^{(m, g)} = \theta \sigma(\mat{Z}^{(g)} \mat{W}^{(m)})$ and $\beta^{(m, g)} = \theta (1 - \sigma(\mat{Z}^{(g)} \mat{W}^{(m)}))$, where $\sigma$ is the logistic sigmoid function and $\theta$ is a learned dispersion parameter.
+  This likelihood should be suitable for allele count data.
 
 If no likelihood is specified by the user, MOFA-FLEX tries to automatically determine a suitable likelihood based on the data using a simple heuristic:
-If all values in a view are 0 or 1, the Bernoulli likelihood is chosen.
-Otherwise, if all values are integers, the Gamma-Poisson likelihood is selected.
-The Normal likelihood is used in all other cases.
+If two layers `total` and `sample` are given for a view, $\text{sample} \leq \text{total}$ element-wise, and all values in both layers are integers, then the beta-binomial likelihood is selected.
+If a single layer is given for a view and all values are 0 or 1, the Bernoulli likelihood is chosen.
+Otherwise, if a single layer is given and all values are integers, the negative binomial likelihood is selected.
+The Normal likelihood is used in all other cases when a single data layer is given.
 
-## Nonnegative factors
+## Nonnegative factors / weights
 
-Factors and can be forced to be nonnegative, which can lead to more interpretable results{cite:p}`pmid36587187`.
+Factors and weights can be forced to be nonnegative, which can lead to more interpretable results{cite:p}`pmid36587187`.
 This is achieved by applying a ReLU function to the real-valued factor or weight values.
 
 ## Using prior domain knowledge
