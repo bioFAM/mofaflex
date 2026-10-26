@@ -84,11 +84,11 @@ MOFA-FLEX offers several prior options for both weights and factors, where each 
   \begin{align*}
   \eta_{g, n, k} &\sim \Normal{0}{\zeta_k}\\
   f_k &\sim \GP(0, \kappa_k)\\
-  Z^{(g)}_{n, k} &= f_k(\vec{c}_n^g) + \eta_{g,n,k}
+  Z^{(g)}_{n, k} &= f_k(\vec{c}*n^g) + \eta*{g,n,k}
   \end{align*}
   $\zeta_k \in (0, 1)$ is a free parameter learned during optimization and determines the degree of smoothness: For $\zeta_k \to 0$, all variance of $\vec{Z}^{(g)}_{:, k}$ is explained by the Gaussian process, while for $\zeta_k \to 0$, all variance is explained by random noise.
 
-  MOFA-FLEX offers a choice between two kernel functions $\widetilde{\kappa}$: The squared exponential or RBF kernel $\widetilde{\kappa}_k(\vec{c}_n^g, \vec{c}_{n'}^{g'}) = \exp(-\frac{1}{2}d_k)$ and the Matérn kernel $\widetilde{\kappa_k}(\vec{c}_n^g, \vec{c}_{n'}^{g'}) = \frac{2^{1-\nu}}{\Gamma(\nu)} \left( \sqrt{2 \nu}d_k \right)^{\nu} K_{\nu} \left( \sqrt{2 \nu}d_k \right)$ where $K_\nu$ is the modified Bessel function and $\nu \in \{0.5, 1.5, 2.5\}$ is a user-defined hyperparameter. $d = \frac{\norm{\vec{c}_n^g - \vec{c}_{n'}^{g'}}_2^2}{l_k^2}$ is the scaled distance, with $l_k$ a free parameter estimated during optimization.
+  MOFA-FLEX offers a choice between two kernel functions $\widetilde{\kappa}$: The squared exponential or RBF kernel $\widetilde{\kappa}_k(\vec{c}*n^g, \vec{c}*{n'}^{g'}) = \exp(-\frac{1}{2}d_k)$ and the Matérn kernel $\widetilde{\kappa_k}(\vec{c}*n^g, \vec{c}*{n'}^{g'}) = \frac{2^{1-\nu}}{\Gamma(\nu)} \left( \sqrt{2 \nu}d_k \right)^{\nu} K_{\nu} \left( \sqrt{2 \nu}d_k \right)$ where $K_\nu$ is the modified Bessel function and $\nu \in \{0.5, 1.5, 2.5\}$ is a user-defined hyperparameter. $d = \frac{\norm{\vec{c}_n^g - \vec{c}_{n'}^{g'}}_2^2}{l_k^2}$ is the scaled distance, with $l_k$ a free parameter estimated during optimization.
   MOFA-FLEX with the RBF kernel corresponds to the formulation of MEFISTO{cite:p}`pmid35027765` and with the Matérn kernel to nonnegative spatial factorization{cite:p}`pmid36587187`.
 
   For 1-dimensional covariates, which often represent time, MOFA-FLEX supports dynamic time warping to align multiple potentially mismatched timeseries.
@@ -152,10 +152,10 @@ SOFA{cite:p}`pmid42624833` pioneered the coupling of individual factors to exter
 
 Given the factor scores $Z_{n,k}$ of a single factor $k$ and observation $n$, the linear predictor $\nu_n$ for a given covariate is given by
 \begin{align*}
-    \nu_n = w_0 + w_1 Z_{n,k},
+\nu_n = w_0 + w_1 Z_{n,k},
 \end{align*}
 where $w_0$ is an intercept and $w_1$ is a regression coefficient. $w_0$ and $w_1$ are Bayesian latent variables with standard Normal prior distributions:
 \begin{align*}
-    w_i \sim \Normal{0}{1} \quad i \in [0, 1].
+w_i \sim \Normal{0}{1} \quad i \in [0, 1].
 \end{align*}
 The covariate is then modeled using Normal, Bernoulli or Categorical distributions with the linear predictor $\nu_n$ (and an additional scale parameter in the Normal distribution.)

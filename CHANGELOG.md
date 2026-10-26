@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning][].
 ## [0.2.0] (Unreleased)
 
 ### Added
+
 - Support for multiple additive terms.
 - Constant pseudo-prior. When used for weights, this can be used to project new data into an already existing latent space.
 - GSFA prior for analysis of CRISPR perturbation screens.
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning][].
 - It is now possible to disable ELBO scaling.
 
 ### Changed
+
 - The `show_featurenames` argument to `pl.factor` is now called `show_samplenames` to better reflect what it actually does.
 - The API has received an overhaul. Make sure to re-familiarize yourself with the tutorials.
 - R2 estimation for non-Gaussian likelihoods should be more robust.
@@ -33,15 +35,18 @@ and this project adheres to [Semantic Versioning][].
   rather than the overall variance, so restricting `views` reorders the plot accordingly.
 
 ### Fixed
+
 - `MOFAFLEX.load` without an explicit `map_location` now uses the device the model was trained on (stored in the
   file), so methods that need it (e.g. `pl.factor_significance`/PCGSE, GP priors) work on reloaded models.
 
 ### Removed
+
 - The MOFA compatibility mode for saving a trained model.
 
 ## [0.1.2]
 
 ### Fixed
+
 - Using a MuData `.obs` column as a guiding variable now works.
 - When using guiding variables together with annotations, the data frame returned by `get_annotations` now has a correct row index.
 - Compatibility with Pandas 3.
@@ -50,18 +55,22 @@ and this project adheres to [Semantic Versioning][].
 ## [0.1.1]
 
 ### Added
+
 - `tl.factor_correlation` to calculate the correlation between factors.
 
 ### Fixed
+
 - Gaussian processes with dynamic time warping and a custom reference group now actually
   use the the set reference group instead of the first warped group as reference.
 - The PCGSE test now also works if only a single annotated factor is present.
 
 ### Changed
+
 - `pl.factor` now also accepts factor names for the `factor` argument.
 - `FeatureSets.filter` now has better defaults (based on extensive benchmarking).
 
 ### Deprecated
+
 - The MOFA compatibility mode for saving a trained model.
 
 ## [0.1.0]
