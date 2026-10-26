@@ -16,6 +16,7 @@
 ```
 
 ### Terms
+
 ```{eval-rst}
 .. autosummary::
     :toctree: generated
@@ -25,6 +26,7 @@
 ```
 
 ### Priors
+
 ```{eval-rst}
 .. autosummary::
     :toctree: generated
@@ -34,6 +36,7 @@
 ```
 
 ### Likelihoods
+
 ```{eval-rst}
 .. autosummary::
     :toctree: generated
