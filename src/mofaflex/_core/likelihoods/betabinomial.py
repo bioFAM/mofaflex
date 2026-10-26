@@ -75,10 +75,26 @@ class BetaBinomial(Likelihood):
         if issparse(valid):
             valid = valid.data
         xp = array_namespace(valid)
+        valid = valid[~xp.isnan(valid)]
         if not xp.all(valid):
             return (
                 f"Some values in the 'sample' layer are greater than values in the 'total' layer in view {view_name}."
             )
+
+        if issparse(sample):
+            sample = sample.data
+        xp = array_namespace(sample)
+        sample = sample[~xp.isnan(sample)]
+        if not xp.allclose(sample, xp.round(sample)) or sample.min() < 0:
+            return f"The {cls.__name__} likelihood in view {view_name} must be used with count (non-negative integer) data (got non-count data for the 'sample' layer)."
+
+        if issparse(total):
+            total = total.data
+        xp = array_namespace(total)
+        total = total[~xp.isnan(total)]
+        if not xp.allclose(total, xp.round(total)) or total.min() < 0:
+            return f"The {cls.__name__} likelihood in view {view_name} must be used with count (non-negative integer) data (got non-count data for the 'total' layer)."
+
         return None
 
     def _logpmf(
