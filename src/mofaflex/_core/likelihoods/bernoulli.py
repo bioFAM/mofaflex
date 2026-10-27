@@ -78,7 +78,6 @@ class Bernoulli(Likelihood):
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
         y_true = y_true[None]
-        y_pred = self.transform_prediction(y_pred, group_name, sample_idx, feature_idx)
         ss_res = np.nansum(self._dV_square(y_true, y_pred, -1, 1))
         ss_tot = np.nansum(self._dV_square(y_true, expit(self._shift[group_name][feature_idx]), -1, 1))
         return R2(ss_res, ss_tot)

@@ -109,7 +109,7 @@ class _TestLikelihood:
                     if nonnegative[view_name]:
                         res = likelihood._deviance_explained_impl(view, null, group_name)
                     else:
-                        res = likelihood._r2_impl(view, null, group_name)
+                        res = likelihood._r2_impl(view, likelihood.transform_prediction(null, group_name), group_name)
                     if isinstance(res, LogLikelihoods):
                         res = R2(res.saturated - res.model, res.saturated - res.null)
 

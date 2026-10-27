@@ -23,9 +23,7 @@ _logger = logging.getLogger(__name__)
 class BetaBinomial(Likelihood):
     r"""Beta-binomial likelihood.
 
-    Requires the data to have layers named "sample" and "total". This likelhood does not support the R\ :sup:`2`
-    approximation from :cite:p:`10.2307/45118439`, instead the fraction of deviance explained :cite:p:`hastie2015`
-    is used.
+    Requires the data to have layers named "sample" and "total".
     """
 
     _priority = 10
@@ -111,7 +109,7 @@ class BetaBinomial(Likelihood):
             b=dispersion * (1 - mean) + settings.eps,
         )
 
-    def _deviance_explained_impl(
+    def _r2_impl(
         self,
         y_true: Mapping[str | None, Matrix[np.number]],
         y_pred: Matrix[np.floating],
@@ -119,6 +117,23 @@ class BetaBinomial(Likelihood):
         sample_idx: Vector[int] | slice = slice(None),
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
+        dispersion = self._dispersion.mean[feature_idx]
+
+        nu1 = (1 - y_pred) * (dispersion + y_true["total"]) / (dispersion + 1)
+        ss_res = np.nansum(self._dV(y_true["sample"], y_pred * y_true["total"], nu1))
+        ss_tot = np.nansum(
+            self._dV(y_true["sample"], expit(self._shift[group_name][feature_idx]) * y_true["total"], nu1)
+        )
+        return R2(ss_res, ss_tot)
+
+    def _deviance_explained_impl(
+        self,
+        y_true: Mapping[str | None, Matrix[np.number]],
+        y_pred: Matrix[np.floating],
+        group_name: str,
+        sample_idx: Vector[int] | slice = slice(None),
+        feature_idx: Vector[int] | slice = slice(None),
+    ) -> LogLikelihoods:
         # use the estimated dispersion for all three models, otherwise the log-likelihoods are not comparable
         loglik_saturated = np.nansum(
             self._logpmf(
@@ -131,8 +146,6 @@ class BetaBinomial(Likelihood):
         )
 
         return LogLikelihoods(loglik_saturated, loglik_null, loglik_model)
-
-    _r2_impl = _deviance_explained_impl
 
     def transform_prediction(
         self,

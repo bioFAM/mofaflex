@@ -92,7 +92,6 @@ class NegativeBinomial(Likelihood):
         feature_idx: Vector[int] | slice = slice(None),
     ) -> R2:
         y_true = y_true[None]
-        y_pred = (self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),)
         dispersion = self._dispersion.mean[feature_idx]
         ss_res = np.nansum(self._dV_square(y_true, y_pred, dispersion, 1))
 

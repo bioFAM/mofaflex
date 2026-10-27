@@ -171,6 +171,10 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
         sVa = np.sqrt(1 + dVa**2)
         return 1 / (16 * nu2**2) * (np.log((dVb + sVb) / (dVa + sVa)) + dVb * sVb - dVa * sVa) ** 2
 
+    @classmethod
+    def _dV(cls, a: np.ndarray[tuple[Any, ...], np.floating], b: np.ndarray[tuple[Any, ...], np.floating], nu1: float):
+        return (1 + nu1**2) * (b - a) ** 2
+
     @abstractmethod
     def _r2_impl(
         self,
@@ -278,7 +282,13 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
             The fraction of explained variance, or NaN if it is undefined, e.g. if the null model has zero deviance.
         """
         if not self._nonnegative:
-            r2 = self._r2_impl(y_true, y_pred, group_name, sample_idx, feature_idx)
+            r2 = self._r2_impl(
+                y_true,
+                self.transform_prediction(y_pred, group_name, sample_idx, feature_idx),
+                group_name,
+                sample_idx,
+                feature_idx,
+            )
         else:
             r2 = self._deviance_explained_impl(y_true, y_pred, group_name, sample_idx, feature_idx)
         if isinstance(r2, LogLikelihoods):
