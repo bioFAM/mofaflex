@@ -65,8 +65,6 @@ class MofaFlex(Term):
         guiding_vars_likelihoods: Likelihood for each guiding variable (if dict) or for all guiding variables (if str).
         guiding_vars_scales: Scale for the likelihood of each guiding variable, to put more or less emphasis on them during training.
         init_factors: Initialization method for factors.
-        init_factors_layer: The layer for each view to use for initialzing factors when `init_factors` is `"pca"` or `"nmf"`.
-            Must be one of the layers used by the respective view's likelihood.
         init_scale: Initialization scale of Normal distribution for factors.
     """
 
