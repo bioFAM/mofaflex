@@ -56,7 +56,7 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
         self._nonnegative = nonnegative
         self._feature_names = data.feature_names[view_name]
 
-    def get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int):
+    def get_pyro_likelihood(self, data: MofaFlexDataset, sample_dim: int, feature_dim: int) -> PyroLikelihood:
         """Set up a Pyro likelihood object.
 
         Subclasses must not reimpllement this method, but `_get_pyro_likelihood`.
