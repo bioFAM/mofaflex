@@ -70,8 +70,15 @@ def pytest_pycollect_makeitem(collector, name, obj):
                     cfunc = plotnine_test(i, baseline_image)(obj)
 
                     for item in collector.ihook.pytest_pycollect_makeitem(collector=collector, name=name, obj=cfunc):
-                        item.name += f"[{baseline_image}]"
-                        item._nodeid += f"[{baseline_image}]"
+                        try:  # pytest < 9.2
+                            item._nodeid += f"[{baseline_image}]"
+                            item.name += f"[{baseline_image}]"
+                        except AttributeError:  # pytest 9.2
+                            nodeid = item.id
+                            names = list(nodeid.names)
+                            names[-1] += f"[{baseline_image}]"
+                            item._id = type(nodeid)(path=nodeid.path, names=tuple(names), params=nodeid.params)
+                            item.name = "::".join(item.id.names) + f"[{item.id.params}]"
                         item.obj = cfunc
                         item.own_markers = cfunc.pytestmark
                         items.append(item)
