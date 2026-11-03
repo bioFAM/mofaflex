@@ -71,7 +71,11 @@ class Likelihood(DynamicAPIMixin, SaveStateMixin, ABC):
         self._pyro_likelihood = self._get_pyro_likelihood(data, sample_dim, feature_dim)
         return self._pyro_likelihood
 
-    def _impute_feature_summary_statistics(self, stats: Mapping[str, Vector[np.number]], missing_values=np.nan):
+    def _impute_feature_summary_statistics(
+        self, stats: Mapping[str, Vector[np.number]], missing_values=np.nan
+    ) -> Mapping[str, Vector[np.number]]:
+        if len(stats) == 1 or not any(np.isnan(stat).any() for stat in stats.values()):
+            return stats
         imputer = IterativeImputer(estimator=BayesianRidge(), missing_values=missing_values, initial_strategy="mean")
         imputed = imputer.fit_transform(np.stack(tuple(stats.values()), axis=0))
         return dict(zip(stats.keys(), np.unstack(imputed, axis=0), strict=True))
