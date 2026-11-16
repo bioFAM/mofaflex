@@ -35,7 +35,7 @@ dependencies = [
   "mizani",
   "mudata>=0.3.2",
   "numpy>=2",
-  "packaging",
+  "packaging>=26",
   "pandas>=2.2",
   "platformdirs",
   "plotnine",
