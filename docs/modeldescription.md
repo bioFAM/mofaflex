@@ -1,4 +1,5 @@
 (modeldescription)=
+
 # The MOFA-FLEX model
 
 MOFA-FLEX aims to be a general framework for factor analysis of multi-omics data.

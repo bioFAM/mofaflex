@@ -10,7 +10,6 @@
 [badge-codecov]: https://codecov.io/gh/bioFAM/mofaflex/graph/badge.svg?token=IJP1IA4JEU
 [badge-docs]: https://app.readthedocs.org/projects/mofaflex/badge/?version=latest
 
-
 ![graphical abstract](https://raw.githubusercontent.com/bioFAM/mofaflex/main/docs/_static/img/mofaflex_schematic.svg)
 
 MOFA-FLEX is a versatile factor analysis framework designed to streamline the construction and training of complex matrix factorisation models for omics data.
@@ -59,6 +58,7 @@ This is an approved [de.NBI](https://www.denbi.de/) service. Please help us impr
 ## Citation
 
 If you use MOFA-FLEX in your work, please cite
+
 > Qoku A, Rohbeck M, Walter FC, Kats I, Stegle O, and Buettner F.  MOFA-FLEX: A Factor Model Framework for Integrating Omics Data with Prior Knowledge. Preprint at [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.11.03.686250) (2025). DOI: [10.1101/2025.11.03.686250](https://doi.org/10.1101/2025.11.03.686250).
 
 <details><summary>BibTeX</summary>
